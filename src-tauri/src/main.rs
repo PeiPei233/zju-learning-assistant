@@ -203,7 +203,7 @@ async fn get_uploads_list(
             let reference_id = upload["reference_id"].as_i64().unwrap();
             let file_name = upload["name"].as_str().unwrap().to_string();
             // let path = format!("download/{}/activities", course_name);
-            let path = format!("../../download/{}", course_name);
+            let path = format!("download/{}", course_name);
             all_uploads.push(Uploads {
                 reference_id,
                 file_name,

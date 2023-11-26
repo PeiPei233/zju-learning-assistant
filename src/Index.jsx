@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Form, Input, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip, Typography, FloatButton } from 'antd';
+import { Form, Input, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip, Typography, FloatButton, ConfigProvider, theme } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
 import { invoke } from '@tauri-apps/api'
 import { UserOutlined, LockOutlined, ReloadOutlined, DownloadOutlined, CloseCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/api/shell'
+import { useMediaQuery } from 'react-responsive'
 
 const { Text } = Typography
 
@@ -498,9 +500,17 @@ function Home({ setIsLogin }) {
 function Index() {
 
   const [isLogin, setIsLogin] = useState(false)
+  const isDarkMode = useMediaQuery({
+    query: '(prefers-color-scheme: dark)'
+  })
 
   return (
-    <div>
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
+      }}
+    >
       {isLogin ? <Home setIsLogin={setIsLogin} /> : <Login setIsLogin={setIsLogin} />}
       <FloatButton
         icon={<QuestionCircleOutlined />}
@@ -513,7 +523,7 @@ function Index() {
         type='primary'
       />
           
-    </div>
+    </ConfigProvider>
   )
 }
 
