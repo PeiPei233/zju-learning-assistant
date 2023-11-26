@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { Form, Input, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip, Typography, FloatButton, ConfigProvider, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { invoke } from '@tauri-apps/api'
-import { UserOutlined, LockOutlined, ReloadOutlined, DownloadOutlined, CloseCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, ReloadOutlined, DownloadOutlined, CloseCircleOutlined, QuestionCircleOutlined, EditOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event'
-import { open } from '@tauri-apps/api/shell'
+import { dialog, shell } from '@tauri-apps/api';
 import { useMediaQuery } from 'react-responsive'
 
 const { Text } = Typography
@@ -122,23 +122,13 @@ function Home({ setIsLogin }) {
   const [uploadList, setUploadList] = useState([])
   const [selectedUploadKeys, setSelectedUploadKeys] = useState([])
   const [downloading, setDownloading] = useState(false)
+  const [updatingPath, setUpdatingPath] = useState(false)
 
   const courseColumns = [
     {
       title: '课程名称',
       dataIndex: 'name',
     },
-  ]
-
-  const uploadColumns = [
-    {
-      title: '文件名',
-      dataIndex: 'file_name',
-    },
-    {
-      title: '保存路径',
-      dataIndex: 'path',
-    }
   ]
 
   useEffect(() => {
@@ -217,7 +207,6 @@ function Home({ setIsLogin }) {
     if (uploads.length === 0) {
       notification.error({
         message: '请选择课件',
-        description: '请选择课件'
       })
       return
     }
@@ -227,7 +216,6 @@ function Home({ setIsLogin }) {
       if (res.length === selectedUploadKeys.length) {
         notification.success({
           message: '下载完成',
-          description: '下载完成'
         })
       }
       let haveDownloaded = res.map((item) => item.reference_id)
@@ -291,7 +279,6 @@ function Home({ setIsLogin }) {
     if (courses.length === 0) {
       notification.error({
         message: '请选择课程',
-        description: '请选择课程'
       })
       return
     }
@@ -321,6 +308,69 @@ function Home({ setIsLogin }) {
       })
     })
   }
+
+  const updatePath = () => {
+    if (uploadList.length === 0) {
+      notification.error({
+        message: '请先获取课件列表',
+      })
+      return
+    }
+    dialog.open({
+      directory: true,
+      multiple: false,
+      message: '选择下载路径'
+    }).then((res) => {
+      if (res && res.length !== 0) {
+        setUpdatingPath(true)
+        invoke('update_path', { path: res, uploads: uploadList }).then((res) => {
+          console.log(res)
+          notification.success({
+            message: '下载路径修改成功',
+          })
+          setUploadList(res)
+        }).catch((err) => {
+          notification.error({
+            message: '下载路径修改失败',
+            description: err
+          })
+        }).finally(() => {
+          setUpdatingPath(false)
+        })
+      }
+    }).catch((err) => {
+      notification.error({
+        message: '下载路径修改失败',
+        description: err
+      })
+    })
+  }
+
+  const uploadColumns = [
+    {
+      title: '文件名',
+      dataIndex: 'file_name',
+    },
+    {
+      title: () => (
+        <div>
+          下载路径
+          <Tooltip title='修改下载路径'>
+            <Button
+              type='text'
+              size='small'
+              icon={<EditOutlined />}
+              onClick={updatePath}
+              style={{
+                float: 'right',
+              }}
+            />
+          </Tooltip>
+        </div>
+      ),
+      dataIndex: 'path',
+    }
+  ]
 
   return (
     <div style={{
@@ -360,7 +410,7 @@ function Home({ setIsLogin }) {
             justify="space-between"
             align="middle"
           >
-            <Col xs={24} md={10}>
+            <Col xs={9} md={10}>
               <Form.Item label='学年' name='academicYear'>
                 <Select
                   allowClear
@@ -380,7 +430,7 @@ function Home({ setIsLogin }) {
                 />
               </Form.Item>
             </Col>
-            <Col xs={24} md={10}>
+            <Col xs={9} md={10}>
               <Form.Item label='学期' name='semester'>
                 <Select
                   allowClear
@@ -404,28 +454,15 @@ function Home({ setIsLogin }) {
                 />
               </Form.Item>
             </Col>
-            <Col xs={12} md={2}>
+            <Col xs={6} md={4}>
               <Form.Item>
-                <Tooltip title='刷新课件列表'>
-                  <Button
-                    icon={<ReloadOutlined />}
-                    onClick={updateUploadList}
-                    disabled={downloading}
-                  />
-                </Tooltip>
-              </Form.Item>
-            </Col>
-            <Col xs={12} md={2}>
-              <Form.Item>
-                <Tooltip title={
-                  downloading ? '取消下载' : '下载所有选中的课件'
-                }>
-                  <Button
-                    type='primary'
-                    icon={downloading ? <CloseCircleOutlined /> : <DownloadOutlined />}
-                    onClick={downloading ? cancelDownload : onFinish}
-                  />
-                </Tooltip>
+                <Button
+                  type='primary'
+                  icon={downloading ? <CloseCircleOutlined /> : <DownloadOutlined />}
+                  onClick={downloading ? cancelDownload : onFinish}
+                >{
+                    downloading ? '取消下载' : '下载课件'
+                }</Button>
               </Form.Item>
             </Col>
           </Row>
@@ -437,7 +474,7 @@ function Home({ setIsLogin }) {
         }}
         gutter={20}
       >
-        <Col xs={24} md={10}>
+        <Col span={10}>
           <Table
             rowSelection={{
               selectedRowKeys: selectedCourseKeys,
@@ -447,13 +484,13 @@ function Home({ setIsLogin }) {
             dataSource={selectedCourses}
             loading={loadingCourseList}
             pagination={false}
-            scroll={{ y: 'calc(100vh - 350px)' }}
+            scroll={{ y: 'calc(100vh - 340px)' }}
             size='small'
             bordered
             title={() => `课程列表：已选择 ${selectedCourseKeys.length} 门课程`}
           />
         </Col>
-        <Col xs={24} md={14}>
+        <Col span={14}>
           <Table
             rowSelection={{
               selectedRowKeys: selectedUploadKeys,
@@ -462,7 +499,7 @@ function Home({ setIsLogin }) {
             rowKey='reference_id'
             columns={uploadColumns}
             dataSource={uploadList}
-            loading={loadingUploadList || downloading}
+            loading={loadingUploadList || downloading || updatingPath}
             pagination={false}
             scroll={{ y: 'calc(100vh - 350px)' }}
             size='small'
@@ -471,11 +508,20 @@ function Home({ setIsLogin }) {
               return (
                 <>
                   {uploadList && uploadList.length !== 0 && `课件列表：已选择 ${selectedUploadKeys.length} 个文件`}
-                  {(!uploadList || uploadList.length === 0) && 
-                    <div>
-                      暂未获取课件列表 <a onClick={updateUploadList}>点此刷新</a>
-                    </div>
-                  }
+                  {(!uploadList || uploadList.length === 0) && '课件列表为空  点击右侧刷新👉'}
+                  <Tooltip title='刷新课件列表'>
+                    <Button
+                      type='text'
+                      size='small'
+                      icon={<ReloadOutlined />}
+                      onClick={updateUploadList}
+                      style={{
+                        float: 'right',
+                      }}
+                      loading={loadingUploadList}
+                      disabled={downloading}
+                    />
+                  </Tooltip>
                 </>
               )
             }}
@@ -515,7 +561,7 @@ function Index() {
       <FloatButton
         icon={<QuestionCircleOutlined />}
         onClick={() => {
-          open('https://github.com/PeiPei233/zju-learning-assistant').catch((err) => {
+          shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch((err) => {
             console.log(err)
           })
         }}

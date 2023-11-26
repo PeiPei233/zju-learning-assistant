@@ -3,9 +3,12 @@
 
 mod zju_assist;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::{
+    path::Path,
+    sync::{atomic::AtomicBool, Arc},
+};
 use tauri::{Manager, State, Window};
 use tokio::sync::Mutex;
 use zju_assist::ZjuAssist;
@@ -127,14 +130,19 @@ struct Progress {
 async fn download_courses_upload(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     window: Window,
-    courses: Value
+    courses: Value,
 ) -> Result<(), String> {
     let zju_assist = state.lock().await;
     let mut all_uploads = Vec::new();
-    window.emit("download-progress", Progress {
-        progress: 0.0,
-        status: "正在获取文件列表".to_string(),
-    }).unwrap();
+    window
+        .emit(
+            "download-progress",
+            Progress {
+                progress: 0.0,
+                status: "正在获取文件列表".to_string(),
+            },
+        )
+        .unwrap();
     for course in courses.as_array().unwrap() {
         let course_id = course["id"].as_i64().unwrap();
         let course_name = course["name"].as_str().unwrap().replace("/", "-");
@@ -169,19 +177,29 @@ async fn download_courses_upload(
         // }
     }
     for (i, upload) in all_uploads.iter().enumerate() {
-        window.emit("download-progress", Progress {
-            progress: i as f64 / all_uploads.len() as f64,
-            status: format!("正在下载文件 {} ...", upload.file_name),
-        }).unwrap();
+        window
+            .emit(
+                "download-progress",
+                Progress {
+                    progress: i as f64 / all_uploads.len() as f64,
+                    status: format!("正在下载文件 {} ...", upload.file_name),
+                },
+            )
+            .unwrap();
         zju_assist
             .download_file(upload.reference_id, &upload.file_name, &upload.path)
             .await
             .map_err(|err| err.to_string())?;
     }
-    window.emit("download-progress", Progress {
-        progress: 1.0,
-        status: "下载完成".to_string(),
-    }).unwrap();
+    window
+        .emit(
+            "download-progress",
+            Progress {
+                progress: 1.0,
+                status: "下载完成".to_string(),
+            },
+        )
+        .unwrap();
     Ok(())
 }
 
@@ -202,28 +220,18 @@ async fn get_uploads_list(
         for upload in activities_uploads {
             let reference_id = upload["reference_id"].as_i64().unwrap();
             let file_name = upload["name"].as_str().unwrap().to_string();
-            // let path = format!("download/{}/activities", course_name);
-            let path = format!("download/{}", course_name);
+            // let path = format!("download/{}", course_name);
+            let path = Path::new("download")
+                .join(&course_name)
+                .to_str()
+                .unwrap()
+                .to_string();
             all_uploads.push(Uploads {
                 reference_id,
                 file_name,
                 path,
             });
         }
-        // let homework_uploads = zju_assist
-        //     .get_homework_uploads(course_id)
-        //     .await
-        //     .map_err(|err| err.to_string())?;
-        // for upload in homework_uploads {
-        //     let reference_id = upload["reference_id"].as_i64().unwrap();
-        //     let file_name = upload["name"].as_str().unwrap().to_string();
-        //     let path = format!("download/{}/homework", course_name);
-        //     all_uploads.push(Uploads {
-        //         reference_id,
-        //         file_name,
-        //         path,
-        //     });
-        // }
     }
     Ok(all_uploads)
 }
@@ -237,27 +245,47 @@ async fn download_uploads(
 ) -> Result<Vec<Uploads>, String> {
     let zju_assist = state.lock().await;
     for (i, upload) in uploads.iter().enumerate() {
-        if download_state.should_cancel.load(std::sync::atomic::Ordering::SeqCst) {
-            download_state.should_cancel.store(false, std::sync::atomic::Ordering::SeqCst);
-            window.emit("download-progress", Progress {
-                progress: i as f64 / uploads.len() as f64,
-                status: "下载已取消".to_string(),
-            }).unwrap();
+        if download_state
+            .should_cancel
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            download_state
+                .should_cancel
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        progress: i as f64 / uploads.len() as f64,
+                        status: "下载已取消".to_string(),
+                    },
+                )
+                .unwrap();
             return Ok(uploads[0..i].to_vec());
         }
-        window.emit("download-progress", Progress {
-            progress: i as f64 / uploads.len() as f64,
-            status: format!("正在下载文件 {} ...", upload.file_name),
-        }).unwrap();
+        window
+            .emit(
+                "download-progress",
+                Progress {
+                    progress: i as f64 / uploads.len() as f64,
+                    status: format!("正在下载文件 {} ...", upload.file_name),
+                },
+            )
+            .unwrap();
         zju_assist
             .download_file(upload.reference_id, &upload.file_name, &upload.path)
             .await
             .map_err(|err| err.to_string())?;
     }
-    window.emit("download-progress", Progress {
-        progress: 1.0,
-        status: "下载完成".to_string(),
-    }).unwrap();
+    window
+        .emit(
+            "download-progress",
+            Progress {
+                progress: 1.0,
+                status: "下载完成".to_string(),
+            },
+        )
+        .unwrap();
     Ok(uploads)
 }
 
@@ -266,6 +294,30 @@ fn cancel_download(state: State<'_, DownloadState>) -> Result<(), String> {
     let should_cancel = state.should_cancel.clone();
     should_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     Ok(())
+}
+
+#[tauri::command]
+fn update_path(path: String, uploads: Vec<Uploads>) -> Result<Vec<Uploads>, String> {
+    let mut new_uploads = Vec::new();
+    for upload in uploads {
+        let new_path = Path::new(&path)
+            .join(
+                Path::new(&upload.path)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_str()
+                    .unwrap(),
+            )
+            .to_str()
+            .unwrap()
+            .to_string();
+        new_uploads.push(Uploads {
+            reference_id: upload.reference_id,
+            file_name: upload.file_name,
+            path: new_path,
+        });
+    }
+    Ok(new_uploads)
 }
 
 fn main() {
@@ -293,6 +345,7 @@ fn main() {
             get_uploads_list,
             download_uploads,
             cancel_download,
+            update_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
