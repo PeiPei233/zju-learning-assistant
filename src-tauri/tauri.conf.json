@@ -14,6 +14,9 @@
       "all": false,
       "shell": {
         "open": true
+      },
+      "dialog": {
+        "open": true
       }
     },
     "bundle": {
@@ -61,7 +64,9 @@
         "height": 600,
         "resizable": true,
         "title": "zju-learning-assistant",
-        "width": 800
+        "width": 800,
+        "minWidth": 576,
+        "minHeight": 400
       }
     ]
   }
