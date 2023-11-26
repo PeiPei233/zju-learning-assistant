@@ -5,7 +5,9 @@ import { App, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <ConfigProvider locale={zhCN}>
+  <ConfigProvider
+    locale={zhCN}
+  >
     <App>
       <Index />
     </App>

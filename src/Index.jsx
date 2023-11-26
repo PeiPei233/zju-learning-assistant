@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Form, Input, Button, Card, App, Row, Col, Select, Table, Progress } from 'antd';
+import { Form, Input, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip, Typography, FloatButton } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, ReloadOutlined, DownloadOutlined, CloseCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event'
+import { open } from '@tauri-apps/api/shell'
+
+const { Text } = Typography
 
 function Login({ setIsLogin }) {
 
@@ -22,11 +25,9 @@ function Login({ setIsLogin }) {
   })
 
   const onFinish = async (values) => {
-    console.log('Received values of form: ', values.username);
     setLoading(true)
     invoke('login', { username: values.username, password: values.password })
       .then((res) => {
-        console.log(res)
         setIsLogin(true)
       }).catch((err) => {
         notification.error({
@@ -43,12 +44,13 @@ function Login({ setIsLogin }) {
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
-      height: '80vh',
+      height: '90vh',
       flexDirection: 'column'
     }}>
       <h1>浙江大学统一身份认证登录</h1>
       <Card style={{
-        width: 300
+        width: 300,
+        marginTop: 20
       }}>
         <Form
           name="normal_login"
@@ -88,6 +90,10 @@ function Login({ setIsLogin }) {
           </Form.Item>
         </Form>
       </Card>
+      <Text type='secondary' style={{
+        marginTop: 20
+      }}>Made by PeiPei</Text>
+      <Text type='secondary'>此软件仅供学习交流使用，严禁用于商业用途</Text>
     </div>
   )
 }
@@ -110,12 +116,27 @@ function Home({ setIsLogin }) {
     progress: 0,
     status: ''
   })
+  const [loadingUploadList, setLoadingUploadList] = useState(false)
+  const [uploadList, setUploadList] = useState([])
+  const [selectedUploadKeys, setSelectedUploadKeys] = useState([])
+  const [downloading, setDownloading] = useState(false)
 
   const courseColumns = [
     {
       title: '课程名称',
       dataIndex: 'name',
     },
+  ]
+
+  const uploadColumns = [
+    {
+      title: '文件名',
+      dataIndex: 'file_name',
+    },
+    {
+      title: '保存路径',
+      dataIndex: 'path',
+    }
   ]
 
   useEffect(() => {
@@ -129,7 +150,7 @@ function Home({ setIsLogin }) {
 
     setLoadingSemesterList(true)
     invoke('get_semester_list').then((res) => {
-      console.log(res)
+      // console.log(res)
       res.sort((a, b) => {
         return b.sort - a.sort
       })
@@ -145,7 +166,7 @@ function Home({ setIsLogin }) {
 
     setLoadingAcademicYearList(true)
     invoke('get_academic_year_list').then((res) => {
-      console.log(res)
+      // console.log(res)
       res.sort((a, b) => {
         return b.sort - a.sort
       })
@@ -161,7 +182,7 @@ function Home({ setIsLogin }) {
 
     setLoadingCourseList(true)
     invoke('get_courses').then((res) => {
-      console.log(res)
+      // console.log(res)
       setCourseList(res)
       setSelectedCourses(res.map((item) => {
         return {
@@ -178,38 +199,45 @@ function Home({ setIsLogin }) {
       setLoadingCourseList(false)
     })
 
-    const listener = listen('download-progress', (progress) => {
-      console.log(progress)
+    const unlisten = listen('download-progress', (progress) => {
+      // console.log(progress)
       setProgress(progress.payload)
     })
 
     return () => {
-      listener.then((fn) => fn())
+      unlisten.then((fn) => fn())
     }
 
   }, [])
 
   const onFinish = (values) => {
-    let courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
-    console.log(courses)
-    if (courses.length === 0) {
+    let uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id))
+    if (uploads.length === 0) {
       notification.error({
-        message: '请选择课程',
-        description: '请选择课程'
+        message: '请选择课件',
+        description: '请选择课件'
       })
       return
     }
-    invoke('download_courses_upload', { courses }).then((res) => {
-      console.log(res)
-      notification.success({
-        message: '下载成功',
-        description: '下载成功'
-      })
+    setDownloading(true)
+    invoke('download_uploads', { uploads }).then((res) => {
+      // console.log(res)
+      if (res.length === selectedUploadKeys.length) {
+        notification.success({
+          message: '下载完成',
+          description: '下载完成'
+        })
+      }
+      let haveDownloaded = res.map((item) => item.reference_id)
+      setSelectedUploadKeys(selectedUploadKeys.filter((item) => !haveDownloaded.includes(item)))
+      setUploadList(uploadList.filter((item) => !haveDownloaded.includes(item.reference_id)))
     }).catch((err) => {
       notification.error({
         message: '下载失败',
         description: err
       })
+    }).finally(() => {
+      setDownloading(false)
     })
   }
 
@@ -228,7 +256,7 @@ function Home({ setIsLogin }) {
   }
 
   const onAcademicYearChange = (value) => {
-    console.log(`selected academic year ${value}`);
+    // console.log(`selected academic year ${value}`);
     setSelectedAcademicYear(value)
     setSelectedSemester(null)
     updateCourseList(value)
@@ -236,7 +264,7 @@ function Home({ setIsLogin }) {
   };
 
   const onSemesterChange = (value) => {
-    console.log(`selected semester ${value}`);
+    // console.log(`selected semester ${value}`);
     setSelectedSemester(value)
     updateCourseList(selectedAcademicYear, value)
     setSelectedCourseKeys([])
@@ -246,9 +274,51 @@ function Home({ setIsLogin }) {
     (option?.label ?? '').toLowerCase().includes(input.toLowerCase());
 
   const onSelectChange = (newSelectedRowKeys) => {
-    console.log('selectedRowKeys changed: ', newSelectedRowKeys);
+    // console.log('selectedRowKeys changed: ', newSelectedRowKeys);
     setSelectedCourseKeys(newSelectedRowKeys)
   };
+
+  const onUploadSelectChange = (newSelectedRowKeys) => {
+    // console.log('selectedRowKeys changed: ', newSelectedRowKeys);
+    setSelectedUploadKeys(newSelectedRowKeys)
+  }
+
+  const updateUploadList = () => {
+    let courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
+    // console.log(courses)
+    if (courses.length === 0) {
+      notification.error({
+        message: '请选择课程',
+        description: '请选择课程'
+      })
+      return
+    }
+    setLoadingUploadList(true)
+    invoke('get_uploads_list', { courses }).then((res) => {
+      // console.log(res)
+      setUploadList(res)
+      setSelectedUploadKeys(res.map((item) => item.reference_id))
+    }).catch((err) => {
+      notification.error({
+        message: '获取课件列表失败',
+        description: err
+      })
+    }).finally(() => {
+      setLoadingUploadList(false)
+    })
+  }
+
+  const cancelDownload = () => {
+    invoke('cancel_download').then((res) => {
+      // console.log(res)
+      setDownloading(false)
+    }).catch((err) => {
+      notification.error({
+        message: '取消下载失败',
+        description: err
+      })
+    })
+  }
 
   return (
     <div style={{
@@ -256,7 +326,6 @@ function Home({ setIsLogin }) {
     }}>
       <h1>Home</h1>
       <Button
-        type='primary'
         style={{
           position: 'absolute',
           right: 30,
@@ -272,11 +341,12 @@ function Home({ setIsLogin }) {
             })
           })
         }}
+        disabled={downloading}
       >退出登录</Button>
       <Card
-      style={{
-        height: 80
-      }}
+        style={{
+          height: 80
+        }}
       >
         <Form
           layout='horizontal'
@@ -332,15 +402,28 @@ function Home({ setIsLogin }) {
                 />
               </Form.Item>
             </Col>
-            <Col xs={24} md={4}>
+            <Col xs={12} md={2}>
               <Form.Item>
-                <Button
-                  type='primary'
-                  htmlType='submit'
-                  style={{
-                    width: '100%'
-                  }}
-                >下载所选</Button>
+                <Tooltip title='刷新课件列表'>
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={updateUploadList}
+                    disabled={downloading}
+                  />
+                </Tooltip>
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={2}>
+              <Form.Item>
+                <Tooltip title={
+                  downloading ? '取消下载' : '下载所有选中的课件'
+                }>
+                  <Button
+                    type='primary'
+                    icon={downloading ? <CloseCircleOutlined /> : <DownloadOutlined />}
+                    onClick={downloading ? cancelDownload : onFinish}
+                  />
+                </Tooltip>
               </Form.Item>
             </Col>
           </Row>
@@ -352,7 +435,7 @@ function Home({ setIsLogin }) {
         }}
         gutter={20}
       >
-        <Col xs={24} md={12}>
+        <Col xs={24} md={10}>
           <Table
             rowSelection={{
               selectedRowKeys: selectedCourseKeys,
@@ -362,20 +445,52 @@ function Home({ setIsLogin }) {
             dataSource={selectedCourses}
             loading={loadingCourseList}
             pagination={false}
-            scroll={{ y: 'calc(100vh - 300px)' }}
+            scroll={{ y: 'calc(100vh - 350px)' }}
             size='small'
             bordered
             title={() => `课程列表：已选择 ${selectedCourseKeys.length} 门课程`}
           />
         </Col>
-        <Col xs={24} md={12}>
-          <Card>
-            <h3>下载进度</h3>
-            <Progress percent={Math.round(progress.progress * 100)}/>
-            <p>{progress.status}</p>
-          </Card>
+        <Col xs={24} md={14}>
+          <Table
+            rowSelection={{
+              selectedRowKeys: selectedUploadKeys,
+              onChange: onUploadSelectChange,
+            }}
+            rowKey='reference_id'
+            columns={uploadColumns}
+            dataSource={uploadList}
+            loading={loadingUploadList || downloading}
+            pagination={false}
+            scroll={{ y: 'calc(100vh - 350px)' }}
+            size='small'
+            bordered
+            title={() => {
+              return (
+                <>
+                  {uploadList && uploadList.length !== 0 && `课件列表：已选择 ${selectedUploadKeys.length} 个文件`}
+                  {(!uploadList || uploadList.length === 0) && 
+                    <div>
+                      暂未获取课件列表 <a onClick={updateUploadList}>点此刷新</a>
+                    </div>
+                  }
+                </>
+              )
+            }}
+          />
         </Col>
       </Row>
+      <p style={{
+        position: 'absolute',
+        left: 30,
+        bottom: 30
+      }}>{progress.status === '' ? '下载进度' : progress.status}</p>
+      <Progress percent={Math.round(progress.progress * 100)} style={{
+        position: 'absolute',
+        bottom: 10,
+        left: 20,
+        width: 'calc(100% - 60px)'
+      }}/>
     </div>
   )
 }
@@ -387,6 +502,17 @@ function Index() {
   return (
     <div>
       {isLogin ? <Home setIsLogin={setIsLogin} /> : <Login setIsLogin={setIsLogin} />}
+      <FloatButton
+        icon={<QuestionCircleOutlined />}
+        onClick={() => {
+          open('https://github.com/PeiPei233/zju-learning-assistant').catch((err) => {
+            console.log(err)
+          })
+        }}
+        tooltip='查看帮助'
+        type='primary'
+      />
+          
     </div>
   )
 }
