@@ -1,13 +1,11 @@
 @media (prefers-color-scheme: dark) {
-    h1 {
-        color: white;
-    }
-    
-    html {
-        background-color: black;
-    }
-    
+
+    h1,
     p {
         color: white;
+    }
+
+    html {
+        background-color: black;
     }
 }

@@ -462,7 +462,7 @@ function Home({ setIsLogin }) {
                   onClick={downloading ? cancelDownload : onFinish}
                 >{
                     downloading ? '取消下载' : '下载课件'
-                }</Button>
+                  }</Button>
               </Form.Item>
             </Col>
           </Row>
@@ -538,7 +538,7 @@ function Home({ setIsLogin }) {
         bottom: 10,
         left: 20,
         width: 'calc(100% - 60px)'
-      }}/>
+      }} />
     </div>
   )
 }
@@ -568,7 +568,7 @@ function Index() {
         tooltip='查看帮助'
         type='primary'
       />
-          
+
     </ConfigProvider>
   )
 }
