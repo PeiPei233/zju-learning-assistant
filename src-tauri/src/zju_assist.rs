@@ -1,8 +1,8 @@
 use num_bigint::BigUint;
+use regex::Regex;
 use reqwest::header::{HeaderMap, USER_AGENT};
 use reqwest::Client;
 use serde_json::Value;
-use regex::Regex;
 use std::{fs::File, io::Write, path::Path};
 
 pub struct ZjuAssist {
@@ -13,13 +13,15 @@ pub struct ZjuAssist {
 
 impl ZjuAssist {
     pub fn new() -> Self {
-        let client = Client::builder()
-            .cookie_store(true)
-            .build()
-            .unwrap();
+        let client = Client::builder().cookie_store(true).build().unwrap();
 
         let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0".parse().unwrap());
+        headers.insert(
+            USER_AGENT,
+            "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                .parse()
+                .unwrap(),
+        );
 
         Self {
             client,
@@ -36,26 +38,39 @@ impl ZjuAssist {
 
         let crypt_nr = input_nr.modpow(&e, &m);
 
-        crypt_nr.to_bytes_be().iter().map(|byte| format!("{:02x}", byte)).collect()
+        crypt_nr
+            .to_bytes_be()
+            .iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect()
     }
 
-    pub async fn login(&mut self, username: &str, password: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn login(
+        &mut self,
+        username: &str,
+        password: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if self.have_login {
             return Ok(());
         }
 
-        let res = self.client.get("https://zjuam.zju.edu.cn/cas/login")
+        let res = self
+            .client
+            .get("https://zjuam.zju.edu.cn/cas/login")
             .headers(self.headers.clone())
             .send()
             .await?;
 
         let text = res.text().await?;
         let re = Regex::new(r#"<input type="hidden" name="execution" value="(.*?)" />"#).unwrap();
-        let execution = re.captures(&text)
+        let execution = re
+            .captures(&text)
             .and_then(|cap| cap.get(1).map(|m| m.as_str()))
             .ok_or("Execution value not found")?;
 
-        let res = self.client.get("https://zjuam.zju.edu.cn/cas/v2/getPubKey")
+        let res = self
+            .client
+            .get("https://zjuam.zju.edu.cn/cas/v2/getPubKey")
             .headers(self.headers.clone())
             .send()
             .await?;
@@ -74,7 +89,9 @@ impl ZjuAssist {
             ("geolocation", ""),
         ];
 
-        let res = self.client.post("https://zjuam.zju.edu.cn/cas/login")
+        let res = self
+            .client
+            .post("https://zjuam.zju.edu.cn/cas/login")
             .headers(self.headers.clone())
             .form(&data)
             .send()
@@ -83,7 +100,8 @@ impl ZjuAssist {
         if res.text().await?.contains("统一身份认证平台") {
             Err("Login failed".into())
         } else {
-            self.client.get("https://courses.zju.edu.cn/user/courses")
+            self.client
+                .get("https://courses.zju.edu.cn/user/courses")
                 .headers(self.headers.clone())
                 .send()
                 .await?;
@@ -93,10 +111,7 @@ impl ZjuAssist {
     }
 
     pub fn logout(&mut self) {
-        self.client = Client::builder()
-            .cookie_store(true)
-            .build()
-            .unwrap();
+        self.client = Client::builder().cookie_store(true).build().unwrap();
         self.have_login = false;
     }
 
@@ -130,12 +145,20 @@ impl ZjuAssist {
         Ok(courses)
     }
 
-    pub async fn get_activities_uploads(&self, course_id: i64) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_activities_uploads(
+        &self,
+        course_id: i64,
+    ) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
         if !self.have_login {
             return Err("Not login".into());
         }
         let mut uploads = Vec::new();
-        let res = self.client.get(format!("https://courses.zju.edu.cn/api/courses/{}/activities", course_id))
+        let res = self
+            .client
+            .get(format!(
+                "https://courses.zju.edu.cn/api/courses/{}/activities",
+                course_id
+            ))
             .headers(self.headers.clone())
             .send()
             .await?;
@@ -149,7 +172,10 @@ impl ZjuAssist {
         Ok(uploads)
     }
 
-    pub async fn get_homework_uploads(&self, course_id: i64) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_homework_uploads(
+        &self,
+        course_id: i64,
+    ) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
         if !self.have_login {
             return Err("Not login".into());
         }
@@ -183,24 +209,50 @@ impl ZjuAssist {
         Ok(uploads)
     }
 
-    pub async fn download_file(&self, reference_id: i64, name: &str, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.have_login {
-            return Err("Not login".into());
-        }
-        let res = self.client.get(format!("https://courses.zju.edu.cn/api/uploads/reference/{}/blob", reference_id))
+    pub async fn download_file(
+        &self,
+        reference_id: i64,
+        name: &str,
+        path: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let res = self
+            .client
+            .get(format!(
+                "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
+                reference_id
+            ))
             .headers(self.headers.clone())
             .send()
             .await?;
-        // if path is not exist, create it
+        // if the upload is not allowed to download, then get the preview url
+        let res = match res.status().is_success() {
+            true => res,
+            false => {
+                let res = self.client.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
+                    .headers(self.headers.clone())
+                    .send()
+                    .await?;
+                let json: Value = res.json().await?;
+                let url = json["url"].as_str().unwrap();
+                self.client
+                    .get(url)
+                    .headers(self.headers.clone())
+                    .send()
+                    .await?
+            }
+        };
         std::fs::create_dir_all(Path::new(path))?;
         let mut file = File::create(Path::new(path).join(name))?;
         let content = res.bytes().await?;
         file.write_all(&content)?;
-
         Ok(())
     }
 
-    pub async fn download_uploads(&self, uploads: &[Value], path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn download_uploads(
+        &self,
+        uploads: &[Value],
+        path: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.have_login {
             return Err("Not login".into());
         }
@@ -216,24 +268,37 @@ impl ZjuAssist {
         if !self.have_login {
             return Err("Not login".into());
         }
-        let res = self.client.get("https://courses.zju.edu.cn/api/my-academic-years?fields=id,name,sort,is_active")
+        let res = self
+            .client
+            .get("https://courses.zju.edu.cn/api/my-academic-years?fields=id,name,sort,is_active")
             .headers(self.headers.clone())
             .send()
             .await?;
         let json: Value = res.json().await?;
-        Ok(json["academic_years"].as_array().unwrap().iter().cloned().collect())
+        Ok(json["academic_years"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect())
     }
 
     pub async fn get_semester_list(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
         if !self.have_login {
             return Err("Not login".into());
         }
-        let res = self.client.get("https://courses.zju.edu.cn/api/my-semesters?")
+        let res = self
+            .client
+            .get("https://courses.zju.edu.cn/api/my-semesters?")
             .headers(self.headers.clone())
             .send()
             .await?;
         let json: Value = res.json().await?;
-        Ok(json["semesters"].as_array().unwrap().iter().cloned().collect())
+        Ok(json["semesters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect())
     }
-
 }
