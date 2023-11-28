@@ -24,6 +24,7 @@ rsa = "0.5"
 num-bigint = "0.4"
 num-traits = "0.2"
 tokio = { version = "1", features = ["full"] }
+percent-encoding = "2.1"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
