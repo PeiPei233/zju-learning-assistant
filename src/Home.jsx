@@ -1,9 +1,36 @@
-import { useEffect, useState } from 'react'
-import { Form, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip } from 'antd';
+import { useEffect, useState, useRef } from 'react'
+import { Form, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip, Typography } from 'antd';
 import { invoke } from '@tauri-apps/api'
 import { ReloadOutlined, DownloadOutlined, CloseCircleOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event'
 import { dialog, shell } from '@tauri-apps/api';
+
+const { Text } = Typography
+
+function bytesToSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const size = parseFloat((bytes / Math.pow(k, i)).toFixed(2));
+  return `${size} ${sizes[i]}`;
+}
+
+function formatTime(secs) {
+  const day = Math.floor(secs / 86400)
+  const hour = Math.floor((secs - day * 86400) / 3600)
+  const minute = Math.floor((secs - day * 86400 - hour * 3600) / 60)
+  const second = Math.floor(secs - day * 86400 - hour * 3600 - minute * 60)
+  if (day > 0) {
+    return `${day} 天 ${hour} 小时 ${minute} 分`
+  } else if (hour > 0) {
+    return `${hour} 小时 ${minute} 分`
+  } else if (minute > 0) {
+    return `${minute} 分 ${second} 秒`
+  } else {
+    return `${second} 秒`
+  }
+}
 
 export default function Home({ setIsLogin }) {
   const { message, modal, notification } = App.useApp()
@@ -19,15 +46,28 @@ export default function Home({ setIsLogin }) {
   const [selectedAcademicYear, setSelectedAcademicYear] = useState(null)
   const [selectedSemester, setSelectedSemester] = useState(null)
   const [selectedCourseKeys, setSelectedCourseKeys] = useState([])
-  const [progress, setProgress] = useState({
-    progress: 0,
-    status: ''
-  })
   const [loadingUploadList, setLoadingUploadList] = useState(false)
   const [uploadList, setUploadList] = useState([])
   const [selectedUploadKeys, setSelectedUploadKeys] = useState([])
   const [downloading, setDownloading] = useState(false)
   const [updatingPath, setUpdatingPath] = useState(false)
+  const latestProgress = useRef({
+    status: null,
+    file_name: null,
+    downloaded_size: 0,
+    total_size: 0,
+    current: 0,
+    total: 0
+  })
+  const startTime = useRef(Date.now())
+  const lastDownloadedSize = useRef(0)
+  const startDownloadTime = useRef(0)
+  const [downloadDescription, setDownloadDescription] = useState('下载进度')
+  const [downloadPercent, setDownloadPercent] = useState(0)
+  const [speed, setSpeed] = useState(0)
+  const [timeRemaining, setTimeRemaining] = useState(0)
+  const [downloadedSize, setDownloadedSize] = useState(0)
+  const [totalSize, setTotalSize] = useState(0)
 
   const courseColumns = [
     {
@@ -96,13 +136,39 @@ export default function Home({ setIsLogin }) {
       setLoadingCourseList(false)
     })
 
-    const unlisten = listen('download-progress', (progress) => {
-      // console.log(progress)
-      setProgress(progress.payload)
+    const unlisten = listen('download-progress', (res) => {
+      const progress = res.payload
+      latestProgress.current = progress
+      setTotalSize(progress.total_size)
+      setDownloadDescription(
+        progress.status === 'downloading' ? `正在下载 ${progress.current}/${progress.total} | ${progress.file_name}` :
+          progress.status === 'done' ? '下载完成' :
+            progress.status === 'cancel' ? '下载已取消' : '下载进度'
+      )
     })
+
+    const updateProgress = setInterval(() => {
+      const currentTime = Date.now()
+      const elapsedTime = currentTime - startTime.current
+      if (elapsedTime > 0) {
+        const newSpeed = (latestProgress.current.downloaded_size - lastDownloadedSize.current) / elapsedTime * 1000
+        const totalSpeed = latestProgress.current.downloaded_size / (currentTime - startDownloadTime.current) * 1000
+        const newTimeRemaining = (latestProgress.current.total_size - latestProgress.current.downloaded_size) / totalSpeed
+        const newDownloadPercent = latestProgress.current.downloaded_size / latestProgress.current.total_size * 100
+        if (newSpeed && newSpeed !== NaN) {
+          setSpeed(newSpeed)
+          setTimeRemaining(newTimeRemaining)
+          setDownloadPercent(newDownloadPercent)
+          setDownloadedSize(latestProgress.current.downloaded_size)
+          startTime.current = currentTime
+          lastDownloadedSize.current = latestProgress.current.downloaded_size
+        }
+      }
+    }, 1000);
 
     return () => {
       unlisten.then((fn) => fn())
+      clearInterval(updateProgress)
     }
 
   }, [])
@@ -116,16 +182,38 @@ export default function Home({ setIsLogin }) {
       return
     }
     setDownloading(true)
+    setDownloadedSize(0)
+    setTotalSize(0)
+    startTime.current = Date.now()
+    startDownloadTime.current = Date.now()
+    lastDownloadedSize.current = 0
+    setDownloadPercent(0)
+    setSpeed(0)
+    setTimeRemaining(0)
+    setDownloadDescription('正在下载')
     invoke('download_uploads', { uploads }).then((res) => {
       // console.log(res)
       if (res.length === selectedUploadKeys.length) {
         notification.success({
           message: '下载完成',
         })
+        setDownloadPercent(100)
       }
       let haveDownloaded = res.map((item) => item.reference_id)
       setSelectedUploadKeys(selectedUploadKeys.filter((item) => !haveDownloaded.includes(item)))
       setUploadList(uploadList.filter((item) => !haveDownloaded.includes(item.reference_id)))
+      latestProgress.current = {
+        status: null,
+        file_name: null,
+        downloaded_size: 0,
+        total_size: 0,
+        current: 0,
+        total: 0
+      }
+      lastDownloadedSize.current = 0
+      setSpeed(0)
+      setDownloadedSize(0)
+      setTotalSize(0)
     }).catch((err) => {
       notification.error({
         message: '下载失败',
@@ -459,18 +547,38 @@ export default function Home({ setIsLogin }) {
           />
         </Col>
       </Row>
-      <p style={{
-        position: 'absolute',
-        left: 30,
-        bottom: 25,
-        width: 'calc(100% - 120px)'
-      }}>{progress.status === '' ? '下载进度' : progress.status}</p>
-      <Progress percent={Math.round(progress.progress * 100)} style={{
-        position: 'absolute',
-        bottom: 10,
-        left: 30,
-        width: 'calc(100% - 60px)'
-      }} />
+      <Text
+        ellipsis={{
+          rows: 1,
+          expandable: false,
+        }}
+        style={{
+          position: 'absolute',
+          left: 30,
+          bottom: 40,
+          width: 'calc(50% - 45px)'
+        }}>{downloadDescription}</Text>
+      <Text
+        ellipsis={{
+          rows: 1,
+          expandable: false,
+        }}
+        style={{
+          position: 'absolute',
+          right: 70,
+          bottom: 40,
+          width: 'calc(50% - 55px)',
+          textAlign: 'right'
+        }}>{downloading && totalSize !== 0 && totalSize !== NaN && speed === 0 ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | 0 B/s` :
+          downloading && totalSize !== 0 && totalSize !== NaN ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | ${bytesToSize(speed)}/s 剩余 ${formatTime(timeRemaining)}` : ''}</Text>
+      <Progress percent={downloadPercent}
+        format={(percent) => Math.round(percent) + '%'}
+        style={{
+          position: 'absolute',
+          bottom: 10,
+          left: 30,
+          width: 'calc(100% - 60px)'
+        }} />
     </div>
   )
 }

@@ -10,7 +10,6 @@ use std::{
     path::Path,
     process::Command,
     sync::{atomic::AtomicBool, Arc},
-    time::Instant,
 };
 use tauri::{Manager, State, Window};
 use tokio::io::AsyncWriteExt;
@@ -123,97 +122,17 @@ struct Uploads {
     reference_id: i64,
     file_name: String,
     path: String,
-    size: i64,
+    size: u128,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Default)]
 struct Progress {
-    progress: f64,
     status: String,
-}
-
-#[tauri::command]
-async fn download_courses_upload(
-    state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    download_state: State<'_, DownloadState>,
-    window: Window,
-    courses: Value,
-) -> Result<(), String> {
-    let zju_assist = state.lock().await;
-    let save_path = download_state.save_path.lock().unwrap().clone();
-    let mut all_uploads = Vec::new();
-    window
-        .emit(
-            "download-progress",
-            Progress {
-                progress: 0.0,
-                status: "正在获取文件列表".to_string(),
-            },
-        )
-        .unwrap();
-    for course in courses.as_array().unwrap() {
-        let course_id = course["id"].as_i64().unwrap();
-        let course_name = course["name"].as_str().unwrap().replace("/", "-");
-        let activities_uploads = zju_assist
-            .get_activities_uploads(course_id)
-            .await
-            .map_err(|err| err.to_string())?;
-        for upload in activities_uploads {
-            let reference_id = upload["reference_id"].as_i64().unwrap();
-            let file_name = upload["name"].as_str().unwrap().to_string();
-            let path = Path::new(&save_path)
-                .join(&course_name)
-                .to_str()
-                .unwrap()
-                .to_string();
-            let size = upload["size"].as_i64().unwrap();
-            all_uploads.push(Uploads {
-                reference_id,
-                file_name,
-                path,
-                size,
-            });
-        }
-        // let homework_uploads = zju_assist
-        //     .get_homework_uploads(course_id)
-        //     .await
-        //     .map_err(|err| err.to_string())?;
-        // for upload in homework_uploads {
-        //     let reference_id = upload["reference_id"].as_i64().unwrap();
-        //     let file_name = upload["name"].as_str().unwrap().to_string();
-        //     let path = format!("download/{}/homework", course_name);
-        //     all_uploads.push(Uploads {
-        //         reference_id,
-        //         file_name,
-        //         path,
-        //     });
-        // }
-    }
-    for (i, upload) in all_uploads.iter().enumerate() {
-        window
-            .emit(
-                "download-progress",
-                Progress {
-                    progress: i as f64 / all_uploads.len() as f64,
-                    status: format!("正在下载文件 {} ...", upload.file_name),
-                },
-            )
-            .unwrap();
-        zju_assist
-            .download_file(upload.reference_id, &upload.file_name, &upload.path)
-            .await
-            .map_err(|err| err.to_string())?;
-    }
-    window
-        .emit(
-            "download-progress",
-            Progress {
-                progress: 1.0,
-                status: "下载完成".to_string(),
-            },
-        )
-        .unwrap();
-    Ok(())
+    file_name: Option<String>,
+    downloaded_size: Option<u128>,
+    total_size: Option<u128>,
+    current: Option<u128>,
+    total: Option<u128>,
 }
 
 #[tauri::command]
@@ -240,7 +159,7 @@ async fn get_uploads_list(
                 .to_str()
                 .unwrap()
                 .to_string();
-            let size = upload["size"].as_i64().unwrap_or(1000);
+            let size = upload["size"].as_u64().unwrap_or(1000) as u128;
             all_uploads.push(Uploads {
                 reference_id,
                 file_name,
@@ -252,28 +171,6 @@ async fn get_uploads_list(
     Ok(all_uploads)
 }
 
-fn sec_to_string(time: f64) -> String {
-    let day = (time / 86400.).floor();
-    let hour = ((time - day * 86400.) / 3600.).floor();
-    let minute = ((time - day * 86400. - hour * 3600.) / 60.).floor();
-    let second = (time - day * 86400. - hour * 3600. - minute * 60.).floor();
-    if day > 0. {
-        format!(
-            "{} 天 {} 小时 {} 分钟 {} 秒",
-            day as i64, hour as i64, minute as i64, second as i64
-        )
-    } else if hour > 0. {
-        format!(
-            "{} 小时 {} 分钟 {} 秒",
-            hour as i64, minute as i64, second as i64
-        )
-    } else if minute > 0. {
-        format!("{} 分钟 {} 秒", minute as i64, second as i64)
-    } else {
-        format!("{:.2} 秒", second)
-    }
-}
-
 #[tauri::command]
 async fn download_uploads(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
@@ -282,8 +179,8 @@ async fn download_uploads(
     uploads: Vec<Uploads>,
 ) -> Result<Vec<Uploads>, String> {
     let zju_assist = state.lock().await;
-    let total_size = uploads.iter().map(|upload| upload.size).sum::<i64>();
-    let mut downloaded_size: i64 = 0;
+    let total_size = uploads.iter().map(|upload| upload.size).sum::<u128>();
+    let mut downloaded_size: u128 = 0;
     for (i, upload) in uploads.iter().enumerate() {
         if download_state
             .should_cancel
@@ -296,8 +193,8 @@ async fn download_uploads(
                 .emit(
                     "download-progress",
                     Progress {
-                        progress: i as f64 / uploads.len() as f64,
-                        status: "下载已取消".to_string(),
+                        status: "cancel".to_string(),
+                        ..Default::default()
                     },
                 )
                 .unwrap();
@@ -310,8 +207,7 @@ async fn download_uploads(
         let mut file = tokio::fs::File::create(filepath.clone())
             .await
             .map_err(|e| e.to_string())?;
-        let start_time = Instant::now();
-        let mut current_size: i64 = 0;
+        let mut current_size: u128 = 0;
         while let Some(item) = stream.try_next().await.map_err(|e| e.to_string())? {
             if download_state
                 .should_cancel
@@ -324,8 +220,8 @@ async fn download_uploads(
                     .emit(
                         "download-progress",
                         Progress {
-                            progress: (downloaded_size + current_size) as f64 / total_size as f64,
-                            status: "下载已取消".to_string(),
+                            status: "cancel".to_string(),
+                            ..Default::default()
                         },
                     )
                     .unwrap();
@@ -337,41 +233,21 @@ async fn download_uploads(
             }
 
             let chunk = item;
-            current_size += chunk.len() as i64;
+            current_size += chunk.len() as u128;
             file.write_all(&chunk).await.map_err(|e| e.to_string())?;
 
-            let elapsed = start_time.elapsed().as_micros();
-            let speed = if elapsed == 0 {
-                0.
-            } else {
-                current_size as f64 / elapsed as f64 * 1000. * 1000.
-            };
-            let speed_str = if speed > 1024. * 1024. {
-                format!("{:.2} MB/s", speed / 1024. / 1024.)
-            } else if speed > 1024. {
-                format!("{:.2} KB/s", speed / 1024.)
-            } else {
-                format!("{:.2} B/s", speed)
-            };
-            let remaining_time_str = if speed > 0. {
-                let remaining_time = (total_size - downloaded_size - current_size) as f64 / speed;
-                sec_to_string(remaining_time)
-            } else {
-                "未知".to_string()
-            };
             window
                 .emit(
                     "download-progress",
                     Progress {
-                        progress: (downloaded_size + current_size) as f64 / total_size as f64,
-                        status: format!(
-                            "正在下载文件 {} （{}/{}）...  {}  剩余 {}",
-                            upload.file_name,
-                            i + 1,
-                            uploads.len(),
-                            speed_str,
-                            remaining_time_str,
+                        status: "downloading".to_string(),
+                        file_name: Some(
+                            filepath.file_name().unwrap().to_str().unwrap().to_string(),
                         ),
+                        downloaded_size: Some(downloaded_size + current_size),
+                        total_size: Some(total_size),
+                        current: Some(i as u128 + 1),
+                        total: Some(uploads.len() as u128),
                     },
                 )
                 .unwrap();
@@ -382,8 +258,8 @@ async fn download_uploads(
         .emit(
             "download-progress",
             Progress {
-                progress: 1.0,
-                status: "下载完成".to_string(),
+                status: "done".to_string(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -480,7 +356,6 @@ fn main() {
             get_activities_uploads,
             get_homework_uploads,
             download_file,
-            download_courses_upload,
             get_uploads_list,
             download_uploads,
             cancel_download,
