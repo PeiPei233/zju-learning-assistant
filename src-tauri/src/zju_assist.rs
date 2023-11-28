@@ -1,9 +1,13 @@
+use bytes::Bytes;
+use futures::Stream;
 use num_bigint::BigUint;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use reqwest::header::{HeaderMap, USER_AGENT};
 use reqwest::Client;
+use reqwest::Error;
 use serde_json::Value;
+use std::path::PathBuf;
 use std::{fs::File, io::Write, path::Path};
 
 pub struct ZjuAssist {
@@ -255,6 +259,53 @@ impl ZjuAssist {
         let content = res.bytes().await?;
         file.write_all(&content)?;
         Ok(())
+    }
+
+    pub async fn get_uploads_stream_and_path(
+        &self,
+        reference_id: i64,
+        name: &str,
+        path: &str,
+    ) -> Result<(impl Stream<Item = Result<Bytes, Error>>, PathBuf), Box<dyn std::error::Error>>
+    {
+        let res = self
+            .client
+            .get(format!(
+                "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
+                reference_id
+            ))
+            .headers(self.headers.clone())
+            .send()
+            .await?;
+        let mut filename = name.to_string();
+        // if the upload is not allowed to download, then get the preview url
+        let res = match res.status().is_success() {
+            true => res,
+            false => {
+                let res = self.client.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
+                    .headers(self.headers.clone())
+                    .send()
+                    .await?;
+                let json: Value = res.json().await?;
+                let url = json["url"].as_str().unwrap();
+                if let Some(start) = url.find("name=") {
+                    let start = start + 5;
+                    let end = url[start..].find("&").unwrap_or(url.len() - start);
+                    filename = percent_decode_str(&url[start..start + end])
+                        .decode_utf8_lossy()
+                        .to_string();
+                }
+                self.client
+                    .get(url)
+                    .headers(self.headers.clone())
+                    .send()
+                    .await?
+            }
+        };
+        std::fs::create_dir_all(Path::new(path))?;
+        let filepath = Path::new(path).join(filename);
+        let content = res.bytes_stream();
+        Ok((content, filepath))
     }
 
     #[allow(dead_code)]

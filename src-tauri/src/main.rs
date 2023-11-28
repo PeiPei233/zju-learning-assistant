@@ -3,14 +3,17 @@
 
 mod zju_assist;
 
+use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     path::Path,
     process::Command,
     sync::{atomic::AtomicBool, Arc},
+    time::Instant,
 };
 use tauri::{Manager, State, Window};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use zju_assist::ZjuAssist;
 
@@ -249,6 +252,28 @@ async fn get_uploads_list(
     Ok(all_uploads)
 }
 
+fn sec_to_string(time: f64) -> String {
+    let day = (time / 86400.).floor();
+    let hour = ((time - day * 86400.) / 3600.).floor();
+    let minute = ((time - day * 86400. - hour * 3600.) / 60.).floor();
+    let second = (time - day * 86400. - hour * 3600. - minute * 60.).floor();
+    if day > 0. {
+        format!(
+            "{} 天 {} 小时 {} 分钟 {} 秒",
+            day as i64, hour as i64, minute as i64, second as i64
+        )
+    } else if hour > 0. {
+        format!(
+            "{} 小时 {} 分钟 {} 秒",
+            hour as i64, minute as i64, second as i64
+        )
+    } else if minute > 0. {
+        format!("{} 分钟 {} 秒", minute as i64, second as i64)
+    } else {
+        format!("{:.2} 秒", second)
+    }
+}
+
 #[tauri::command]
 async fn download_uploads(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
@@ -278,24 +303,79 @@ async fn download_uploads(
                 .unwrap();
             return Ok(uploads[0..i].to_vec());
         }
-        window
-            .emit(
-                "download-progress",
-                Progress {
-                    progress: downloaded_size as f64 / total_size as f64,
-                    status: format!(
-                        "正在下载文件 {} （{}/{}）...",
-                        upload.file_name,
-                        i + 1,
-                        uploads.len()
-                    ),
-                },
-            )
-            .unwrap();
-        zju_assist
-            .download_file(upload.reference_id, &upload.file_name, &upload.path)
+        let (mut stream, filepath) = zju_assist
+            .get_uploads_stream_and_path(upload.reference_id, &upload.file_name, &upload.path)
             .await
             .map_err(|err| err.to_string())?;
+        let mut file = tokio::fs::File::create(filepath.clone())
+            .await
+            .map_err(|e| e.to_string())?;
+        let start_time = Instant::now();
+        let mut current_size: i64 = 0;
+        while let Some(item) = stream.try_next().await.map_err(|e| e.to_string())? {
+            if download_state
+                .should_cancel
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                download_state
+                    .should_cancel
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            progress: (downloaded_size + current_size) as f64 / total_size as f64,
+                            status: "下载已取消".to_string(),
+                        },
+                    )
+                    .unwrap();
+                // clean up
+                tokio::fs::remove_file(&filepath.clone())
+                    .await
+                    .map_err(|e| e.to_string())?;
+                return Ok(uploads[0..i].to_vec());
+            }
+
+            let chunk = item;
+            current_size += chunk.len() as i64;
+            file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+
+            let elapsed = start_time.elapsed().as_micros();
+            let speed = if elapsed == 0 {
+                0.
+            } else {
+                current_size as f64 / elapsed as f64 * 1000. * 1000.
+            };
+            let speed_str = if speed > 1024. * 1024. {
+                format!("{:.2} MB/s", speed / 1024. / 1024.)
+            } else if speed > 1024. {
+                format!("{:.2} KB/s", speed / 1024.)
+            } else {
+                format!("{:.2} B/s", speed)
+            };
+            let remaining_time_str = if speed > 0. {
+                let remaining_time = (total_size - downloaded_size - current_size) as f64 / speed;
+                sec_to_string(remaining_time)
+            } else {
+                "未知".to_string()
+            };
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        progress: (downloaded_size + current_size) as f64 / total_size as f64,
+                        status: format!(
+                            "正在下载文件 {} （{}/{}）...  {}  剩余 {}",
+                            upload.file_name,
+                            i + 1,
+                            uploads.len(),
+                            speed_str,
+                            remaining_time_str,
+                        ),
+                    },
+                )
+                .unwrap();
+        }
         downloaded_size += upload.size;
     }
     window

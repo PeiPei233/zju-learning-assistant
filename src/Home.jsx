@@ -462,7 +462,8 @@ export default function Home({ setIsLogin }) {
       <p style={{
         position: 'absolute',
         left: 30,
-        bottom: 30
+        bottom: 25,
+        width: 'calc(100% - 120px)'
       }}>{progress.status === '' ? '下载进度' : progress.status}</p>
       <Progress percent={Math.round(progress.progress * 100)} style={{
         position: 'absolute',
