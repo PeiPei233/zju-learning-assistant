@@ -65,8 +65,8 @@
         "resizable": true,
         "title": "zju-learning-assistant",
         "width": 800,
-        "minWidth": 576,
-        "minHeight": 400
+        "minHeight": 400,
+        "minWidth": 600
       }
     ]
   }
