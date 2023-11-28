@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     path::Path,
+    process::Command,
     sync::{atomic::AtomicBool, Arc},
 };
 use tauri::{Manager, State, Window};
@@ -15,6 +16,7 @@ use zju_assist::ZjuAssist;
 
 struct DownloadState {
     should_cancel: Arc<AtomicBool>,
+    save_path: Arc<std::sync::Mutex<String>>,
 }
 
 #[tauri::command]
@@ -118,6 +120,7 @@ struct Uploads {
     reference_id: i64,
     file_name: String,
     path: String,
+    size: i64,
 }
 
 #[derive(Clone, Serialize)]
@@ -129,10 +132,12 @@ struct Progress {
 #[tauri::command]
 async fn download_courses_upload(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    download_state: State<'_, DownloadState>,
     window: Window,
     courses: Value,
 ) -> Result<(), String> {
     let zju_assist = state.lock().await;
+    let save_path = download_state.save_path.lock().unwrap().clone();
     let mut all_uploads = Vec::new();
     window
         .emit(
@@ -153,12 +158,17 @@ async fn download_courses_upload(
         for upload in activities_uploads {
             let reference_id = upload["reference_id"].as_i64().unwrap();
             let file_name = upload["name"].as_str().unwrap().to_string();
-            // let path = format!("download/{}/activities", course_name);
-            let path = format!("download/{}", course_name);
+            let path = Path::new(&save_path)
+                .join(&course_name)
+                .to_str()
+                .unwrap()
+                .to_string();
+            let size = upload["size"].as_i64().unwrap();
             all_uploads.push(Uploads {
                 reference_id,
                 file_name,
                 path,
+                size,
             });
         }
         // let homework_uploads = zju_assist
@@ -206,9 +216,11 @@ async fn download_courses_upload(
 #[tauri::command]
 async fn get_uploads_list(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    download_state: State<'_, DownloadState>,
     courses: Value,
 ) -> Result<Vec<Uploads>, String> {
     let zju_assist = state.lock().await;
+    let save_path = download_state.save_path.lock().unwrap().clone();
     let mut all_uploads = Vec::new();
     for course in courses.as_array().unwrap() {
         let course_id = course["id"].as_i64().unwrap();
@@ -220,16 +232,17 @@ async fn get_uploads_list(
         for upload in activities_uploads {
             let reference_id = upload["reference_id"].as_i64().unwrap();
             let file_name = upload["name"].as_str().unwrap().to_string();
-            // let path = format!("download/{}", course_name);
-            let path = Path::new("download")
+            let path = Path::new(&save_path)
                 .join(&course_name)
                 .to_str()
                 .unwrap()
                 .to_string();
+            let size = upload["size"].as_i64().unwrap_or(1000);
             all_uploads.push(Uploads {
                 reference_id,
                 file_name,
                 path,
+                size,
             });
         }
     }
@@ -244,6 +257,8 @@ async fn download_uploads(
     uploads: Vec<Uploads>,
 ) -> Result<Vec<Uploads>, String> {
     let zju_assist = state.lock().await;
+    let total_size = uploads.iter().map(|upload| upload.size).sum::<i64>();
+    let mut downloaded_size: i64 = 0;
     for (i, upload) in uploads.iter().enumerate() {
         if download_state
             .should_cancel
@@ -267,8 +282,13 @@ async fn download_uploads(
             .emit(
                 "download-progress",
                 Progress {
-                    progress: i as f64 / uploads.len() as f64,
-                    status: format!("正在下载文件 {} ...", upload.file_name),
+                    progress: downloaded_size as f64 / total_size as f64,
+                    status: format!(
+                        "正在下载文件 {} （{}/{}）...",
+                        upload.file_name,
+                        i + 1,
+                        uploads.len()
+                    ),
                 },
             )
             .unwrap();
@@ -276,6 +296,7 @@ async fn download_uploads(
             .download_file(upload.reference_id, &upload.file_name, &upload.path)
             .await
             .map_err(|err| err.to_string())?;
+        downloaded_size += upload.size;
     }
     window
         .emit(
@@ -297,7 +318,11 @@ fn cancel_download(state: State<'_, DownloadState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn update_path(path: String, uploads: Vec<Uploads>) -> Result<Vec<Uploads>, String> {
+fn update_path(
+    state: State<'_, DownloadState>,
+    path: String,
+    uploads: Vec<Uploads>,
+) -> Result<Vec<Uploads>, String> {
     let mut new_uploads = Vec::new();
     for upload in uploads {
         let new_path = Path::new(&path)
@@ -315,9 +340,42 @@ fn update_path(path: String, uploads: Vec<Uploads>) -> Result<Vec<Uploads>, Stri
             reference_id: upload.reference_id,
             file_name: upload.file_name,
             path: new_path,
+            size: upload.size,
         });
     }
+
+    let mut save_path = state.save_path.lock().unwrap();
+    *save_path = path;
+
     Ok(new_uploads)
+}
+
+#[tauri::command]
+fn get_save_path(state: State<'_, DownloadState>) -> Result<(), String> {
+    let save_path = state.save_path.lock().unwrap().clone();
+    if Path::new(&save_path).exists() {
+        #[cfg(target_os = "windows")]
+        Command::new("explorer")
+            .arg(save_path)
+            .spawn()
+            .map_err(|err| err.to_string())?;
+
+        #[cfg(target_os = "macos")]
+        Command::new("open")
+            .arg(save_path)
+            .spawn()
+            .map_err(|err| err.to_string())?;
+
+        #[cfg(target_os = "linux")]
+        Command::new("xdg-open")
+            .arg(save_path)
+            .spawn()
+            .map_err(|err| err.to_string())?;
+
+        Ok(())
+    } else {
+        Err("下载已删除或未下载".to_string())
+    }
 }
 
 fn main() {
@@ -327,6 +385,7 @@ fn main() {
             app.manage(zju_assist);
             let download_state = DownloadState {
                 should_cancel: Arc::new(AtomicBool::new(false)),
+                save_path: Arc::new(std::sync::Mutex::new("Downloads".to_string())),
             };
             app.manage(download_state);
             Ok(())
@@ -346,6 +405,7 @@ fn main() {
             download_uploads,
             cancel_download,
             update_path,
+            get_save_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

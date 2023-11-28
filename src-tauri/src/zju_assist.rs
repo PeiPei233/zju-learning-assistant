@@ -248,6 +248,7 @@ impl ZjuAssist {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn download_uploads(
         &self,
         uploads: &[Value],

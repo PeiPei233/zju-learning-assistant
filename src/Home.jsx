@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Form, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { ReloadOutlined, DownloadOutlined, CloseCircleOutlined, EditOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DownloadOutlined, CloseCircleOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event'
 import { dialog, shell } from '@tauri-apps/api';
 
@@ -215,12 +215,6 @@ export default function Home({ setIsLogin }) {
   }
 
   const updatePath = () => {
-    if (uploadList.length === 0) {
-      notification.error({
-        message: '请先获取课件列表',
-      })
-      return
-    }
     dialog.open({
       directory: true,
       multiple: false,
@@ -251,10 +245,31 @@ export default function Home({ setIsLogin }) {
     })
   }
 
+  const openDownloadPath = () => {
+    invoke('get_save_path').then((res) => {
+    }).catch((err) => {
+      notification.error({
+        message: '打开下载路径失败',
+        description: err
+      })
+    })
+  }
+
   const uploadColumns = [
     {
       title: '文件名',
       dataIndex: 'file_name',
+    },
+    {
+      title: '大小',
+      dataIndex: 'size',
+      responsive: ['md'],
+      render: (size) => {
+        return size < 1024 ? `${size} B` :
+          size < 1024 * 1024 ? `${(size / 1024).toFixed(2)} KB` :
+            size < 1024 * 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(2)} MB` :
+              `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`
+      }
     },
     {
       title: () => (
@@ -271,10 +286,21 @@ export default function Home({ setIsLogin }) {
               }}
             />
           </Tooltip>
+          <Tooltip title='打开下载路径'>
+            <Button
+              type='text'
+              size='small'
+              icon={<ExportOutlined />}
+              onClick={openDownloadPath}
+              style={{
+                float: 'right',
+              }}
+            />
+          </Tooltip>
         </div>
       ),
       dataIndex: 'path',
-    }
+    },
   ]
 
   return (
@@ -379,7 +405,7 @@ export default function Home({ setIsLogin }) {
         }}
         gutter={20}
       >
-        <Col span={10}>
+        <Col xs={10} md={8}>
           <Table
             rowSelection={{
               selectedRowKeys: selectedCourseKeys,
@@ -395,7 +421,7 @@ export default function Home({ setIsLogin }) {
             title={() => `课程列表：已选择 ${selectedCourseKeys.length} 门课程`}
           />
         </Col>
-        <Col span={14}>
+        <Col xs={14} md={16}>
           <Table
             rowSelection={{
               selectedRowKeys: selectedUploadKeys,
@@ -441,7 +467,7 @@ export default function Home({ setIsLogin }) {
       <Progress percent={Math.round(progress.progress * 100)} style={{
         position: 'absolute',
         bottom: 10,
-        left: 20,
+        left: 30,
         width: 'calc(100% - 60px)'
       }} />
     </div>
