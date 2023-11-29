@@ -66,7 +66,20 @@ impl ZjuAssist {
             .send()
             .await?;
 
-        let text = res.text().await?;
+        let mut text = res.text().await?;
+        if !text.contains("统一身份认证平台") {
+            self.client = Client::builder().cookie_store(true).build().unwrap();
+            let res = self
+                .client
+                .get("https://zjuam.zju.edu.cn/cas/login")
+                .headers(self.headers.clone())
+                .send()
+                .await?;
+            text = res.text().await?;
+            if !text.contains("统一身份认证平台") {
+                return Err("Login failed".into());
+            }
+        }
         let re = Regex::new(r#"<input type="hidden" name="execution" value="(.*?)" />"#).unwrap();
         let execution = re
             .captures(&text)
