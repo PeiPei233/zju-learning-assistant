@@ -155,7 +155,7 @@ export default function Home({ setIsLogin }) {
         const totalSpeed = latestProgress.current.downloaded_size / (currentTime - startDownloadTime.current) * 1000
         const newTimeRemaining = (latestProgress.current.total_size - latestProgress.current.downloaded_size) / totalSpeed
         const newDownloadPercent = latestProgress.current.downloaded_size / latestProgress.current.total_size * 100
-        if (newSpeed && newSpeed !== NaN) {
+        if (newSpeed && !isNaN(newSpeed)) {
           setSpeed(newSpeed)
           setTimeRemaining(newTimeRemaining)
           setDownloadPercent(newDownloadPercent)
@@ -569,8 +569,8 @@ export default function Home({ setIsLogin }) {
           bottom: 40,
           width: 'calc(50% - 55px)',
           textAlign: 'right'
-        }}>{downloading && totalSize !== 0 && totalSize !== NaN && speed === 0 ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | 0 B/s` :
-          downloading && totalSize !== 0 && totalSize !== NaN ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | ${bytesToSize(speed)}/s 剩余 ${formatTime(timeRemaining)}` : ''}</Text>
+        }}>{downloading && totalSize !== 0 && !isNaN(totalSize) && speed === 0 ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | 0 B/s` :
+          downloading && totalSize !== 0 && !isNaN(totalSize) ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | ${bytesToSize(speed)}/s 剩余 ${formatTime(timeRemaining)}` : ''}</Text>
       <Progress percent={downloadPercent}
         format={(percent) => Math.round(percent) + '%'}
         style={{
