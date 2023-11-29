@@ -22,7 +22,7 @@ function formatTime(secs) {
   const minute = Math.floor((secs - day * 86400 - hour * 3600) / 60)
   const second = Math.floor(secs - day * 86400 - hour * 3600 - minute * 60)
   if (day > 0) {
-    return `${day} 天 ${hour} 小时 ${minute} 分`
+    return `${day} 天 ${hour} 小时`
   } else if (hour > 0) {
     return `${hour} 小时 ${minute} 分`
   } else if (minute > 0) {
@@ -173,7 +173,7 @@ export default function Home({ setIsLogin }) {
 
   }, [])
 
-  const onFinish = (values) => {
+  const downloadUploads = (values) => {
     let uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id))
     if (uploads.length === 0) {
       notification.error({
@@ -353,10 +353,7 @@ export default function Home({ setIsLogin }) {
       dataIndex: 'size',
       responsive: ['md'],
       render: (size) => {
-        return size < 1024 ? `${size} B` :
-          size < 1024 * 1024 ? `${(size / 1024).toFixed(2)} KB` :
-            size < 1024 * 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(2)} MB` :
-              `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`
+        return bytesToSize(size)
       }
     },
     {
@@ -423,7 +420,6 @@ export default function Home({ setIsLogin }) {
         <Form
           layout='horizontal'
           form={form}
-          onFinish={onFinish}
         >
           <Row
             gutter={24}
@@ -479,10 +475,8 @@ export default function Home({ setIsLogin }) {
                 <Button
                   type='primary'
                   icon={downloading ? <CloseCircleOutlined /> : <DownloadOutlined />}
-                  onClick={downloading ? cancelDownload : onFinish}
-                >{
-                    downloading ? '取消下载' : '下载课件'
-                  }</Button>
+                  onClick={downloading ? cancelDownload : downloadUploads}
+                >{downloading ? '取消下载' : '下载课件'}</Button>
               </Form.Item>
             </Col>
           </Row>
@@ -507,7 +501,7 @@ export default function Home({ setIsLogin }) {
             scroll={{ y: 'calc(100vh - 335px)' }}
             size='small'
             bordered
-            footer={() => {return ''}}
+            footer={() => { return '' }}
             title={() => `课程列表：已选择 ${selectedCourseKeys.length} 门课程`}
           />
         </Col>
@@ -525,11 +519,14 @@ export default function Home({ setIsLogin }) {
             scroll={{ y: 'calc(100vh - 335px)' }}
             size='small'
             bordered
-            footer={() => {return ''}}
+            footer={() => { return '' }}
             title={() => {
               return (
                 <>
-                  {uploadList && uploadList.length !== 0 && `课件列表：已选择 ${selectedUploadKeys.length} 个文件`}
+                  {uploadList && uploadList.length !== 0 && `课件列表：已选择 ${selectedUploadKeys.length} 个文件 共 ${bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => {
+                    return total + item.size
+                  }, 0))
+                    }`}
                   {(!uploadList || uploadList.length === 0) && '课件列表为空  点击右侧刷新👉'}
                   <Tooltip title='刷新课件列表'>
                     <Button
