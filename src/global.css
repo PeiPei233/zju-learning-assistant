@@ -1,3 +1,18 @@
+h1,
+[class^="ant-"],
+#normal_login_password::placeholder {
+    font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+#normal_login_password {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    letter-spacing: 0.1em;
+}
+
+html body {
+    margin: 0;
+}
+
 @media (prefers-color-scheme: dark) {
 
     h1,

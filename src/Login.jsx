@@ -42,7 +42,7 @@ export default function Login({ setIsLogin }) {
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
-      height: '90vh',
+      height: '100vh',
       flexDirection: 'column'
     }}>
       <h1>浙江大学统一身份认证登录</h1>
@@ -89,7 +89,7 @@ export default function Login({ setIsLogin }) {
         </Form>
       </Card>
       <Text type='secondary' style={{
-        marginTop: 20
+        marginTop: 30
       }}>Made by PeiPei</Text>
       <Text type='secondary'>此软件仅供学习交流使用，严禁用于商业用途</Text>
     </div>

@@ -416,7 +416,8 @@ export default function Home({ setIsLogin }) {
       >退出登录</Button>
       <Card
         style={{
-          height: 80
+          height: 80,
+          marginTop: -10
         }}
       >
         <Form
@@ -503,9 +504,10 @@ export default function Home({ setIsLogin }) {
             dataSource={selectedCourses}
             loading={loadingCourseList}
             pagination={false}
-            scroll={{ y: 'calc(100vh - 340px)' }}
+            scroll={{ y: 'calc(100vh - 335px)' }}
             size='small'
             bordered
+            footer={() => {return ''}}
             title={() => `课程列表：已选择 ${selectedCourseKeys.length} 门课程`}
           />
         </Col>
@@ -520,9 +522,10 @@ export default function Home({ setIsLogin }) {
             dataSource={uploadList}
             loading={loadingUploadList || downloading || updatingPath}
             pagination={false}
-            scroll={{ y: 'calc(100vh - 350px)' }}
+            scroll={{ y: 'calc(100vh - 335px)' }}
             size='small'
             bordered
+            footer={() => {return ''}}
             title={() => {
               return (
                 <>
@@ -554,9 +557,9 @@ export default function Home({ setIsLogin }) {
         }}
         style={{
           position: 'absolute',
-          left: 30,
+          left: 20,
           bottom: 40,
-          width: 'calc(50% - 45px)'
+          width: 'calc(50% - 35px)'
         }}>{downloadDescription}</Text>
       <Text
         ellipsis={{
@@ -576,8 +579,8 @@ export default function Home({ setIsLogin }) {
         style={{
           position: 'absolute',
           bottom: 10,
-          left: 30,
-          width: 'calc(100% - 60px)'
+          left: 20,
+          width: 'calc(100% - 40px)'
         }} />
     </div>
   )
