@@ -12,14 +12,11 @@ use std::{fs::File, io::Write, path::Path};
 
 pub struct ZjuAssist {
     client: Client,
-    headers: HeaderMap,
     have_login: bool,
 }
 
 impl ZjuAssist {
     pub fn new() -> Self {
-        let client = Client::builder().cookie_store(true).build().unwrap();
-
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
@@ -28,9 +25,14 @@ impl ZjuAssist {
                 .unwrap(),
         );
 
+        let client = Client::builder()
+            .cookie_store(true)
+            .default_headers(headers)
+            .build()
+            .unwrap();
+
         Self {
             client,
-            headers,
             have_login: false,
         }
     }
@@ -62,7 +64,6 @@ impl ZjuAssist {
         let res = self
             .client
             .get("https://zjuam.zju.edu.cn/cas/login")
-            .headers(self.headers.clone())
             .send()
             .await?;
 
@@ -72,7 +73,6 @@ impl ZjuAssist {
             let res = self
                 .client
                 .get("https://zjuam.zju.edu.cn/cas/login")
-                .headers(self.headers.clone())
                 .send()
                 .await?;
             text = res.text().await?;
@@ -89,7 +89,6 @@ impl ZjuAssist {
         let res = self
             .client
             .get("https://zjuam.zju.edu.cn/cas/v2/getPubKey")
-            .headers(self.headers.clone())
             .send()
             .await?;
 
@@ -110,7 +109,6 @@ impl ZjuAssist {
         let res = self
             .client
             .post("https://zjuam.zju.edu.cn/cas/login")
-            .headers(self.headers.clone())
             .form(&data)
             .send()
             .await?;
@@ -120,7 +118,6 @@ impl ZjuAssist {
         } else {
             self.client
                 .get("https://courses.zju.edu.cn/user/courses")
-                .headers(self.headers.clone())
                 .send()
                 .await?;
             self.have_login = true;
@@ -143,7 +140,6 @@ impl ZjuAssist {
         }
         let mut courses = Vec::new();
         let res = self.client.get("https://courses.zju.edu.cn/api/my-courses?conditions=%7B%22status%22:%5B%22ongoing%22,%22notStarted%22%5D,%22keyword%22:%22%22,%22classify_type%22:%22recently_started%22,%22display_studio_list%22:false%7D&fields=id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data),user_stick_course_record(id),classroom_schedule&page=1&page_size=100&showScorePassedStatus=false")
-            .headers(self.headers.clone())
             .send()
             .await?;
 
@@ -152,7 +148,6 @@ impl ZjuAssist {
         if json["pages"].as_i64().unwrap() > 1 {
             for page in 2..=json["pages"].as_i64().unwrap() {
                 let res = self.client.get(format!("https://courses.zju.edu.cn/api/my-courses?conditions=%7B%22status%22:%5B%22ongoing%22,%22notStarted%22%5D,%22keyword%22:%22%22,%22classify_type%22:%22recently_started%22,%22display_studio_list%22:false%7D&fields=id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data),user_stick_course_record(id),classroom_schedule&page={}&page_size=100&showScorePassedStatus=false", page))
-                    .headers(self.headers.clone())
                     .send()
                     .await?;
 
@@ -177,7 +172,6 @@ impl ZjuAssist {
                 "https://courses.zju.edu.cn/api/courses/{}/activities",
                 course_id
             ))
-            .headers(self.headers.clone())
             .send()
             .await?;
         let json: Value = res.json().await?;
@@ -199,7 +193,6 @@ impl ZjuAssist {
         }
         let mut uploads = Vec::new();
         let res = self.client.get(format!("https://courses.zju.edu.cn/api/courses/{}/homework-activities?conditions=%7B%22itemsSortBy%22:%7B%22predicate%22:%22module%22,%22reverse%22:false%7D%7D&page=1&page_size=20&reloadPage=false", course_id))
-            .headers(self.headers.clone())
             .send()
             .await?;
         let json: Value = res.json().await?;
@@ -212,7 +205,6 @@ impl ZjuAssist {
         if json["pages"].as_i64().unwrap() > 1 {
             for page in 2..=json["pages"].as_i64().unwrap() {
                 let res = self.client.get(format!("https://courses.zju.edu.cn/api/courses/{}/homework-activities?conditions=%7B%22itemsSortBy%22:%7B%22predicate%22:%22module%22,%22reverse%22:false%7D%7D&page={}&page_size=20&reloadPage=false", course_id, page))
-                    .headers(self.headers.clone())
                     .send()
                     .await?;
                 let json: Value = res.json().await?;
@@ -239,7 +231,6 @@ impl ZjuAssist {
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
                 reference_id
             ))
-            .headers(self.headers.clone())
             .send()
             .await?;
         let mut filename = name.to_string();
@@ -248,7 +239,6 @@ impl ZjuAssist {
             true => res,
             false => {
                 let res = self.client.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
-                    .headers(self.headers.clone())
                     .send()
                     .await?;
                 let json: Value = res.json().await?;
@@ -262,7 +252,6 @@ impl ZjuAssist {
                 }
                 self.client
                     .get(url)
-                    .headers(self.headers.clone())
                     .send()
                     .await?
             }
@@ -287,7 +276,6 @@ impl ZjuAssist {
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
                 reference_id
             ))
-            .headers(self.headers.clone())
             .send()
             .await?;
         let mut filename = name.to_string();
@@ -296,7 +284,6 @@ impl ZjuAssist {
             true => res,
             false => {
                 let res = self.client.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
-                    .headers(self.headers.clone())
                     .send()
                     .await?;
                 let json: Value = res.json().await?;
@@ -310,7 +297,6 @@ impl ZjuAssist {
                 }
                 self.client
                     .get(url)
-                    .headers(self.headers.clone())
                     .send()
                     .await?
             }
@@ -345,7 +331,6 @@ impl ZjuAssist {
         let res = self
             .client
             .get("https://courses.zju.edu.cn/api/my-academic-years?fields=id,name,sort,is_active")
-            .headers(self.headers.clone())
             .send()
             .await?;
         let json: Value = res.json().await?;
@@ -364,7 +349,6 @@ impl ZjuAssist {
         let res = self
             .client
             .get("https://courses.zju.edu.cn/api/my-semesters?")
-            .headers(self.headers.clone())
             .send()
             .await?;
         let json: Value = res.json().await?;
