@@ -20,7 +20,7 @@ function formatTime(secs) {
   const day = Math.floor(secs / 86400)
   const hour = Math.floor((secs - day * 86400) / 3600)
   const minute = Math.floor((secs - day * 86400 - hour * 3600) / 60)
-  const second = Math.floor(secs - day * 86400 - hour * 3600 - minute * 60)
+  const second = Math.ceil(secs - day * 86400 - hour * 3600 - minute * 60)
   if (day > 0) {
     return `${day} 天 ${hour} 小时`
   } else if (hour > 0) {
