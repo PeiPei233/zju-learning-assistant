@@ -17,6 +17,9 @@
       },
       "dialog": {
         "open": true
+      },
+      "app": {
+        "all": true
       }
     },
     "bundle": {

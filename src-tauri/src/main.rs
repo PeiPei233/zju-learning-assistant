@@ -4,6 +4,7 @@
 mod zju_assist;
 
 use futures::TryStreamExt;
+use reqwest::header::{HeaderMap, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -334,6 +335,35 @@ fn get_save_path(state: State<'_, DownloadState>) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+async fn get_latest_version_info() -> Result<Value, String> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+            .parse()
+            .unwrap(),
+    );
+
+    let client = reqwest::Client::builder()
+        .default_headers(headers)
+        .build()
+        .unwrap();
+
+    let res = client
+        .get("https://api.github.com/repos/PeiPei233/zju-learning-assistant/releases/latest")
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let json = res
+        .json::<Value>()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    Ok(json)
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -361,6 +391,7 @@ fn main() {
             cancel_download,
             update_path,
             get_save_path,
+            get_latest_version_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
