@@ -32,7 +32,6 @@ function Index() {
         tooltip='查看帮助'
         type='primary'
       />
-
     </ConfigProvider>
   )
 }

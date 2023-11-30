@@ -15,7 +15,6 @@ export default function Login({ setIsLogin }) {
   const [currentVersion, setCurrentVersion] = useState('')
   const [latestVersionData, setLatestVersionData] = useState(null)
   const [openVersionModal, setOpenVersionModal] = useState(false)
-
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -23,9 +22,7 @@ export default function Login({ setIsLogin }) {
       if (res) {
         setIsLogin(true)
       }
-    }).catch((err) => {
-
-    })
+    }).catch((err) => { })
     getVersion().then((current) => {
       setCurrentVersion('v' + current)
       invoke('get_latest_version_info').then((res) => {
@@ -43,9 +40,7 @@ export default function Login({ setIsLogin }) {
       }).catch((err) => {
         console.log(err)
       })
-    }).catch((err) => {
-      console.log(err)
-    })
+    }).catch((err) => { })
   }, [])
 
   const onFinish = async (values) => {
@@ -77,9 +72,7 @@ export default function Login({ setIsLogin }) {
           width: 300,
           marginTop: 20
         }}
-        bodyStyle={{
-          padding: '24px 24px 0 24px'
-        }}
+        bodyStyle={{ padding: '24px 24px 0 24px' }}
       >
         <Form
           name="normal_login"
@@ -104,31 +97,25 @@ export default function Login({ setIsLogin }) {
               placeholder="密码"
             />
           </Form.Item>
-
           <Form.Item>
             <Button
               type="primary"
               htmlType="submit"
               loading={loading}
-              style={{
-                width: '100%'
-              }}
+              style={{ width: '100%' }}
             >
               登录
             </Button>
           </Form.Item>
         </Form>
       </Card>
-      <Text type='secondary' style={{
-        marginTop: 30
-      }}>Made by PeiPei</Text>
+      <Text type='secondary' style={{ marginTop: 30 }}>Made by PeiPei</Text>
       <Text type='secondary'>此软件仅供学习交流使用，严禁用于商业用途</Text>
       <div style={{
         position: 'absolute',
         top: 20,
         right: 40
-      }}
-      >
+      }}>
         <a onClick={() => setOpenVersionModal(true)}>
           <Badge count={(!latestVersionData || (latestVersionData && latestVersionData.tag_name === currentVersion) ? 0 : 'New')} size='small'>
             <Text type='secondary'>当前版本：{currentVersion}</Text>
@@ -141,23 +128,21 @@ export default function Login({ setIsLogin }) {
         footer={null}
         title={'ZJU Learning Assistant ' + currentVersion}
       >
-        <Markdown
-          components={{
-            a({ node, href, ...props }) {
-              return <a
-                {...props}
-                onClick={() => {
-                  shell.open(href).catch((err) => {
-                    notification.error({
-                      message: '打开链接失败',
-                      description: err
-                    })
+        <Markdown components={{
+          a({ node, href, ...props }) {
+            return <a
+              {...props}
+              onClick={() => {
+                shell.open(href).catch((err) => {
+                  notification.error({
+                    message: '打开链接失败',
+                    description: err
                   })
-                }}
-              />
-            }
-          }}
-        >
+                })
+              }}
+            />
+          }
+        }}>
           {
             !latestVersionData ? '当前已是最新版本' :
               latestVersionData.tag_name === currentVersion ? (

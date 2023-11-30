@@ -389,9 +389,7 @@ export default function Home({ setIsLogin }) {
   ]
 
   return (
-    <div style={{
-      margin: 20
-    }}>
+    <div style={{ margin: 20 }}>
       <h1>Home</h1>
       <Button
         style={{
@@ -411,12 +409,10 @@ export default function Home({ setIsLogin }) {
         }}
         disabled={downloading}
       >退出登录</Button>
-      <Card
-        style={{
-          height: 80,
-          marginTop: -10
-        }}
-      >
+      <Card style={{
+        height: 80,
+        marginTop: -10
+      }} >
         <Form
           layout='horizontal'
           form={form}
@@ -482,12 +478,7 @@ export default function Home({ setIsLogin }) {
           </Row>
         </Form>
       </Card>
-      <Row
-        style={{
-          marginTop: 20
-        }}
-        gutter={20}
-      >
+      <Row gutter={20} style={{ marginTop: 20 }}>
         <Col xs={10} md={8}>
           <Table
             rowSelection={{
