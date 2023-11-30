@@ -250,10 +250,7 @@ impl ZjuAssist {
                         .decode_utf8_lossy()
                         .to_string();
                 }
-                self.client
-                    .get(url)
-                    .send()
-                    .await?
+                self.client.get(url).send().await?
             }
         };
         std::fs::create_dir_all(Path::new(path))?;
@@ -295,10 +292,7 @@ impl ZjuAssist {
                         .decode_utf8_lossy()
                         .to_string();
                 }
-                self.client
-                    .get(url)
-                    .send()
-                    .await?
+                self.client.get(url).send().await?
             }
         };
         std::fs::create_dir_all(Path::new(path))?;

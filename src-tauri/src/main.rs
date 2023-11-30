@@ -356,10 +356,7 @@ async fn get_latest_version_info() -> Result<Value, String> {
         .await
         .map_err(|err| err.to_string())?;
 
-    let json = res
-        .json::<Value>()
-        .await
-        .map_err(|err| err.to_string())?;
+    let json = res.json::<Value>().await.map_err(|err| err.to_string())?;
 
     Ok(json)
 }

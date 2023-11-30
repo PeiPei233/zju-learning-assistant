@@ -20,7 +20,6 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.5.2", features = [ "app-all", "dialog-open", "shell-open"] }
 reqwest = { version = "0.11", features = ["json", "cookies", "stream"] }
 regex = "1"
-rsa = "0.5"
 num-bigint = "0.4"
 num-traits = "0.2"
 tokio = { version = "1", features = ["full"] }
