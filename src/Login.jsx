@@ -8,6 +8,25 @@ import Markdown from 'react-markdown';
 
 const { Text } = Typography
 
+function convertUrlsToMarkdown(text) {
+  const markdownLinkRegex = /\[([^\]]*)\]\((http[s]?:\/\/[^\s\[\]()]+)\)/g;
+  let placeholders = [];
+  let currentIndex = 0;
+  let newText = text.replace(markdownLinkRegex, (match) => {
+    placeholders.push(match);
+    return `<<${currentIndex++}>>`;
+  });
+
+  const urlRegex = /http[s]?:\/\/[^\s\[\]()]+/g;
+  newText = newText.replace(urlRegex, (match) => `[${match}](${match})`);
+
+  placeholders.forEach((placeholder, index) => {
+    newText = newText.replace(`<<${index}>>`, placeholder);
+  });
+
+  return newText;
+}
+
 export default function Login({ setIsLogin }) {
 
   const [form] = Form.useForm()
@@ -147,10 +166,10 @@ export default function Login({ setIsLogin }) {
             !latestVersionData ? '当前已是最新版本' :
               latestVersionData.tag_name === currentVersion ? (
                 `当前已是最新版本：[${currentVersion}](${latestVersionData.html_url})\n\n` +
-                `**更新日志：**\n\n` + `${latestVersionData.body}`
+                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.body)}`
               ) : (
                 `发现新版：[${latestVersionData.tag_name}](${latestVersionData.html_url})\n\n` +
-                `**更新日志：**\n\n` + `${latestVersionData.body}`
+                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.body)}`
               )
           }
         </Markdown>
