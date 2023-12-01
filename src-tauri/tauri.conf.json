@@ -71,6 +71,19 @@
         "minHeight": 400,
         "minWidth": 600
       }
-    ]
+    ],
+    "cli": {
+      "description": "",
+      "longDescription": "",
+      "beforeHelp": "",
+      "afterHelp": "", 
+      "args": [
+        {
+          "name": "debug",
+          "short": "d"
+        }
+      ],
+      "subcommands": {}
+    }
   }
 }

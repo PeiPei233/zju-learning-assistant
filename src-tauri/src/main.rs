@@ -3,7 +3,10 @@
 
 mod zju_assist;
 
+use fern::Dispatch;
 use futures::TryStreamExt;
+use log::LevelFilter;
+use log::{debug, error, info, trace, warn};
 use reqwest::header::{HeaderMap, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,6 +31,7 @@ async fn login(
     username: String,
     password: String,
 ) -> Result<(), String> {
+    info!("login: {}", username);
     let mut zju_assist = state.lock().await;
     zju_assist
         .login(&username, &password)
@@ -37,6 +41,7 @@ async fn login(
 
 #[tauri::command]
 async fn check_login(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<bool, String> {
+    info!("check_login");
     let zju_assist = state.lock().await;
     match zju_assist.is_login() {
         true => Ok(true),
@@ -46,6 +51,7 @@ async fn check_login(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<bool, St
 
 #[tauri::command]
 async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<(), String> {
+    info!("logout");
     let mut zju_assist = state.lock().await;
     zju_assist.logout();
     Ok(())
@@ -53,6 +59,7 @@ async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_courses(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
+    info!("get_courses");
     let zju_assist = state.lock().await;
     zju_assist
         .get_courses()
@@ -64,6 +71,7 @@ async fn get_courses(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Valu
 async fn get_academic_year_list(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
 ) -> Result<Vec<Value>, String> {
+    info!("get_academic_year_list");
     let zju_assist = state.lock().await;
     zju_assist
         .get_academic_year_list()
@@ -73,6 +81,7 @@ async fn get_academic_year_list(
 
 #[tauri::command]
 async fn get_semester_list(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
+    info!("get_semester_list");
     let zju_assist = state.lock().await;
     zju_assist
         .get_semester_list()
@@ -85,6 +94,7 @@ async fn get_activities_uploads(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     course_id: i64,
 ) -> Result<Vec<Value>, String> {
+    info!("get_activities_uploads: {}", course_id);
     let zju_assist = state.lock().await;
     zju_assist
         .get_activities_uploads(course_id)
@@ -97,6 +107,7 @@ async fn get_homework_uploads(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     course_id: i64,
 ) -> Result<Vec<Value>, String> {
+    info!("get_homework_uploads: {}", course_id);
     let zju_assist = state.lock().await;
     zju_assist
         .get_homework_uploads(course_id)
@@ -111,6 +122,7 @@ async fn download_file(
     file_name: String,
     path: String,
 ) -> Result<(), String> {
+    info!("download_file: {}", reference_id);
     let zju_assist = state.lock().await;
     zju_assist
         .download_file(reference_id, &file_name, &path)
@@ -142,12 +154,14 @@ async fn get_uploads_list(
     download_state: State<'_, DownloadState>,
     courses: Value,
 ) -> Result<Vec<Uploads>, String> {
+    info!("get_uploads_list");
     let zju_assist = state.lock().await;
     let save_path = download_state.save_path.lock().unwrap().clone();
     let mut all_uploads = Vec::new();
     for course in courses.as_array().unwrap() {
         let course_id = course["id"].as_i64().unwrap();
         let course_name = course["name"].as_str().unwrap().replace("/", "-");
+        info!("get_uploads_list: course - {} {}", course_id, course_name);
         let activities_uploads = zju_assist
             .get_activities_uploads(course_id)
             .await
@@ -161,6 +175,10 @@ async fn get_uploads_list(
                 .unwrap()
                 .to_string();
             let size = upload["size"].as_u64().unwrap_or(1000) as u128;
+            info!(
+                "get_uploads_list: uploads - {} {} {} {}",
+                reference_id, file_name, path, size
+            );
             all_uploads.push(Uploads {
                 reference_id,
                 file_name,
@@ -179,10 +197,15 @@ async fn download_uploads(
     window: Window,
     uploads: Vec<Uploads>,
 ) -> Result<Vec<Uploads>, String> {
+    info!("download_uploads");
     let zju_assist = state.lock().await;
     let total_size = uploads.iter().map(|upload| upload.size).sum::<u128>();
     let mut downloaded_size: u128 = 0;
     for (i, upload) in uploads.iter().enumerate() {
+        info!(
+            "download_uploads: start {} {} {} {}",
+            i, upload.reference_id, upload.file_name, upload.path
+        );
         if download_state
             .should_cancel
             .load(std::sync::atomic::Ordering::SeqCst)
@@ -199,12 +222,17 @@ async fn download_uploads(
                     },
                 )
                 .unwrap();
+            info!("download_uploads: cancel");
             return Ok(uploads[0..i].to_vec());
         }
         let (mut stream, filepath) = zju_assist
             .get_uploads_stream_and_path(upload.reference_id, &upload.file_name, &upload.path)
             .await
             .map_err(|err| err.to_string())?;
+        info!(
+            "download_uploads: stream {} {} {:?}",
+            i, upload.reference_id, filepath
+        );
         let mut file = tokio::fs::File::create(filepath.clone())
             .await
             .map_err(|e| e.to_string())?;
@@ -254,6 +282,10 @@ async fn download_uploads(
                 .unwrap();
         }
         downloaded_size += upload.size;
+        info!(
+            "download_uploads: done {} {} {}",
+            i, upload.reference_id, upload.file_name
+        );
     }
     window
         .emit(
@@ -264,11 +296,13 @@ async fn download_uploads(
             },
         )
         .unwrap();
+    info!("download_uploads: done");
     Ok(uploads)
 }
 
 #[tauri::command]
 fn cancel_download(state: State<'_, DownloadState>) -> Result<(), String> {
+    info!("cancel_download");
     let should_cancel = state.should_cancel.clone();
     should_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     Ok(())
@@ -280,6 +314,7 @@ fn update_path(
     path: String,
     uploads: Vec<Uploads>,
 ) -> Result<Vec<Uploads>, String> {
+    info!("update_path: {}", path);
     let mut new_uploads = Vec::new();
     for upload in uploads {
         let new_path = Path::new(&path)
@@ -309,6 +344,7 @@ fn update_path(
 
 #[tauri::command]
 fn open_save_path(state: State<'_, DownloadState>) -> Result<(), String> {
+    info!("open_save_path");
     let save_path = state.save_path.lock().unwrap().clone();
     if Path::new(&save_path).exists() {
         #[cfg(target_os = "windows")]
@@ -337,6 +373,7 @@ fn open_save_path(state: State<'_, DownloadState>) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_latest_version_info() -> Result<Value, String> {
+    info!("get_latest_version_info");
     let mut headers = HeaderMap::new();
     headers.insert(
         USER_AGENT,
@@ -358,12 +395,51 @@ async fn get_latest_version_info() -> Result<Value, String> {
 
     let json = res.json::<Value>().await.map_err(|err| err.to_string())?;
 
+    info!("get_latest_version_info: {:?}", json.get("tag_name"));
+
     Ok(json)
+}
+
+fn setup_logging(to_file: bool) -> Result<(), fern::InitError> {
+    let mut base_config = Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{}[{}][{}] {}",
+                chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .level(LevelFilter::Info);
+
+    base_config = if to_file {
+        base_config
+            .chain(std::io::stdout())
+            .chain(fern::log_file("zju-learning-assistant.log")?)
+    } else {
+        base_config.chain(std::io::stdout())
+    };
+
+    base_config.apply()?;
+
+    Ok(())
 }
 
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            match app.get_cli_matches() {
+                Ok(matches) => {
+                    println!("{:?}", matches);
+                    if matches.args["debug"].value.as_bool().unwrap() {
+                        setup_logging(true).expect("Failed to setup logging");
+                    } else {
+                        setup_logging(false).expect("Failed to setup logging");
+                    }
+                }
+                Err(_) => {}
+            }
             let zju_assist = Arc::new(Mutex::new(ZjuAssist::new()));
             app.manage(zju_assist);
             let download_state = DownloadState {
@@ -371,6 +447,25 @@ fn main() {
                 save_path: Arc::new(std::sync::Mutex::new("Downloads".to_string())),
             };
             app.manage(download_state);
+            let version = app.config().package.version.clone();
+            info!("Current version: {:?}", version);
+
+            if let Ok(os) = sys_info::os_type() {
+                info!("Operating System: {}", os);
+            }
+            if let Ok(version) = sys_info::os_release() {
+                info!("OS Version: {}", version);
+            }
+
+            info!("Rust version: {}", rustc_version_runtime::version());
+
+            if let Ok(mem) = sys_info::mem_info() {
+                info!("Total Memory: {} KB", mem.total);
+            }
+
+            if let Ok(path) = std::env::current_dir() {
+                info!("Current path: {}", path.display());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
