@@ -308,7 +308,7 @@ fn update_path(
 }
 
 #[tauri::command]
-fn get_save_path(state: State<'_, DownloadState>) -> Result<(), String> {
+fn open_save_path(state: State<'_, DownloadState>) -> Result<(), String> {
     let save_path = state.save_path.lock().unwrap().clone();
     if Path::new(&save_path).exists() {
         #[cfg(target_os = "windows")]
@@ -387,7 +387,7 @@ fn main() {
             download_uploads,
             cancel_download,
             update_path,
-            get_save_path,
+            open_save_path,
             get_latest_version_info,
         ])
         .run(tauri::generate_context!())

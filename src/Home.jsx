@@ -334,7 +334,7 @@ export default function Home({ setIsLogin }) {
   }
 
   const openDownloadPath = () => {
-    invoke('get_save_path').then((res) => {
+    invoke('open_save_path').then((res) => {
     }).catch((err) => {
       notification.error({
         message: '打开下载路径失败',
