@@ -432,7 +432,7 @@ fn main() {
             match app.get_cli_matches() {
                 Ok(matches) => {
                     println!("{:?}", matches);
-                    if matches.args["debug"].value.as_bool().unwrap() {
+                    if matches.args.contains_key("debug") && matches.args["debug"].value.as_bool() == Some(true) {
                         setup_logging(true).expect("Failed to setup logging");
                     } else {
                         setup_logging(false).expect("Failed to setup logging");
