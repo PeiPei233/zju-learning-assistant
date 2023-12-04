@@ -3,15 +3,18 @@ use futures::Stream;
 use num_bigint::BigUint;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
+use reqwest::cookie::Jar;
 use reqwest::header::{HeaderMap, USER_AGENT};
 use reqwest::Client;
 use reqwest::Error;
 use serde_json::Value;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::{fs::File, io::Write, path::Path};
 
 pub struct ZjuAssist {
     client: Client,
+    jar: Arc<Jar>,
     have_login: bool,
 }
 
@@ -25,14 +28,16 @@ impl ZjuAssist {
                 .unwrap(),
         );
 
+        let jar = Arc::new(Jar::default());
         let client = Client::builder()
-            .cookie_store(true)
+            .cookie_provider(Arc::clone(&jar))
             .default_headers(headers)
             .build()
             .unwrap();
 
         Self {
             client,
+            jar,
             have_login: false,
         }
     }
@@ -69,7 +74,20 @@ impl ZjuAssist {
 
         let mut text = res.text().await?;
         if !text.contains("统一身份认证平台") {
-            self.client = Client::builder().cookie_store(true).build().unwrap();
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                USER_AGENT,
+                "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                    .parse()
+                    .unwrap(),
+            );
+            let jar = Arc::new(Jar::default());
+            self.client = Client::builder()
+                .cookie_provider(Arc::clone(&jar))
+                .default_headers(headers)
+                .build()
+                .unwrap();
+            self.jar = jar;
             let res = self
                 .client
                 .get("https://zjuam.zju.edu.cn/cas/login")
@@ -126,7 +144,20 @@ impl ZjuAssist {
     }
 
     pub fn logout(&mut self) {
-        self.client = Client::builder().cookie_store(true).build().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                .parse()
+                .unwrap(),
+        );
+        let jar = Arc::new(Jar::default());
+        self.client = Client::builder()
+            .cookie_provider(Arc::clone(&jar))
+            .default_headers(headers)
+            .build()
+            .unwrap();
+        self.jar = jar;
         self.have_login = false;
     }
 
