@@ -354,3 +354,49 @@ impl ZjuAssist {
             .collect())
     }
 }
+
+pub async fn get_ppt_urls(
+    course_id: i64,
+    sub_id: i64,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut urls = Vec::new();
+    let res = reqwest::get(format!("https://classroom.zju.edu.cn/pptnote/v1/schedule/search-ppt?course_id={}&sub_id={}&page=1&per_page=100", course_id, sub_id))
+        .await?;
+    let json: Value = res.json().await?;
+    let ppt_list = json["list"].as_array().unwrap();
+    let mut page = 1;
+    let total_ppt = json["total"].as_i64().unwrap();
+    for ppt_content in ppt_list {
+        let content: Value =
+            serde_json::from_str(ppt_content["content"].as_str().unwrap()).unwrap();
+        let url = content["pptimgurl"].as_str().unwrap();
+        urls.push(url.to_string());
+    }
+    while urls.len() < total_ppt as usize {
+        page += 1;
+        let res = reqwest::get(format!("https://classroom.zju.edu.cn/pptnote/v1/schedule/search-ppt?course_id={}&sub_id={}&page={}&per_page=100", course_id, sub_id, page))
+            .await?;
+        let json: Value = res.json().await?;
+        let ppt_list = json["list"].as_array().unwrap();
+        for ppt_content in ppt_list {
+            let content: Value =
+                serde_json::from_str(ppt_content["content"].as_str().unwrap()).unwrap();
+            let url = content["pptimgurl"].as_str().unwrap();
+            urls.push(url.to_string());
+        }
+    }
+    Ok(urls)
+}
+
+pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let res = reqwest::get(url).await?;
+    let content = res.bytes().await?;
+    let filename = percent_decode_str(url.split("/").last().unwrap())
+        .decode_utf8_lossy()
+        .to_string();
+    std::fs::create_dir_all(Path::new(path))?;
+    let mut file = std::fs::File::create(Path::new(path).join(filename))?;
+    file.write_all(&content)?;
+
+    Ok(())
+}

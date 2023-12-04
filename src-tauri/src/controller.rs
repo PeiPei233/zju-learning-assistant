@@ -1,5 +1,7 @@
 use crate::model;
-use crate::zju_assist;
+use crate::model::Subject;
+use crate::util::images_to_pdf;
+use crate::zju_assist::{download_ppt_image, get_ppt_urls, ZjuAssist};
 
 use futures::TryStreamExt;
 use log::info;
@@ -10,7 +12,6 @@ use std::{path::Path, process::Command, sync::Arc};
 use tauri::{State, Window};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
-use zju_assist::ZjuAssist;
 
 #[tauri::command]
 pub async fn login(
@@ -369,4 +370,68 @@ pub async fn get_latest_version_info() -> Result<Value, String> {
     info!("get_latest_version_info: {:?}", json.get("tag_name"));
 
     Ok(json)
+}
+
+#[tauri::command]
+pub async fn download_ppts(
+    state: State<'_, DownloadState>,
+    subs: Vec<Subject>,
+    to_pdf: bool,
+) -> Result<Vec<Subject>, String> {
+    info!("download_ppts");
+    let save_path = state.save_path.lock().unwrap().clone();
+    for i in 0..subs.len() {
+        if state
+            .should_cancel
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            state
+                .should_cancel
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            return Ok(subs[0..i].to_vec());
+        }
+        let sub = &subs[i];
+        let path = Path::new(&save_path)
+            .join(&sub.course_name)
+            .join(&sub.sub_name);
+        let urls = get_ppt_urls(sub.course_id, sub.sub_id)
+            .await
+            .map_err(|err| err.to_string())?;
+
+        let tasks = urls
+            .clone()
+            .into_iter()
+            .map(|url| {
+                let path = path.clone().to_str().unwrap().to_string();
+                tokio::task::spawn(async move {
+                    if let Err(e) = download_ppt_image(&url, &path).await {
+                        println!("Error: {}", e);
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for task in tasks {
+            task.await.map_err(|err| err.to_string())?;
+        }
+
+        if to_pdf {
+            let image_paths = urls
+                .into_iter()
+                .map(|url| {
+                    let filename = url.split("/").last().unwrap();
+                    path.join(filename).to_str().unwrap().to_string()
+                })
+                .collect::<Vec<_>>();
+
+            let pdf_path = path
+                .join(format!("{}.pdf", sub.sub_name))
+                .to_str()
+                .unwrap()
+                .to_string();
+
+            images_to_pdf(image_paths, &pdf_path).unwrap();
+        }
+    }
+    Ok(subs)
 }

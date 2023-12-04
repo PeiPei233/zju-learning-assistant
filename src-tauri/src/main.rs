@@ -4,6 +4,7 @@
 mod controller;
 mod zju_assist;
 mod model;
+mod util;
 
 use fern::Dispatch;
 use log::info;
@@ -99,6 +100,7 @@ fn main() {
             controller::update_path,
             controller::open_save_path,
             controller::get_latest_version_info,
+            controller::download_ppts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

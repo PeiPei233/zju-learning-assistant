@@ -31,6 +31,9 @@ log = "0.4.20"
 chrono = "0.4.31"
 sys-info = "0.9.1"
 rustc_version_runtime = "0.3.0"
+miniz_oxide = "0.7.1"
+image = "0.24.7"
+pdf-writer = "0.9.2"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

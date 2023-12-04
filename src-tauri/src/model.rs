@@ -23,3 +23,11 @@ pub struct Progress {
     pub current: Option<u128>,
     pub total: Option<u128>,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Subject {
+    pub course_id: i64,
+    pub sub_id: i64,
+    pub course_name: String,
+    pub sub_name: String,
+}
