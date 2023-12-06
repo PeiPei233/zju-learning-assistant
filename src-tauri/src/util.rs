@@ -16,6 +16,9 @@ pub fn images_to_pdf(
     let mut s_mask_ids = Vec::new();
     let mut content_ids = Vec::new();
 
+    let catalog_id = Ref::new(1);
+    let page_tree_id = Ref::new(2);
+
     for (index, path) in image_paths.iter().enumerate() {
         page_ids.push(Ref::new((index + 1) as i32 * 4 + 1));
         image_ids.push(Ref::new((index + 1) as i32 * 4 + 2));
@@ -50,6 +53,7 @@ pub fn images_to_pdf(
 
         let mut page = pdf.page(page_ids[index]);
         page.media_box(rect);
+        page.parent(page_tree_id);
         page.contents(content_ids[index]);
         let image_name = Name(image_path.file_stem().unwrap().to_str().unwrap().as_bytes());
         page.resources()
@@ -89,8 +93,6 @@ pub fn images_to_pdf(
         pdf.stream(content_ids[index], &content.finish());
     }
 
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
     pdf.catalog(catalog_id).pages(page_tree_id);
     let page_num = page_ids.len() as i32;
     pdf.pages(page_tree_id).kids(page_ids).count(page_num);

@@ -415,7 +415,7 @@ impl ZjuAssist {
             for course in courses {
                 let course_id = course["id"].as_str().unwrap().parse::<i64>().unwrap();
                 let course_name = course["title"].as_str().unwrap().replace("/", "_");
-                let sub_id = course["id"].as_str().unwrap().parse::<i64>().unwrap();
+                let sub_id = course["sub_id"].as_str().unwrap().parse::<i64>().unwrap();
                 let sub_name = course["sub_title"].as_str().unwrap().replace("/", "_");
                 subs.push(Subject {
                     course_id,
@@ -637,6 +637,11 @@ pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std
     const MAX_RETRIES: usize = 5;
     let mut retries = 0;
 
+    let file_path = Path::new(path).join(
+        percent_decode_str(url.split('/').last().unwrap())
+            .decode_utf8_lossy()
+            .to_string(),
+    );
     while retries < MAX_RETRIES {
         let res = reqwest::get(url).await?;
         let content = res.bytes().await?;
@@ -645,11 +650,8 @@ pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std
             continue;
         }
 
-        let filename = percent_decode_str(url.split('/').last().unwrap())
-            .decode_utf8_lossy()
-            .to_string();
         std::fs::create_dir_all(Path::new(path))?;
-        let mut file = File::create(Path::new(path).join(&filename))?;
+        let mut file = File::create(file_path.clone())?;
         file.write_all(&content)?;
 
         let metadata = file.metadata()?;
@@ -658,6 +660,11 @@ pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std
         } else {
             retries += 1;
         }
+    }
+
+    // clean up
+    if file_path.exists() {
+        std::fs::remove_file(file_path)?;
     }
 
     Err(Box::new(std::io::Error::new(

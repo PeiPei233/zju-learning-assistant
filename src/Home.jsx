@@ -634,6 +634,7 @@ function Classroom({ downloading, setDownloading }) {
       invoke('get_range_subs', { startAt, endAt }).then((res) => {
         // console.log(res)
         setLeftSubList(res)
+        setSelectedLeftKeys([])
       }).catch((err) => {
         notification.error({
           message: '获取课程列表失败',
@@ -646,8 +647,9 @@ function Classroom({ downloading, setDownloading }) {
       const month = value.format('YYYY-MM')
       setLoadingLeftSubList(true)
       invoke('get_month_subs', { month }).then((res) => {
-        // console.log(res)
+        console.log(res)
         setLeftSubList(res)
+        setSelectedLeftKeys([])
       }).catch((err) => {
         notification.error({
           message: '获取课程列表失败',
@@ -871,7 +873,7 @@ function Classroom({ downloading, setDownloading }) {
               justifyContent: 'end',
               flexDirection: 'row'
             }}>
-              <Checkbox style={{ marginRight: 10 }} onChange={changePrintPDF} checked={printPDF}>导出为 PDF</Checkbox>
+              <Checkbox style={{ marginRight: 10 }} onChange={changePrintPDF} checked={printPDF} disabled={downloading}>导出为 PDF</Checkbox>
               <Button
                 type='primary'
                 icon={downloading ? <CloseCircleOutlined /> : <DownloadOutlined />}

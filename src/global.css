@@ -23,4 +23,12 @@ html body {
     p {
         color: white;
     }
+
+    html body {
+        background-color: rgb(20, 20, 20);
+    }
+
+    .home-layout {
+        background-color: rgb(20, 20, 20);
+    }
 }
