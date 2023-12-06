@@ -637,11 +637,11 @@ pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std
     const MAX_RETRIES: usize = 5;
     let mut retries = 0;
 
-    let file_path = Path::new(path).join(
-        percent_decode_str(url.split('/').last().unwrap())
-            .decode_utf8_lossy()
-            .to_string(),
-    );
+    let file_path = match Path::new(path).extension() {
+        Some(_) => Path::new(path).to_path_buf(),
+        None => Path::new(path).join(url.split("/").last().unwrap()),
+    };
+
     while retries < MAX_RETRIES {
         let res = reqwest::get(url).await?;
         let content = res.bytes().await?;
@@ -650,7 +650,9 @@ pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std
             continue;
         }
 
-        std::fs::create_dir_all(Path::new(path))?;
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let mut file = File::create(file_path.clone())?;
         file.write_all(&content)?;
 

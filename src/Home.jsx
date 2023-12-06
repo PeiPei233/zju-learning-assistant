@@ -671,7 +671,7 @@ function Classroom({ downloading, setDownloading }) {
     }
     setLoadingRightSubList(true)
     invoke('get_sub_ppt_urls', { subs }).then((res) => {
-      // console.log(res)
+      console.log(res)
       const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
       if (subs.length === 0) {
         notification.error({
@@ -850,19 +850,19 @@ function Classroom({ downloading, setDownloading }) {
               {selectedDateMethod === 'day' && <RangePicker
                 size='small'
                 onChange={changeDateRange}
-                popupStyle={{
-
-                }}
+                disabled={loadingLeftSubList}
               />}
               {selectedDateMethod === 'week' && <DatePicker
                 picker='week'
                 size='small'
                 onChange={changeDateRange}
+                disabled={loadingLeftSubList}
               />}
               {selectedDateMethod === 'month' && <DatePicker
                 picker='month'
                 size='small'
                 onChange={changeDateRange}
+                disabled={loadingLeftSubList}
               />}
             </div>
           </Col>

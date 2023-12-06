@@ -402,11 +402,23 @@ pub async fn download_ppts(
         let path = Path::new(&sub.path).join(&sub.sub_name);
         let urls = sub.ppt_image_urls.clone();
 
+        let image_paths = urls
+            .clone()
+            .into_iter()
+            .zip(1..=urls.len())
+            .map(|(url, i)| {
+                path.join("ppt_images").join(format!("{}.{}", i, url.split('.').last().unwrap()))
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+
         let mut tasks = urls
             .clone()
             .into_iter()
-            .map(|url| {
-                let path = path.join("ppt_images").to_str().unwrap().to_string();
+            .zip(image_paths.clone())
+            .map(|(url, path)| {
                 tokio::task::spawn(async move {
                     download_ppt_image(&url, &path)
                         .await
@@ -473,18 +485,6 @@ pub async fn download_ppts(
         }
 
         if to_pdf && urls.len() > 0 {
-            let image_paths = urls
-                .into_iter()
-                .map(|url| {
-                    let filename = url.split("/").last().unwrap();
-                    path.join("ppt_images")
-                        .join(filename)
-                        .to_str()
-                        .unwrap()
-                        .to_string()
-                })
-                .collect::<Vec<_>>();
-
             let pdf_path = path
                 .join(format!("{}-{}.pdf", sub.course_name, sub.sub_name))
                 .to_str()
