@@ -463,10 +463,12 @@ function Learning({ downloading, setDownloading }) {
             title={() => {
               return (
                 <>
-                  {uploadList && uploadList.length !== 0 && `课件列表：已选择 ${selectedUploadKeys.length} 个文件 共 ${bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => {
-                    return total + item.size
-                  }, 0))
-                    }`}
+                  {uploadList && uploadList.length !== 0 &&
+                    <Text ellipsis={{ rows: 1, expandable: false }} style={{ width: 'calc(100% - 80px)' }}>
+                      课件列表：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => {
+                        return total + item.size
+                      }, 0))}
+                    </Text>}
                   {(!uploadList || uploadList.length === 0) && '课件列表为空  点击右侧刷新👉'}
                   <div style={{ float: 'right' }}>
                     <Tooltip title='刷新课件列表'>
