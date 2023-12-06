@@ -14,6 +14,7 @@ use std::{fs::File, io::Write, path::Path};
 
 use crate::model::Subject;
 
+#[derive(Clone)]
 pub struct ZjuAssist {
     client: Client,
     jar: Arc<Jar>,

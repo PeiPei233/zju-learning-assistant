@@ -128,38 +128,51 @@ pub async fn get_uploads_list(
     courses: Value,
 ) -> Result<Vec<Uploads>, String> {
     info!("get_uploads_list");
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     let save_path = download_state.save_path.lock().unwrap().clone();
     let mut all_uploads = Vec::new();
+    let mut tasks: Vec<JoinHandle<Result<Vec<Uploads>, String>>> = Vec::new();
     for course in courses.as_array().unwrap() {
         let course_id = course["id"].as_i64().unwrap();
         let course_name = course["name"].as_str().unwrap().replace("/", "-");
         info!("get_uploads_list: course - {} {}", course_id, course_name);
-        let activities_uploads = zju_assist
-            .get_activities_uploads(course_id)
-            .await
-            .map_err(|err| err.to_string())?;
-        for upload in activities_uploads {
-            let reference_id = upload["reference_id"].as_i64().unwrap();
-            let file_name = upload["name"].as_str().unwrap().to_string();
-            let path = Path::new(&save_path)
-                .join(&course_name)
-                .to_str()
-                .unwrap()
-                .to_string();
-            let size = upload["size"].as_u64().unwrap_or(1000) as u128;
-            info!(
-                "get_uploads_list: uploads - {} {} {} {}",
-                reference_id, file_name, path, size
-            );
-            all_uploads.push(Uploads {
-                reference_id,
-                file_name,
-                path,
-                size,
-            });
-        }
+        let zju_assist = zju_assist.clone();
+        let save_path = save_path.clone();
+        tasks.push(tokio::task::spawn(async move {
+            let mut uploads = Vec::new();
+            let activities_uploads = zju_assist
+                .get_activities_uploads(course_id)
+                .await
+                .map_err(|err| err.to_string())?;
+            for upload in activities_uploads {
+                let reference_id = upload["reference_id"].as_i64().unwrap();
+                let file_name = upload["name"].as_str().unwrap().to_string();
+                let path = Path::new(&save_path)
+                    .join(&course_name)
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                let size = upload["size"].as_u64().unwrap_or(1000) as u128;
+                info!(
+                    "get_uploads_list: uploads - {} {} {} {}",
+                    reference_id, file_name, path, size
+                );
+                uploads.push(Uploads {
+                    reference_id,
+                    file_name,
+                    path,
+                    size,
+                });
+            }
+            Ok(uploads)
+        }));
     }
+
+    for task in tasks {
+        let uploads = task.await.map_err(|err| err.to_string())??;
+        all_uploads.extend(uploads);
+    }
+
     Ok(all_uploads)
 }
 
@@ -407,7 +420,8 @@ pub async fn download_ppts(
             .into_iter()
             .zip(1..=urls.len())
             .map(|(url, i)| {
-                path.join("ppt_images").join(format!("{}.{}", i, url.split('.').last().unwrap()))
+                path.join("ppt_images")
+                    .join(format!("{}.{}", i, url.split('.').last().unwrap()))
                     .to_str()
                     .unwrap()
                     .to_string()
