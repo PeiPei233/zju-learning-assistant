@@ -24,8 +24,8 @@ pub fn images_to_pdf(
 
         let image_path = Path::new(path);
         let data = std::fs::read(image_path).unwrap();
-        let format = image::guess_format(&data).unwrap();
-        let dynamic = image::load_from_memory(&data).unwrap();
+        let format = image::guess_format(&data).map_err(|e| e.to_string())?;
+        let dynamic = image::load_from_memory(&data).map_err(|e| e.to_string())?;
 
         let (filter, encoded, mask) = match format {
             ImageFormat::Jpeg => {
@@ -41,7 +41,7 @@ pub fn images_to_pdf(
                 });
                 (Filter::FlateDecode, encoded, mask)
             }
-            _ => panic!("unsupported image format"),
+            _ => Err("unsupported image format")?,
         };
 
         let width = dynamic.width() as f32;

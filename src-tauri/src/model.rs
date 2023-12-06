@@ -10,7 +10,7 @@ pub struct DownloadState {
 pub struct Uploads {
     pub reference_id: i64,
     pub file_name: String,
-    pub path: String,
+    pub path: String,   // actual save path is path + file_name
     pub size: u128,
 }
 
@@ -30,4 +30,6 @@ pub struct Subject {
     pub sub_id: i64,
     pub course_name: String,
     pub sub_name: String,
+    pub path: String,   // actual save path is path + sub_name
+    pub ppt_image_urls: Vec<String>,
 }

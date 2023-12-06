@@ -3,14 +3,16 @@ use futures::Stream;
 use num_bigint::BigUint;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
-use reqwest::cookie::Jar;
-use reqwest::header::{HeaderMap, USER_AGENT};
+use reqwest::cookie::{CookieStore, Jar};
+use reqwest::header::{HeaderMap, AUTHORIZATION, USER_AGENT};
 use reqwest::Client;
 use reqwest::Error;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{fs::File, io::Write, path::Path};
+
+use crate::model::Subject;
 
 pub struct ZjuAssist {
     client: Client,
@@ -74,20 +76,7 @@ impl ZjuAssist {
 
         let mut text = res.text().await?;
         if !text.contains("统一身份认证平台") {
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                USER_AGENT,
-                "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
-                    .parse()
-                    .unwrap(),
-            );
-            let jar = Arc::new(Jar::default());
-            self.client = Client::builder()
-                .cookie_provider(Arc::clone(&jar))
-                .default_headers(headers)
-                .build()
-                .unwrap();
-            self.jar = jar;
+            self.logout();
             let res = self
                 .client
                 .get("https://zjuam.zju.edu.cn/cas/login")
@@ -136,6 +125,10 @@ impl ZjuAssist {
         } else {
             self.client
                 .get("https://courses.zju.edu.cn/user/courses")
+                .send()
+                .await?;
+            self.client
+                .get("https://tgmedia.cmc.zju.edu.cn/index.php?r=auth/login&auType=cmc&tenant_code=112&forward=https%3A%2F%2Fclassroom.zju.edu.cn%2F")
                 .send()
                 .await?;
             self.have_login = true;
@@ -332,23 +325,6 @@ impl ZjuAssist {
         Ok((content, filepath))
     }
 
-    #[allow(dead_code)]
-    pub async fn download_uploads(
-        &self,
-        uploads: &[Value],
-        path: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.have_login {
-            return Err("Not login".into());
-        }
-        for upload in uploads {
-            let reference_id = upload["reference_id"].as_i64().unwrap();
-            let name = upload["name"].as_str().unwrap();
-            self.download_file(reference_id, name, path).await?;
-        }
-        Ok(())
-    }
-
     pub async fn get_academic_year_list(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
         if !self.have_login {
             return Err("Not login".into());
@@ -383,6 +359,244 @@ impl ZjuAssist {
             .iter()
             .cloned()
             .collect())
+    }
+
+    pub fn get_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+        if !self.have_login {
+            return Err("Not login".into());
+        }
+        if let Some(cookies) = self
+            .jar
+            .cookies(&url::Url::parse("https://classroom.zju.edu.cn")?)
+        {
+            let cookie_str = percent_decode_str(cookies.to_str().unwrap())
+                .decode_utf8_lossy()
+                .to_string();
+            let re = Regex::new(r#"\{i:\d+;s:\d+:"_token";i:\d+;s:\d+:"(.+?)";\}"#).unwrap();
+            let token = re
+                .captures(&cookie_str)
+                .and_then(|cap| cap.get(1).map(|m| m.as_str()))
+                .ok_or("Token not found")?;
+            Ok(token.to_string())
+        } else {
+            Err("Token not found".into())
+        }
+    }
+
+    pub async fn get_month_subs(
+        &self,
+        month: &str,
+        path: &str,
+    ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
+        if !self.have_login {
+            return Err("Not login".into());
+        }
+        let token = self.get_token()?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+
+        let mut subs = Vec::new();
+        let path = Path::new(path);
+
+        let res = self.client.get(format!("https://classroom.zju.edu.cn/courseapi/v2/course-live/get-my-course-month?month={}", month))
+            .headers(headers.clone())
+            .send()
+            .await?;
+        let json: Value = res.json().await?;
+        let list = json["list"].as_array().unwrap();
+        for day in list {
+            let courses = day["course"].as_array().unwrap();
+            for course in courses {
+                let course_id = course["id"].as_str().unwrap().parse::<i64>().unwrap();
+                let course_name = course["title"].as_str().unwrap().replace("/", "_");
+                let sub_id = course["id"].as_str().unwrap().parse::<i64>().unwrap();
+                let sub_name = course["sub_title"].as_str().unwrap().replace("/", "_");
+                subs.push(Subject {
+                    course_id,
+                    course_name: course_name.clone(),
+                    sub_id,
+                    sub_name,
+                    path: path.join(&course_name).to_str().unwrap().to_string(),
+                    ppt_image_urls: Vec::new(),
+                });
+            }
+        }
+        Ok(subs)
+    }
+
+    pub async fn get_range_subs(
+        &self,
+        start: &str, // format: 2021-05-01
+        end: &str,
+        path: &str,
+    ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
+        if !self.have_login {
+            return Err("Not login".into());
+        }
+        let token = self.get_token()?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+
+        let mut subs = Vec::new();
+        let path = Path::new(path);
+
+        // enumerate all days
+        let start = chrono::NaiveDate::parse_from_str(start, "%Y-%m-%d").unwrap();
+        let end = chrono::NaiveDate::parse_from_str(end, "%Y-%m-%d").unwrap();
+        let mut date = start;
+        while date <= end {
+            let res = self.client.get(format!("https://classroom.zju.edu.cn/courseapi/v2/course-live/get-my-course-day?day={}", date.format("%Y-%m-%d")))
+                .headers(headers.clone())
+                .send()
+                .await?;
+            let json: Value = res.json().await?;
+            if let Some(list) = json["list"].as_object() {
+                for data in list.values() {
+                    let courses = data["course"].as_array().unwrap();
+                    for course in courses {
+                        let course_id = course["id"].as_str().unwrap().parse::<i64>().unwrap();
+                        let course_name = course["title"].as_str().unwrap().replace("/", "_");
+                        let sub_id = course["sub_id"].as_str().unwrap().parse::<i64>().unwrap();
+                        let sub_name = course["sub_title"].as_str().unwrap().replace("/", "_");
+                        subs.push(Subject {
+                            course_id,
+                            course_name: course_name.clone(),
+                            sub_id,
+                            sub_name,
+                            path: path.join(&course_name).to_str().unwrap().to_string(),
+                            ppt_image_urls: Vec::new(),
+                        });
+                    }
+                }
+            }
+
+            date = date + chrono::Duration::days(1);
+        }
+
+        Ok(subs)
+    }
+
+    pub async fn search_courses(
+        &self,
+        course_name: &str,
+        teacher_name: &str,
+    ) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+        if !self.have_login {
+            return Err("Not login".into());
+        }
+        let token = self.get_token()?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+
+        let res = self
+            .client
+            .get("https://classroom.zju.edu.cn/userapi/v1/infosimple")
+            .headers(headers.clone())
+            .send()
+            .await?;
+        let json: Value = res.json().await?;
+        let account = json["params"]["account"].as_str().unwrap();
+        let user_id = json["params"]["id"].as_i64().unwrap();
+        let random: f64 = rand::random();
+
+        let res = self.client.get(format!("https://classroom.zju.edu.cn/pptnote/v1/searchlist?tenant_id=112&user_id={}&user_name={}&page=1&per_page=16&title={}&realname={}&trans=&tenant_code=112&randomKey={}", user_id, account, course_name, teacher_name, random))
+            .headers(headers.clone())
+            .send()
+            .await?;
+
+        let mut courses = Vec::new();
+        let json: Value = res.json().await?;
+        courses.extend(json["total"]["list"].as_array().unwrap().iter().cloned());
+        let mut page = 1;
+        let total_course = json["total"]["total"].as_i64().unwrap();
+        while courses.len() < total_course as usize {
+            page += 1;
+            let random: f64 = rand::random();
+            let res = self.client.get(format!("https://classroom.zju.edu.cn/pptnote/v1/searchlist?tenant_id=112&user_id={}&user_name={}&page={}&per_page=16&title={}&realname={}&trans=&tenant_code=112&randomKey={}", user_id, account, page, course_name, teacher_name, random))
+                .headers(headers.clone())
+                .send()
+                .await?;
+            let json: Value = res.json().await?;
+            courses.extend(json["total"]["list"].as_array().unwrap().iter().cloned());
+        }
+
+        Ok(courses)
+    }
+
+    pub async fn get_course_subs(
+        &self,
+        course_id: i64,
+        path: &str,
+    ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
+        if !self.have_login {
+            return Err("Not login".into());
+        }
+        let token = self.get_token()?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+
+        let res = self
+            .client
+            .get("https://classroom.zju.edu.cn/userapi/v1/infosimple")
+            .headers(headers.clone())
+            .send()
+            .await?;
+        let json: Value = res.json().await?;
+        let account = json["params"]["account"].as_str().unwrap();
+
+        let res = self.client.get(format!("https://yjapi.cmc.zju.edu.cn/courseapi/v3/multi-search/get-course-detail?course_id={}&student={}", course_id, account))
+            .headers(headers.clone())
+            .send()
+            .await?;
+        let json: Value = res.json().await?;
+        let data = json["data"].as_object().unwrap();
+        let course_name = data["title"].as_str().unwrap().replace("/", "_");
+        let sub_list = data["sub_list"].as_object().unwrap();
+        let path = Path::new(path);
+        let mut subs = Vec::new();
+        for (_, year_data) in sub_list {
+            for (_, month_data) in year_data.as_object().unwrap() {
+                for (_, week_data) in month_data.as_object().unwrap() {
+                    for sub in week_data.as_array().unwrap() {
+                        let sub_id = sub["id"].as_str().unwrap().parse::<i64>().unwrap();
+                        let sub_name = sub["sub_title"].as_str().unwrap().replace("/", "_");
+                        subs.push(Subject {
+                            course_id,
+                            course_name: course_name.clone(),
+                            sub_id,
+                            sub_name,
+                            path: path.join(&course_name).to_str().unwrap().to_string(),
+                            ppt_image_urls: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(subs)
     }
 }
 
@@ -420,14 +634,34 @@ pub async fn get_ppt_urls(
 }
 
 pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let res = reqwest::get(url).await?;
-    let content = res.bytes().await?;
-    let filename = percent_decode_str(url.split("/").last().unwrap())
-        .decode_utf8_lossy()
-        .to_string();
-    std::fs::create_dir_all(Path::new(path))?;
-    let mut file = std::fs::File::create(Path::new(path).join(filename))?;
-    file.write_all(&content)?;
+    const MAX_RETRIES: usize = 5;
+    let mut retries = 0;
 
-    Ok(())
+    while retries < MAX_RETRIES {
+        let res = reqwest::get(url).await?;
+        let content = res.bytes().await?;
+        if content.is_empty() {
+            retries += 1;
+            continue;
+        }
+
+        let filename = percent_decode_str(url.split('/').last().unwrap())
+            .decode_utf8_lossy()
+            .to_string();
+        std::fs::create_dir_all(Path::new(path))?;
+        let mut file = File::create(Path::new(path).join(&filename))?;
+        file.write_all(&content)?;
+
+        let metadata = file.metadata()?;
+        if metadata.len() > 0 {
+            return Ok(());
+        } else {
+            retries += 1;
+        }
+    }
+
+    Err(Box::new(std::io::Error::new(
+        std::io::ErrorKind::Other,
+        "Failed to download file after several attempts",
+    )))
 }

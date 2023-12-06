@@ -101,6 +101,11 @@ fn main() {
             controller::open_save_path,
             controller::get_latest_version_info,
             controller::download_ppts,
+            controller::get_range_subs,
+            controller::search_courses,
+            controller::get_course_subs,
+            controller::get_sub_ppt_urls,
+            controller::get_month_subs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

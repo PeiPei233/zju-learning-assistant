@@ -13,14 +13,14 @@ html body {
     margin: 0;
 }
 
+.home-layout {
+    background-color: white;
+}
+
 @media (prefers-color-scheme: dark) {
 
     h1,
     p {
         color: white;
-    }
-
-    html {
-        background-color: black;
     }
 }

@@ -12,6 +12,7 @@ use std::{path::Path, process::Command, sync::Arc};
 use tauri::{State, Window};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 #[tauri::command]
 pub async fn login(
@@ -170,6 +171,9 @@ pub async fn download_uploads(
     uploads: Vec<Uploads>,
 ) -> Result<Vec<Uploads>, String> {
     info!("download_uploads");
+    download_state
+        .should_cancel
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     let zju_assist = state.lock().await;
     let total_size = uploads.iter().map(|upload| upload.size).sum::<u128>();
     let mut downloaded_size: u128 = 0;
@@ -182,9 +186,6 @@ pub async fn download_uploads(
             .should_cancel
             .load(std::sync::atomic::Ordering::SeqCst)
         {
-            download_state
-                .should_cancel
-                .store(false, std::sync::atomic::Ordering::SeqCst);
             window
                 .emit(
                     "download-progress",
@@ -214,9 +215,6 @@ pub async fn download_uploads(
                 .should_cancel
                 .load(std::sync::atomic::Ordering::SeqCst)
             {
-                download_state
-                    .should_cancel
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
                 window
                     .emit(
                         "download-progress",
@@ -275,8 +273,9 @@ pub async fn download_uploads(
 #[tauri::command]
 pub fn cancel_download(state: State<'_, DownloadState>) -> Result<(), String> {
     info!("cancel_download");
-    let should_cancel = state.should_cancel.clone();
-    should_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    state
+        .should_cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     Ok(())
 }
 
@@ -284,14 +283,14 @@ pub fn cancel_download(state: State<'_, DownloadState>) -> Result<(), String> {
 pub fn update_path(
     state: State<'_, DownloadState>,
     path: String,
-    uploads: Vec<Uploads>,
-) -> Result<Vec<Uploads>, String> {
+    uploads: Vec<Value>,
+) -> Result<Vec<Value>, String> {
     info!("update_path: {}", path);
-    let mut new_uploads = Vec::new();
-    for upload in uploads {
+    let mut new_uploads = uploads.clone();
+    for upload in &mut new_uploads {
         let new_path = Path::new(&path)
             .join(
-                Path::new(&upload.path)
+                Path::new(upload["path"].as_str().unwrap())
                     .file_name()
                     .unwrap_or_default()
                     .to_str()
@@ -300,12 +299,7 @@ pub fn update_path(
             .to_str()
             .unwrap()
             .to_string();
-        new_uploads.push(Uploads {
-            reference_id: upload.reference_id,
-            file_name: upload.file_name,
-            path: new_path,
-            size: upload.size,
-        });
+        upload["path"] = Value::String(new_path);
     }
 
     let mut save_path = state.save_path.lock().unwrap();
@@ -375,63 +369,257 @@ pub async fn get_latest_version_info() -> Result<Value, String> {
 #[tauri::command]
 pub async fn download_ppts(
     state: State<'_, DownloadState>,
+    window: Window,
     subs: Vec<Subject>,
     to_pdf: bool,
 ) -> Result<Vec<Subject>, String> {
-    info!("download_ppts");
-    let save_path = state.save_path.lock().unwrap().clone();
+    info!("download_ppts {} {}", subs.len(), to_pdf);
+    state
+        .should_cancel
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut count = 0;
+    let total_size = subs
+        .iter()
+        .map(|sub| sub.ppt_image_urls.len())
+        .sum::<usize>() as u128;
     for i in 0..subs.len() {
         if state
             .should_cancel
             .load(std::sync::atomic::Ordering::SeqCst)
         {
-            state
-                .should_cancel
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        status: "cancel".to_string(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
             return Ok(subs[0..i].to_vec());
         }
         let sub = &subs[i];
-        let path = Path::new(&save_path)
-            .join(&sub.course_name)
-            .join(&sub.sub_name);
-        let urls = get_ppt_urls(sub.course_id, sub.sub_id)
-            .await
-            .map_err(|err| err.to_string())?;
+        let path = Path::new(&sub.path).join(&sub.sub_name);
+        let urls = sub.ppt_image_urls.clone();
 
-        let tasks = urls
+        let mut tasks = urls
             .clone()
             .into_iter()
             .map(|url| {
-                let path = path.clone().to_str().unwrap().to_string();
+                let path = path.join("ppt_images").to_str().unwrap().to_string();
                 tokio::task::spawn(async move {
-                    if let Err(e) = download_ppt_image(&url, &path).await {
-                        println!("Error: {}", e);
-                    }
+                    download_ppt_image(&url, &path)
+                        .await
+                        .map_err(|err| err.to_string())
                 })
             })
             .collect::<Vec<_>>();
 
-        for task in tasks {
-            task.await.map_err(|err| err.to_string())?;
+        for task in &mut tasks {
+            if state
+                .should_cancel
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            status: "cancel".to_string(),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                // stop all tasks
+                for task in tasks {
+                    task.abort();
+                }
+                // clean up
+                std::fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+                return Ok(subs[0..i].to_vec());
+            }
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        status: "downloading".to_string(),
+                        file_name: Some(format!("{}-{}", sub.course_name, sub.sub_name)),
+                        downloaded_size: Some(count as u128),
+                        total_size: Some(total_size as u128),
+                        current: Some(i as u128 + 1),
+                        total: Some(subs.len() as u128),
+                    },
+                )
+                .unwrap();
+            task.await.map_err(|err| err.to_string())??;
+            count += 1;
         }
 
-        if to_pdf {
+        if state
+            .should_cancel
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        status: "cancel".to_string(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            // clean up
+            std::fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+            return Ok(subs[0..i].to_vec());
+        }
+
+        if to_pdf && urls.len() > 0 {
             let image_paths = urls
                 .into_iter()
                 .map(|url| {
                     let filename = url.split("/").last().unwrap();
-                    path.join(filename).to_str().unwrap().to_string()
+                    path.join("ppt_images")
+                        .join(filename)
+                        .to_str()
+                        .unwrap()
+                        .to_string()
                 })
                 .collect::<Vec<_>>();
 
             let pdf_path = path
-                .join(format!("{}.pdf", sub.sub_name))
+                .join(format!("{}-{}.pdf", sub.course_name, sub.sub_name))
                 .to_str()
                 .unwrap()
                 .to_string();
 
-            images_to_pdf(image_paths, &pdf_path).unwrap();
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        status: "writing".to_string(),
+                        file_name: Some(format!("{}-{}", sub.course_name, sub.sub_name)),
+                        downloaded_size: Some(count as u128),
+                        total_size: Some(total_size as u128),
+                        current: Some(i as u128 + 1),
+                        total: Some(subs.len() as u128),
+                    },
+                )
+                .unwrap();
+            images_to_pdf(image_paths, &pdf_path).map_err(|err| err.to_string())?;
         }
+    }
+    window
+        .emit(
+            "download-progress",
+            Progress {
+                status: "done".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    Ok(subs)
+}
+
+#[tauri::command]
+pub async fn get_sub_ppt_urls(
+    state: State<'_, DownloadState>,
+    subs: Vec<Subject>,
+) -> Result<Vec<Subject>, String> {
+    info!("get_sub_ppt_urls");
+    let mut new_subs = Vec::new();
+    let save_path = state.save_path.lock().unwrap().clone();
+
+    let tasks = subs
+        .into_iter()
+        .map(|sub| {
+            let path = Path::new(&save_path)
+                .join(&sub.course_name)
+                .to_str()
+                .unwrap()
+                .to_string();
+            tokio::task::spawn(async move {
+                let urls = get_ppt_urls(sub.course_id, sub.sub_id)
+                    .await
+                    .map_err(|err| err.to_string())?;
+                Ok(Subject {
+                    ppt_image_urls: urls,
+                    path,
+                    ..sub
+                })
+            })
+        })
+        .collect::<Vec<JoinHandle<Result<Subject, String>>>>();
+
+    for task in tasks {
+        new_subs.push(task.await.map_err(|err| err.to_string())??);
+    }
+
+    Ok(new_subs)
+}
+
+#[tauri::command]
+pub async fn get_range_subs(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    download_state: State<'_, DownloadState>,
+    start_at: String,
+    end_at: String,
+) -> Result<Vec<Subject>, String> {
+    info!("get_range_subs");
+    let zju_assist = state.lock().await;
+    let save_path = download_state.save_path.lock().unwrap().clone();
+    let subs = zju_assist
+        .get_range_subs(&start_at, &end_at, &save_path)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(subs)
+}
+
+#[tauri::command]
+pub async fn get_month_subs(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    download_state: State<'_, DownloadState>,
+    month: String,
+) -> Result<Vec<Subject>, String> {
+    info!("get_month_subs");
+    let zju_assist = state.lock().await;
+    let save_path = download_state.save_path.lock().unwrap().clone();
+    let subs = zju_assist
+        .get_month_subs(&month, &save_path)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(subs)
+}
+
+#[tauri::command]
+pub async fn search_courses(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    course_name: String,
+    teacher_name: String,
+) -> Result<Vec<Value>, String> {
+    info!("search_courses");
+    let zju_assist = state.lock().await;
+    let courses = zju_assist
+        .search_courses(&course_name, &teacher_name)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(courses)
+}
+
+#[tauri::command]
+pub async fn get_course_subs(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    download_state: State<'_, DownloadState>,
+    course_ids: Vec<i64>,
+) -> Result<Vec<Subject>, String> {
+    info!("get_course_subs");
+    let zju_assist = state.lock().await;
+    let save_path = download_state.save_path.lock().unwrap().clone();
+    let mut subs = Vec::new();
+    for course_id in course_ids {
+        let sub = zju_assist
+            .get_course_subs(course_id, &save_path)
+            .await
+            .map_err(|err| err.to_string())?;
+        subs.extend(sub);
     }
     Ok(subs)
 }
