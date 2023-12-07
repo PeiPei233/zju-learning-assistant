@@ -11,6 +11,7 @@ h1,
 
 html body {
     margin: 0;
+    overflow: hidden;
 }
 
 .home-layout {
