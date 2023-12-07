@@ -628,39 +628,25 @@ function Classroom({ downloading, setDownloading }) {
   }
 
   const changeDateRange = (value) => {
-    // console.log(value)
-    if (selectedDateMethod === 'day' || selectedDateMethod === 'week') {
-      const startAt = selectedDateMethod === 'day' ? value[0].format('YYYY-MM-DD') : value.startOf('week').format('YYYY-MM-DD')
-      const endAt = selectedDateMethod === 'day' ? value[1].format('YYYY-MM-DD') : value.endOf('week').format('YYYY-MM-DD')
-      setLoadingLeftSubList(true)
-      invoke('get_range_subs', { startAt, endAt }).then((res) => {
-        // console.log(res)
-        setLeftSubList(res)
-        setSelectedLeftKeys([])
-      }).catch((err) => {
-        notification.error({
-          message: '获取课程列表失败',
-          description: err
-        })
-      }).finally(() => {
-        setLoadingLeftSubList(false)
+    const startAt = selectedDateMethod === 'day' ? value[0].format('YYYY-MM-DD') :
+      selectedDateMethod === 'week' ? value.startOf('week').format('YYYY-MM-DD') :
+        value.startOf('month').format('YYYY-MM-DD')
+    const endAt = selectedDateMethod === 'day' ? value[1].format('YYYY-MM-DD') :
+      selectedDateMethod === 'week' ? value.endOf('week').format('YYYY-MM-DD') :
+        value.endOf('month').format('YYYY-MM-DD')
+    setLoadingLeftSubList(true)
+    invoke('get_range_subs', { startAt, endAt }).then((res) => {
+      // console.log(res)
+      setLeftSubList(res)
+      setSelectedLeftKeys([])
+    }).catch((err) => {
+      notification.error({
+        message: '获取课程列表失败',
+        description: err
       })
-    } else if (selectedDateMethod === 'month') {
-      const month = value.format('YYYY-MM')
-      setLoadingLeftSubList(true)
-      invoke('get_month_subs', { month }).then((res) => {
-        console.log(res)
-        setLeftSubList(res)
-        setSelectedLeftKeys([])
-      }).catch((err) => {
-        notification.error({
-          message: '获取课程列表失败',
-          description: err
-        })
-      }).finally(() => {
-        setLoadingLeftSubList(false)
-      })
-    }
+    }).finally(() => {
+      setLoadingLeftSubList(false)
+    })
   }
 
   const updateRightSubList = () => {

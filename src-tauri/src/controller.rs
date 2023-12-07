@@ -3,6 +3,7 @@ use crate::model::Subject;
 use crate::util::images_to_pdf;
 use crate::zju_assist::{download_ppt_image, get_ppt_urls, ZjuAssist};
 
+use chrono::NaiveDate;
 use futures::TryStreamExt;
 use log::{debug, info};
 use model::{DownloadState, Progress, Uploads};
@@ -563,16 +564,36 @@ pub async fn get_sub_ppt_urls(
 pub async fn get_range_subs(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     download_state: State<'_, DownloadState>,
-    start_at: String,
+    start_at: String,    // format: 2021-05-01
     end_at: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_range_subs: {} {}", start_at, end_at);
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     let save_path = download_state.save_path.lock().unwrap().clone();
-    let subs = zju_assist
-        .get_range_subs(&start_at, &end_at, &save_path)
-        .await
-        .map_err(|err| err.to_string())?;
+    let mut subs = Vec::new();
+    let mut tasks: Vec<JoinHandle<Result<Vec<Subject>, String>>> = Vec::new();
+    let start = NaiveDate::parse_from_str(&start_at, "%Y-%m-%d").unwrap();
+    let end = NaiveDate::parse_from_str(&end_at, "%Y-%m-%d").unwrap();
+    let mut date = start;
+    while date <= end {
+        let date_str = date.format("%Y-%m-%d").to_string();
+        let zju_assist = zju_assist.clone();
+        let save_path = save_path.clone();
+        tasks.push(tokio::task::spawn(async move {
+            let sub = zju_assist
+                .get_range_subs(&date_str, &date_str, &save_path)
+                .await
+                .map_err(|err| err.to_string())?;
+            Ok(sub)
+        }));
+        date = date + chrono::Duration::days(1);
+    }
+
+    for task in tasks {
+        let sub = task.await.map_err(|err| err.to_string())??;
+        subs.extend(sub);
+    }
+
     Ok(subs)
 }
 
