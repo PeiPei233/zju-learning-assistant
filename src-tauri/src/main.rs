@@ -2,9 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod controller;
-mod zju_assist;
 mod model;
 mod util;
+mod zju_assist;
 
 use fern::Dispatch;
 use log::info;
@@ -14,7 +14,7 @@ use tauri::Manager;
 use tokio::sync::Mutex;
 use zju_assist::ZjuAssist;
 
-fn setup_logging(to_file: bool) -> Result<(), fern::InitError> {
+fn setup_logging(level: LevelFilter, to_file: bool) -> Result<(), fern::InitError> {
     let mut base_config = Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -25,7 +25,7 @@ fn setup_logging(to_file: bool) -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .level(LevelFilter::Info);
+        .level(level);
 
     base_config = if to_file {
         base_config
@@ -49,9 +49,9 @@ fn main() {
                     if matches.args.contains_key("debug")
                         && matches.args["debug"].value.as_bool() == Some(true)
                     {
-                        setup_logging(true).expect("Failed to setup logging");
+                        setup_logging(LevelFilter::Debug, true).expect("Failed to setup logging");
                     } else {
-                        setup_logging(false).expect("Failed to setup logging");
+                        setup_logging(LevelFilter::Info, false).expect("Failed to setup logging");
                     }
                 }
                 Err(_) => {}

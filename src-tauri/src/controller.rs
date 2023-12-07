@@ -4,9 +4,8 @@ use crate::util::images_to_pdf;
 use crate::zju_assist::{download_ppt_image, get_ppt_urls, ZjuAssist};
 
 use futures::TryStreamExt;
-use log::info;
+use log::{debug, info};
 use model::{DownloadState, Progress, Uploads};
-use reqwest::header::{HeaderMap, USER_AGENT};
 use serde_json::Value;
 use std::{path::Path, process::Command, sync::Arc};
 use tauri::{State, Window};
@@ -135,7 +134,7 @@ pub async fn get_uploads_list(
     for course in courses.as_array().unwrap() {
         let course_id = course["id"].as_i64().unwrap();
         let course_name = course["name"].as_str().unwrap().replace("/", "-");
-        info!("get_uploads_list: course - {} {}", course_id, course_name);
+        debug!("get_uploads_list: course - {} {}", course_id, course_name);
         let zju_assist = zju_assist.clone();
         let save_path = save_path.clone();
         tasks.push(tokio::task::spawn(async move {
@@ -153,7 +152,7 @@ pub async fn get_uploads_list(
                     .unwrap()
                     .to_string();
                 let size = upload["size"].as_u64().unwrap_or(1000) as u128;
-                info!(
+                debug!(
                     "get_uploads_list: uploads - {} {} {} {}",
                     reference_id, file_name, path, size
                 );
@@ -191,7 +190,7 @@ pub async fn download_uploads(
     let total_size = uploads.iter().map(|upload| upload.size).sum::<u128>();
     let mut downloaded_size: u128 = 0;
     for (i, upload) in uploads.iter().enumerate() {
-        info!(
+        debug!(
             "download_uploads: start {} {} {} {}",
             i, upload.reference_id, upload.file_name, upload.path
         );
@@ -208,14 +207,14 @@ pub async fn download_uploads(
                     },
                 )
                 .unwrap();
-            info!("download_uploads: cancel");
+            debug!("download_uploads: cancel");
             return Ok(uploads[0..i].to_vec());
         }
         let (mut stream, filepath) = zju_assist
             .get_uploads_stream_and_path(upload.reference_id, &upload.file_name, &upload.path)
             .await
             .map_err(|err| err.to_string())?;
-        info!(
+        debug!(
             "download_uploads: stream {} {} {:?}",
             i, upload.reference_id, filepath
         );
@@ -265,7 +264,7 @@ pub async fn download_uploads(
                 .unwrap();
         }
         downloaded_size += upload.size;
-        info!(
+        debug!(
             "download_uploads: done {} {} {}",
             i, upload.reference_id, upload.file_name
         );
@@ -353,18 +352,8 @@ pub fn open_save_path(state: State<'_, DownloadState>) -> Result<(), String> {
 #[tauri::command]
 pub async fn get_latest_version_info() -> Result<Value, String> {
     info!("get_latest_version_info");
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        USER_AGENT,
-        "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
-            .parse()
-            .unwrap(),
-    );
 
-    let client = reqwest::Client::builder()
-        .default_headers(headers)
-        .build()
-        .unwrap();
+    let client = ZjuAssist::new();
 
     let res = client
         .get("https://api.github.com/repos/PeiPei233/zju-learning-assistant/releases/latest")
@@ -577,7 +566,7 @@ pub async fn get_range_subs(
     start_at: String,
     end_at: String,
 ) -> Result<Vec<Subject>, String> {
-    info!("get_range_subs");
+    info!("get_range_subs: {} {}", start_at, end_at);
     let zju_assist = state.lock().await;
     let save_path = download_state.save_path.lock().unwrap().clone();
     let subs = zju_assist
@@ -593,7 +582,7 @@ pub async fn get_month_subs(
     download_state: State<'_, DownloadState>,
     month: String,
 ) -> Result<Vec<Subject>, String> {
-    info!("get_month_subs");
+    info!("get_month_subs: {}", month);
     let zju_assist = state.lock().await;
     let save_path = download_state.save_path.lock().unwrap().clone();
     let subs = zju_assist
@@ -609,7 +598,7 @@ pub async fn search_courses(
     course_name: String,
     teacher_name: String,
 ) -> Result<Vec<Value>, String> {
-    info!("search_courses");
+    info!("search_courses: {} {}", course_name, teacher_name);
     let zju_assist = state.lock().await;
     let courses = zju_assist
         .search_courses(&course_name, &teacher_name)

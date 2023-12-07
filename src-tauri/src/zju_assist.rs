@@ -1,12 +1,13 @@
 use bytes::Bytes;
 use futures::Stream;
+use log::info;
 use num_bigint::BigUint;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use reqwest::cookie::{CookieStore, Jar};
 use reqwest::header::{HeaderMap, AUTHORIZATION, USER_AGENT};
-use reqwest::Client;
-use reqwest::Error;
+use reqwest::{Client, RequestBuilder, Response};
+use reqwest::{Error, IntoUrl};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -60,6 +61,16 @@ impl ZjuAssist {
             .collect()
     }
 
+    pub fn get<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+        info!("GET {}", url.as_str());
+        self.client.get(url)
+    }
+
+    pub fn post<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+        info!("POST {}", url.as_str());
+        self.client.post(url)
+    }
+
     pub async fn login(
         &mut self,
         username: &str,
@@ -70,7 +81,6 @@ impl ZjuAssist {
         }
 
         let res = self
-            .client
             .get("https://zjuam.zju.edu.cn/cas/login")
             .send()
             .await?;
@@ -79,7 +89,6 @@ impl ZjuAssist {
         if !text.contains("统一身份认证平台") {
             self.logout();
             let res = self
-                .client
                 .get("https://zjuam.zju.edu.cn/cas/login")
                 .send()
                 .await?;
@@ -95,7 +104,6 @@ impl ZjuAssist {
             .ok_or("Execution value not found")?;
 
         let res = self
-            .client
             .get("https://zjuam.zju.edu.cn/cas/v2/getPubKey")
             .send()
             .await?;
@@ -111,11 +119,10 @@ impl ZjuAssist {
             ("password", &rsapwd),
             ("execution", execution),
             ("_eventId", "submit"),
-            ("geolocation", ""),
+            ("authcode", ""),
         ];
 
         let res = self
-            .client
             .post("https://zjuam.zju.edu.cn/cas/login")
             .form(&data)
             .send()
@@ -124,11 +131,10 @@ impl ZjuAssist {
         if res.text().await?.contains("统一身份认证平台") {
             Err("Login failed".into())
         } else {
-            self.client
-                .get("https://courses.zju.edu.cn/user/courses")
+            self.get("https://courses.zju.edu.cn/user/courses")
                 .send()
                 .await?;
-            self.client
+            self
                 .get("https://tgmedia.cmc.zju.edu.cn/index.php?r=auth/login&auType=cmc&tenant_code=112&forward=https%3A%2F%2Fclassroom.zju.edu.cn%2F")
                 .send()
                 .await?;
@@ -164,7 +170,7 @@ impl ZjuAssist {
             return Err("Not login".into());
         }
         let mut courses = Vec::new();
-        let res = self.client.get("https://courses.zju.edu.cn/api/my-courses?conditions=%7B%22status%22:%5B%22ongoing%22,%22notStarted%22%5D,%22keyword%22:%22%22,%22classify_type%22:%22recently_started%22,%22display_studio_list%22:false%7D&fields=id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data),user_stick_course_record(id),classroom_schedule&page=1&page_size=100&showScorePassedStatus=false")
+        let res = self.get("https://courses.zju.edu.cn/api/my-courses?conditions=%7B%22status%22:%5B%22ongoing%22,%22notStarted%22%5D,%22keyword%22:%22%22,%22classify_type%22:%22recently_started%22,%22display_studio_list%22:false%7D&fields=id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data),user_stick_course_record(id),classroom_schedule&page=1&page_size=100&showScorePassedStatus=false")
             .send()
             .await?;
 
@@ -172,7 +178,7 @@ impl ZjuAssist {
         courses.extend(json["courses"].as_array().unwrap().iter().cloned());
         if json["pages"].as_i64().unwrap() > 1 {
             for page in 2..=json["pages"].as_i64().unwrap() {
-                let res = self.client.get(format!("https://courses.zju.edu.cn/api/my-courses?conditions=%7B%22status%22:%5B%22ongoing%22,%22notStarted%22%5D,%22keyword%22:%22%22,%22classify_type%22:%22recently_started%22,%22display_studio_list%22:false%7D&fields=id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data),user_stick_course_record(id),classroom_schedule&page={}&page_size=100&showScorePassedStatus=false", page))
+                let res = self.get(format!("https://courses.zju.edu.cn/api/my-courses?conditions=%7B%22status%22:%5B%22ongoing%22,%22notStarted%22%5D,%22keyword%22:%22%22,%22classify_type%22:%22recently_started%22,%22display_studio_list%22:false%7D&fields=id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data),user_stick_course_record(id),classroom_schedule&page={}&page_size=100&showScorePassedStatus=false", page))
                     .send()
                     .await?;
 
@@ -192,7 +198,6 @@ impl ZjuAssist {
         }
         let mut uploads = Vec::new();
         let res = self
-            .client
             .get(format!(
                 "https://courses.zju.edu.cn/api/courses/{}/activities",
                 course_id
@@ -217,7 +222,7 @@ impl ZjuAssist {
             return Err("Not login".into());
         }
         let mut uploads = Vec::new();
-        let res = self.client.get(format!("https://courses.zju.edu.cn/api/courses/{}/homework-activities?conditions=%7B%22itemsSortBy%22:%7B%22predicate%22:%22module%22,%22reverse%22:false%7D%7D&page=1&page_size=20&reloadPage=false", course_id))
+        let res = self.get(format!("https://courses.zju.edu.cn/api/courses/{}/homework-activities?conditions=%7B%22itemsSortBy%22:%7B%22predicate%22:%22module%22,%22reverse%22:false%7D%7D&page=1&page_size=20&reloadPage=false", course_id))
             .send()
             .await?;
         let json: Value = res.json().await?;
@@ -229,7 +234,7 @@ impl ZjuAssist {
         }
         if json["pages"].as_i64().unwrap() > 1 {
             for page in 2..=json["pages"].as_i64().unwrap() {
-                let res = self.client.get(format!("https://courses.zju.edu.cn/api/courses/{}/homework-activities?conditions=%7B%22itemsSortBy%22:%7B%22predicate%22:%22module%22,%22reverse%22:false%7D%7D&page={}&page_size=20&reloadPage=false", course_id, page))
+                let res = self.get(format!("https://courses.zju.edu.cn/api/courses/{}/homework-activities?conditions=%7B%22itemsSortBy%22:%7B%22predicate%22:%22module%22,%22reverse%22:false%7D%7D&page={}&page_size=20&reloadPage=false", course_id, page))
                     .send()
                     .await?;
                 let json: Value = res.json().await?;
@@ -251,7 +256,6 @@ impl ZjuAssist {
         path: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let res = self
-            .client
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
                 reference_id
@@ -263,7 +267,7 @@ impl ZjuAssist {
         let res = match res.status().is_success() {
             true => res,
             false => {
-                let res = self.client.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
+                let res = self.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
                     .send()
                     .await?;
                 let json: Value = res.json().await?;
@@ -275,7 +279,7 @@ impl ZjuAssist {
                         .decode_utf8_lossy()
                         .to_string();
                 }
-                self.client.get(url).send().await?
+                self.get(url).send().await?
             }
         };
         std::fs::create_dir_all(Path::new(path))?;
@@ -293,7 +297,6 @@ impl ZjuAssist {
     ) -> Result<(impl Stream<Item = Result<Bytes, Error>>, PathBuf), Box<dyn std::error::Error>>
     {
         let res = self
-            .client
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
                 reference_id
@@ -305,7 +308,7 @@ impl ZjuAssist {
         let res = match res.status().is_success() {
             true => res,
             false => {
-                let res = self.client.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
+                let res = self.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
                     .send()
                     .await?;
                 let json: Value = res.json().await?;
@@ -317,7 +320,7 @@ impl ZjuAssist {
                         .decode_utf8_lossy()
                         .to_string();
                 }
-                self.client.get(url).send().await?
+                self.get(url).send().await?
             }
         };
         std::fs::create_dir_all(Path::new(path))?;
@@ -331,7 +334,6 @@ impl ZjuAssist {
             return Err("Not login".into());
         }
         let res = self
-            .client
             .get("https://courses.zju.edu.cn/api/my-academic-years?fields=id,name,sort,is_active")
             .send()
             .await?;
@@ -349,7 +351,6 @@ impl ZjuAssist {
             return Err("Not login".into());
         }
         let res = self
-            .client
             .get("https://courses.zju.edu.cn/api/my-semesters?")
             .send()
             .await?;
@@ -405,7 +406,7 @@ impl ZjuAssist {
         let mut subs = Vec::new();
         let path = Path::new(path);
 
-        let res = self.client.get(format!("https://classroom.zju.edu.cn/courseapi/v2/course-live/get-my-course-month?month={}", month))
+        let res = self.get(format!("https://classroom.zju.edu.cn/courseapi/v2/course-live/get-my-course-month?month={}", month))
             .headers(headers.clone())
             .send()
             .await?;
@@ -458,7 +459,7 @@ impl ZjuAssist {
         let end = chrono::NaiveDate::parse_from_str(end, "%Y-%m-%d").unwrap();
         let mut date = start;
         while date <= end {
-            let res = self.client.get(format!("https://classroom.zju.edu.cn/courseapi/v2/course-live/get-my-course-day?day={}", date.format("%Y-%m-%d")))
+            let res = self.get(format!("https://classroom.zju.edu.cn/courseapi/v2/course-live/get-my-course-day?day={}", date.format("%Y-%m-%d")))
                 .headers(headers.clone())
                 .send()
                 .await?;
@@ -508,7 +509,6 @@ impl ZjuAssist {
         headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
 
         let res = self
-            .client
             .get("https://classroom.zju.edu.cn/userapi/v1/infosimple")
             .headers(headers.clone())
             .send()
@@ -518,7 +518,7 @@ impl ZjuAssist {
         let user_id = json["params"]["id"].as_i64().unwrap();
         let random: f64 = rand::random();
 
-        let res = self.client.get(format!("https://classroom.zju.edu.cn/pptnote/v1/searchlist?tenant_id=112&user_id={}&user_name={}&page=1&per_page=16&title={}&realname={}&trans=&tenant_code=112&randomKey={}", user_id, account, course_name, teacher_name, random))
+        let res = self.get(format!("https://classroom.zju.edu.cn/pptnote/v1/searchlist?tenant_id=112&user_id={}&user_name={}&page=1&per_page=16&title={}&realname={}&trans=&tenant_code=112&randomKey={}", user_id, account, course_name, teacher_name, random))
             .headers(headers.clone())
             .send()
             .await?;
@@ -531,7 +531,7 @@ impl ZjuAssist {
         while courses.len() < total_course as usize {
             page += 1;
             let random: f64 = rand::random();
-            let res = self.client.get(format!("https://classroom.zju.edu.cn/pptnote/v1/searchlist?tenant_id=112&user_id={}&user_name={}&page={}&per_page=16&title={}&realname={}&trans=&tenant_code=112&randomKey={}", user_id, account, page, course_name, teacher_name, random))
+            let res = self.get(format!("https://classroom.zju.edu.cn/pptnote/v1/searchlist?tenant_id=112&user_id={}&user_name={}&page={}&per_page=16&title={}&realname={}&trans=&tenant_code=112&randomKey={}", user_id, account, page, course_name, teacher_name, random))
                 .headers(headers.clone())
                 .send()
                 .await?;
@@ -561,7 +561,6 @@ impl ZjuAssist {
         headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
 
         let res = self
-            .client
             .get("https://classroom.zju.edu.cn/userapi/v1/infosimple")
             .headers(headers.clone())
             .send()
@@ -569,7 +568,7 @@ impl ZjuAssist {
         let json: Value = res.json().await?;
         let account = json["params"]["account"].as_str().unwrap();
 
-        let res = self.client.get(format!("https://yjapi.cmc.zju.edu.cn/courseapi/v3/multi-search/get-course-detail?course_id={}&student={}", course_id, account))
+        let res = self.get(format!("https://yjapi.cmc.zju.edu.cn/courseapi/v3/multi-search/get-course-detail?course_id={}&student={}", course_id, account))
             .headers(headers.clone())
             .send()
             .await?;
@@ -601,12 +600,17 @@ impl ZjuAssist {
     }
 }
 
+pub async fn get<T: IntoUrl>(url: T) -> Result<Response, Error> {
+    info!("GET {}", url.as_str());
+    reqwest::get(url).await
+}
+
 pub async fn get_ppt_urls(
     course_id: i64,
     sub_id: i64,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut urls = Vec::new();
-    let res = reqwest::get(format!("https://classroom.zju.edu.cn/pptnote/v1/schedule/search-ppt?course_id={}&sub_id={}&page=1&per_page=100", course_id, sub_id))
+    let res = get(format!("https://classroom.zju.edu.cn/pptnote/v1/schedule/search-ppt?course_id={}&sub_id={}&page=1&per_page=100", course_id, sub_id))
         .await?;
     let json: Value = res.json().await?;
     let ppt_list = json["list"].as_array().unwrap();
@@ -620,7 +624,7 @@ pub async fn get_ppt_urls(
     }
     while urls.len() < total_ppt as usize {
         page += 1;
-        let res = reqwest::get(format!("https://classroom.zju.edu.cn/pptnote/v1/schedule/search-ppt?course_id={}&sub_id={}&page={}&per_page=100", course_id, sub_id, page))
+        let res = get(format!("https://classroom.zju.edu.cn/pptnote/v1/schedule/search-ppt?course_id={}&sub_id={}&page={}&per_page=100", course_id, sub_id, page))
             .await?;
         let json: Value = res.json().await?;
         let ppt_list = json["list"].as_array().unwrap();
@@ -644,7 +648,7 @@ pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std
     };
 
     while retries < MAX_RETRIES {
-        let res = reqwest::get(url).await?;
+        let res = get(url).await?;
         let content = res.bytes().await?;
         if content.is_empty() {
             retries += 1;
