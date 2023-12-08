@@ -71,7 +71,7 @@ P.S. 由于没有购买 CA 签名，本软件没有签名，因此下载、安�
 
 ## 为什么要开发这个软件？
 
-![Rewrite in Rust!](assets/image-2.png)
+![Rewrite in Rust!](assets/rust.png)
 
 **Rewrite in Rust!**
 
