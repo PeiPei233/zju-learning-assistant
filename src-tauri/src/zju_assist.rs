@@ -5,7 +5,10 @@ use num_bigint::BigUint;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use reqwest::cookie::{CookieStore, Jar};
-use reqwest::header::{HeaderMap, AUTHORIZATION, USER_AGENT};
+use reqwest::header::{
+    HeaderMap, AUTHORIZATION, CONNECTION, HOST, ORIGIN, REFERER, UPGRADE_INSECURE_REQUESTS,
+    USER_AGENT,
+};
 use reqwest::{Client, RequestBuilder, Response};
 use reqwest::{Error, IntoUrl};
 use serde_json::Value;
@@ -80,16 +83,30 @@ impl ZjuAssist {
             return Ok(());
         }
 
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(CONNECTION, "keep-alive".parse().unwrap());
+        headers.insert(HOST, "zjuam.zju.edu.cn".parse().unwrap());
+        headers.insert(UPGRADE_INSECURE_REQUESTS, "1".parse().unwrap());
+
         let res = self
             .get("https://zjuam.zju.edu.cn/cas/login")
+            .headers(headers.clone())
             .send()
             .await?;
 
         let mut text = res.text().await?;
+        println!("{}", text);
         if !text.contains("统一身份认证平台") {
             self.logout();
             let res = self
                 .get("https://zjuam.zju.edu.cn/cas/login")
+                .headers(headers.clone())
                 .send()
                 .await?;
             text = res.text().await?;
@@ -103,8 +120,13 @@ impl ZjuAssist {
             .and_then(|cap| cap.get(1).map(|m| m.as_str()))
             .ok_or("Execution value not found")?;
 
+        headers.insert(
+            REFERER,
+            "https://zjuam.zju.edu.cn/cas/login".parse().unwrap(),
+        );
         let res = self
             .get("https://zjuam.zju.edu.cn/cas/v2/getPubKey")
+            .headers(headers.clone())
             .send()
             .await?;
 
@@ -122,6 +144,7 @@ impl ZjuAssist {
             ("authcode", ""),
         ];
 
+        headers.insert(ORIGIN, "https://zjuam.zju.edu.cn".parse().unwrap());
         let res = self
             .post("https://zjuam.zju.edu.cn/cas/login")
             .form(&data)
