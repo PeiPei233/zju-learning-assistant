@@ -101,7 +101,6 @@ impl ZjuAssist {
             .await?;
 
         let mut text = res.text().await?;
-        println!("{}", text);
         if !text.contains("统一身份认证平台") {
             self.logout();
             let res = self
