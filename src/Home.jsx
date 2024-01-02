@@ -528,7 +528,7 @@ function Learning({ downloading, setDownloading }) {
         }}>{downloading && totalSize !== 0 && !isNaN(totalSize) && speed === 0 ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | 0 B/s` :
           downloading && totalSize !== 0 && !isNaN(totalSize) ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | ${bytesToSize(speed)}/s 剩余 ${formatTime(timeRemaining)}` : ''}</Text>
       <Progress percent={downloadPercent}
-        format={(percent) => Math.round(percent) + '%'}
+        format={(percent) => Math.floor(percent) + '%'}
         style={{
           position: 'absolute',
           bottom: 10,
@@ -971,7 +971,7 @@ function Classroom({ downloading, setDownloading }) {
           textAlign: 'right'
         }}>{downloading && totalSize && totalSize !== 0 && !isNaN(totalSize) && !isNaN(timeRemaining) && isFinite(timeRemaining) ? `PPTs: ${downloadedSize}/${totalSize} | 预计剩余 ${formatTime(timeRemaining)}` : ''}</Text>
       <Progress percent={downloadPercent}
-        format={(percent) => Math.round(percent) + '%'}
+        format={(percent) => Math.floor(percent) + '%'}
         style={{
           position: 'absolute',
           bottom: 10,
