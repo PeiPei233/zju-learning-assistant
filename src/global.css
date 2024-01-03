@@ -18,6 +18,11 @@ html body {
     background-color: white;
 }
 
+[class^="ant-"] pre code,
+[class^="ant-"] code {
+    font-family: 'Roboto Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+}
+
 @media (prefers-color-scheme: dark) {
 
     h1,

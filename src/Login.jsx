@@ -6,7 +6,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import Markdown from 'react-markdown';
 
-const { Text } = Typography
+const { Text, Paragraph } = Typography
 
 function convertUrlsToMarkdown(text) {
   const markdownLinkRegex = /\[([^\]]*)\]\((http[s]?:\/\/[^\s\[\]()]+)\)/g;
@@ -160,6 +160,14 @@ export default function Login({ setIsLogin }) {
                 })
               }}
             />
+          },
+          pre({ node, ...props }) {
+            return <Paragraph>
+              <pre {...props} />
+            </Paragraph>
+          },
+          code({ node, ...props }) {
+            return <Text code {...props} />
           }
         }}>
           {
