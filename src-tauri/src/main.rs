@@ -6,6 +6,7 @@ mod model;
 mod util;
 mod zju_assist;
 
+use directories_next::UserDirs;
 use fern::Dispatch;
 use log::info;
 use log::LevelFilter;
@@ -58,9 +59,18 @@ fn main() {
             }
             let zju_assist = Arc::new(Mutex::new(ZjuAssist::new()));
             app.manage(zju_assist);
+
+            // get user download path
+            let mut save_path = "Downloads".to_string();
+            if let Some(user_dirs) = UserDirs::new() {
+                if let Some(download_dir) = user_dirs.download_dir() {
+                    save_path = download_dir.to_str().unwrap().to_string();
+                }
+            }
+
             let download_state = model::DownloadState {
                 should_cancel: Arc::new(AtomicBool::new(false)),
-                save_path: Arc::new(std::sync::Mutex::new("Downloads".to_string())),
+                save_path: Arc::new(std::sync::Mutex::new(save_path)),
             };
             app.manage(download_state);
             let version = app.config().package.version.clone();
