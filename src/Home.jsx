@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
-import { Form, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip, Typography, Menu, Layout, Radio, DatePicker, Checkbox } from 'antd';
+import { Form, Button, Card, App, Row, Col, Select, Table, Progress, Tooltip, Typography, Menu, Layout, Radio, DatePicker, Checkbox, Input, Space } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { ReloadOutlined, DownloadOutlined, CloseCircleOutlined, EditOutlined, ExportOutlined, LogoutOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DownloadOutlined, CloseCircleOutlined, EditOutlined, ExportOutlined, LogoutOutlined, SearchOutlined } from '@ant-design/icons';
+import Highlighter from 'react-highlight-words';
 import { listen } from '@tauri-apps/api/event'
 import { dialog, shell } from '@tauri-apps/api';
 import dayjs from 'dayjs';
@@ -37,6 +38,143 @@ function formatTime(secs) {
     return `${second} 秒`
   }
 }
+
+const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, bordered, footer, title, rowSelection, rowKey, onSelectChange, selectedRowKeys }) => {
+  const [searchText, setSearchText] = useState('')
+  const [searchedColumn, setSearchedColumn] = useState('')
+  const searchInput = useRef(null)
+  const handleSearch = (selectedKeys, confirm, dataIndex) => {
+    confirm();
+    setSearchText(selectedKeys[0]);
+    setSearchedColumn(dataIndex);
+  };
+  const handleReset = (clearFilters) => {
+    clearFilters();
+    setSearchText('');
+  };
+  const getColumnSearchProps = (dataIndex, title) => ({
+    filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters, close }) => (
+      <div
+        style={{
+          padding: 8,
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <Input
+          ref={searchInput}
+          placeholder={`搜索 ${title}`}
+          value={selectedKeys[0]}
+          onChange={(e) => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+          onPressEnter={() => handleSearch(selectedKeys, confirm, dataIndex)}
+          style={{
+            marginBottom: 8,
+            display: 'block',
+            width: 250,
+          }}
+        />
+        <Space>
+          <Button
+            type="primary"
+            onClick={() => handleSearch(selectedKeys, confirm, dataIndex)}
+            icon={<SearchOutlined />}
+            size="small"
+            style={{
+              width: 70,
+            }}
+          >
+            搜索
+          </Button>
+          <Button
+            onClick={() => clearFilters && handleReset(clearFilters)}
+            size="small"
+            style={{
+              width: 70,
+            }}
+          >
+            重置
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => {
+              confirm({
+                closeDropdown: false,
+              });
+              setSearchText(selectedKeys[0]);
+              setSearchedColumn(dataIndex);
+            }}
+          >
+            筛选
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => {
+              close();
+            }}
+          >
+            取消
+          </Button>
+        </Space>
+      </div>
+    ),
+    filterIcon: (filtered) => (
+      <SearchOutlined
+        style={{
+          color: filtered ? '#1677ff' : undefined,
+        }}
+      />
+    ),
+    onFilter: (value, record) =>
+      record[dataIndex].toString().toLowerCase().includes(value.toLowerCase()),
+    onFilterDropdownOpenChange: (visible) => {
+      if (visible) {
+        setTimeout(() => searchInput.current?.select(), 100);
+      }
+    },
+    render: (text) =>
+      searchedColumn === dataIndex ? (
+        <Highlighter
+          highlightStyle={{
+            backgroundColor: '#ffc069',
+            padding: 0,
+          }}
+          searchWords={[searchText]}
+          autoEscape
+          textToHighlight={text ? text.toString() : ''}
+        />
+      ) : (
+        text
+      ),
+  });
+
+  const new_columns = columns.map((col) => {
+    if (col.searchable != null && !col.searchable) {
+      return col
+    } else {
+      return {
+        ...col,
+        ...getColumnSearchProps(col.dataIndex, col.title),
+      }
+    }
+  })
+  return <Table
+      rowSelection={rowSelection}
+      rowKey={rowKey}
+      columns={new_columns}
+      dataSource={dataSource}
+      loading={loading}
+      pagination={pagination}
+      scroll={scroll}
+      size={size}
+      bordered={bordered}
+      footer={footer}
+      title={title}
+      onSelectChange={onSelectChange}
+      selectedRowKeys={selectedRowKeys}
+    />
+}
+
 
 function Learning({ downloading, setDownloading }) {
   const { message, modal, notification } = App.useApp()
@@ -350,7 +488,8 @@ function Learning({ downloading, setDownloading }) {
       dataIndex: 'size',
       render: (size) => {
         return bytesToSize(size)
-      }
+      },
+      searchable: false
     },
     {
       title: '下载路径',
@@ -429,7 +568,7 @@ function Learning({ downloading, setDownloading }) {
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
         <Col xs={10} md={8}>
-          <Table
+          <SearchTable
             rowSelection={{
               selectedRowKeys: selectedCourseKeys,
               onChange: onSelectChange,
@@ -446,7 +585,7 @@ function Learning({ downloading, setDownloading }) {
           />
         </Col>
         <Col xs={14} md={16}>
-          <Table
+          <SearchTable
             rowSelection={{
               selectedRowKeys: selectedUploadKeys,
               onChange: onUploadSelectChange,
@@ -714,6 +853,7 @@ function Classroom({ downloading, setDownloading }) {
       render: (urls) => {
         return urls.length
       },
+      searchable: false
     },
     {
       title: '下载路径',
@@ -872,8 +1012,8 @@ function Classroom({ downloading, setDownloading }) {
         </Row>
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
-        <Col xs={10} md={8}>
-          <Table
+        <Col xs={10} md={9} lg={8}>
+          <SearchTable
             rowSelection={{
               selectedRowKeys: selectedLeftKeys,
               onChange: setSelectedLeftKeys,
@@ -890,8 +1030,8 @@ function Classroom({ downloading, setDownloading }) {
             loading={loadingLeftSubList}
           />
         </Col>
-        <Col xs={14} md={16}>
-          <Table
+        <Col xs={14} md={15} lg={16}>
+          <SearchTable
             rowSelection={{
               selectedRowKeys: selectedRightKeys,
               onChange: setSelectedRightKeys,
