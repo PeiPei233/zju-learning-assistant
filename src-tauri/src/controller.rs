@@ -7,7 +7,7 @@ use chrono::NaiveDate;
 use futures::TryStreamExt;
 use log::{debug, info};
 use model::{DownloadState, Progress, Uploads};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{path::Path, process::Command, sync::Arc};
 use tauri::{State, Window};
 use tokio::io::AsyncWriteExt;
@@ -564,7 +564,7 @@ pub async fn get_sub_ppt_urls(
 pub async fn get_range_subs(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     download_state: State<'_, DownloadState>,
-    start_at: String,    // format: 2021-05-01
+    start_at: String, // format: 2021-05-01
     end_at: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_range_subs: {} {}", start_at, end_at);
@@ -646,4 +646,80 @@ pub async fn get_course_subs(
         subs.extend(sub);
     }
     Ok(subs)
+}
+
+#[tauri::command]
+pub async fn get_score(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
+    info!("get_score");
+    let mut zju_assist = state.lock().await;
+    let score = zju_assist
+        .get_score()
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(score)
+}
+
+#[tauri::command]
+pub async fn notify_score(
+    score: Value,
+    old_total_gp: f64,
+    old_total_credit: f64,
+    total_gp: f64,
+    total_credit: f64,
+    ding_url: String,
+) -> Result<(), String> {
+    info!("notify_score");
+
+    // TODO: Add bkcj support
+
+    let xkkh = score["xkkh"].as_str().unwrap();
+    let kcmc = score["kcmc"].as_str().unwrap();
+    let cj = score["cj"].as_str().unwrap();
+    let xf = score["xf"].as_str().unwrap();
+    let jd = score["jd"].as_str().unwrap();
+
+    let old_gpa = if old_total_credit == 0.0 {
+        0.0
+    } else {
+        old_total_gp / old_total_credit
+    };
+    let new_gpa = if total_credit == 0.0 {
+        0.0
+    } else {
+        total_gp / total_credit
+    };
+
+    if !ding_url.is_empty() {
+        let markdown_text = format!(
+            "### 考试成绩通知\n - **选课课号**\t{}\n - **课程名称**\t{}\n - **成绩**\t{}\n - **学分**\t{}\n - **绩点**\t{}\n - **成绩变化**\t{:.2}({:+.2}) / {:.1}({:+.1})",
+            xkkh, kcmc, cj, xf, jd, new_gpa, new_gpa - old_gpa, total_credit, total_credit - old_total_credit
+        );
+        info!("notify_score - ding md text: {}", markdown_text);
+        let json = json!({
+            "msgtype": "markdown",
+            "markdown": {
+                "title": "考试成绩通知",
+                "text": markdown_text
+            }
+        });
+        let client = reqwest::Client::new();
+        let res = client
+            .post(&ding_url)
+            .json(&json)
+            .send()
+            .await
+            .map_err(|err| err.to_string())?;
+        info!("notify_score - ding res: {:?}", res);
+    }
+
+    notify_rust::Notification::new()
+        .summary(&format!("考试成绩通知 - {}", kcmc))
+        .body(&format!(
+            "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
+            cj, xf, jd, new_gpa, new_gpa - old_gpa, total_credit, total_credit - old_total_credit
+        ))
+        .show()
+        .map_err(|err| err.to_string())?;
+
+    Ok(())
 }
