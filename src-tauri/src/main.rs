@@ -116,6 +116,8 @@ fn main() {
             controller::get_course_subs,
             controller::get_sub_ppt_urls,
             controller::get_month_subs,
+            controller::get_score,
+            controller::notify_score
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

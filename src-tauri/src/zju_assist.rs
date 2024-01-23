@@ -1,6 +1,8 @@
 use bytes::Bytes;
+use chrono::format::format;
 use futures::Stream;
 use log::info;
+use notify_rust::Hint;
 use num_bigint::BigUint;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
@@ -12,7 +14,9 @@ use serde::Serialize;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
+use url::Url;
 
 use crate::model::Subject;
 
@@ -20,6 +24,7 @@ use crate::model::Subject;
 pub struct ZjuAssist {
     jar: Arc<Jar>,
     have_login: bool,
+    username: String
 }
 
 pub struct ZjuRequestBuilder {
@@ -80,6 +85,20 @@ impl ZjuRequestBuilder {
         self
     }
 
+    pub fn timeout(&mut self, timeout: std::time::Duration) -> &mut Self {
+        self.request_builder = self
+            .request_builder
+            .try_clone()
+            .unwrap()
+            .timeout(timeout);
+        self.request_builder_no_proxy = self
+            .request_builder_no_proxy
+            .try_clone()
+            .unwrap()
+            .timeout(timeout);
+        self
+    }
+
     pub async fn send(&self) -> Result<Response, Error> {
         // total 6 retries, 3 with proxy, 3 without proxy
         let mut res = self.request_builder.try_clone().unwrap().send().await;
@@ -108,6 +127,7 @@ impl ZjuAssist {
         Self {
             jar: Arc::new(Jar::default()),
             have_login: false,
+            username: "".to_string()
         }
     }
 
@@ -208,7 +228,12 @@ impl ZjuAssist {
                 .get("https://tgmedia.cmc.zju.edu.cn/index.php?r=auth/login&auType=cmc&tenant_code=112&forward=https%3A%2F%2Fclassroom.zju.edu.cn%2F")
                 .send()
                 .await?;
+            self.post("https://zjuam.zju.edu.cn/cas/login?service=http://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
+            .send()
+            .await?;
             self.have_login = true;
+            self.username = username.to_string();
+
             Ok(())
         }
     }
@@ -655,6 +680,93 @@ impl ZjuAssist {
         }
         Ok(subs)
     }
+
+    fn get_auth_play_url(url: &str, id: &str, tenant_id: &str, phone: &str) -> String {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let revers_phone = phone.chars().rev().collect::<String>();
+        // t= id-timestamp-md5(uri+id+tenant_id+reverse(phone)+timestamp)
+        let resource_url = Url::parse(url).unwrap().path().to_string();
+        let key = format!(
+            "{}-{}-{:x}",
+            id,
+            timestamp,
+            md5::compute(format!(
+                "{}{}{}{}{}",
+                resource_url, id, tenant_id, revers_phone, timestamp
+            ))
+        );
+
+        if url.contains("?") {
+            format!("{}&t={}", url, key)
+        } else {
+            format!("{}?t={}", url, key)
+        }
+    }
+
+    pub async fn download_playback(&self, course_id: i64, sub_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        let res = self
+            .get(format!(
+                "https://classroom.zju.edu.cn/courseapi/v3/portal-home-setting/get-sub-info?course_id={}&sub_id={}",
+                course_id, sub_id
+            ))
+            .send()
+            .await?;
+        let json: Value = res.json().await?;
+        let url = json["data"]["content"]["save_playback"]["contents"]
+            .as_str()
+            .unwrap();
+
+        let res = self
+            .get("https://classroom.zju.edu.cn/userapi/v1/infosimple")
+            .send()
+            .await?;
+        let json: Value = res.json().await?;
+        println!("{}", json["params"]);
+        let id = json["params"]["id"].as_i64().unwrap().to_string();
+        let tenant_id = json["params"]["tenant_id"].as_i64().unwrap().to_string();
+        let phone = json["params"]["phone"].as_str().unwrap();
+
+        let url = Self::get_auth_play_url(url, &id, &tenant_id, phone);
+        let res = self.get(url).send().await?;
+        let content = res.bytes().await?;
+
+        let mut file = File::create("test.mp4")?;
+        file.write_all(&content)?;
+
+        Ok(())
+    }
+
+    pub async fn get_score(&mut self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+
+        let data = [
+            ("xn", ""),
+            ("xq", ""),
+            ("zscjl", ""),
+            ("zscjr", ""),
+            ("_search", ""),
+            ("nd", &SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis().to_string()),
+            ("queryModel.showCount", "5000"),
+            ("queryModel.currentPage", "1"),
+            ("queryModel.sortName", "xkkh"),
+            ("queryModel.sortOrder", "asc"),
+            ("time", "0")
+        ];
+
+        let res = self.post(format!("http://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
+            .form(&data)
+            .send()
+            .await?;
+        let text = res.text().await?;
+        info!("{}", text);
+        let json: Value = serde_json::from_str(&text)?;
+        let score = json["items"].as_array().unwrap();
+
+        Ok(score.iter().cloned().collect())
+    }
+
 }
 
 pub async fn get<T: IntoUrl + Clone>(url: T) -> Result<Response, Error> {
