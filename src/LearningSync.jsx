@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from 'react'
-import { Button, Card, App, Row, Col, Progress, Tooltip, Typography, Menu, Layout, Radio, DatePicker, Checkbox } from 'antd';
+import { Form, Button, Card, App, Row, Col, Progress, Tooltip, Typography, Switch, Radio } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { ReloadOutlined, DownloadOutlined, CloseCircleOutlined, EditOutlined, ExportOutlined, LogoutOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DownloadOutlined, CloseCircleOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event'
 import { dialog, shell } from '@tauri-apps/api';
-import { formatTime } from './utils'
+import { bytesToSize, formatTime } from './utils'
 import SearchTable from './SearchTable'
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -12,21 +12,17 @@ import 'dayjs/locale/zh-cn';
 dayjs.locale('zh-cn')
 
 const { Text } = Typography
-const { Header, Content, Footer, Sider } = Layout;
-const { RangePicker } = DatePicker;
 
 export default function LearningSync({ downloading, setDownloading }) {
-
   const { message, modal, notification } = App.useApp()
 
-  const [selectedDateMethod, setSelectedDateMethod] = useState('week')
-  const [printPDF, setPrintPDF] = useState(true)
-  const [leftSubList, setLeftSubList] = useState([])
-  const [rightSubList, setRightSubList] = useState([])
-  const [selectedLeftKeys, setSelectedLeftKeys] = useState([])
-  const [selectedRightKeys, setSelectedRightKeys] = useState([])
-  const [loadingLeftSubList, setLoadingLeftSubList] = useState(false)
-  const [loadingRightSubList, setLoadingRightSubList] = useState(false)
+  const [courseList, setCourseList] = useState([])
+  const [loadingCourseList, setLoadingCourseList] = useState(false)
+  const [selectedCourses, setSelectedCourses] = useState([])
+  const [selectedCourseKeys, setSelectedCourseKeys] = useState([])
+  const [loadingUploadList, setLoadingUploadList] = useState(false)
+  const [uploadList, setUploadList] = useState([])
+  const [selectedUploadKeys, setSelectedUploadKeys] = useState([])
   const [updatingPath, setUpdatingPath] = useState(false)
   const latestProgress = useRef({
     status: null,
@@ -41,21 +37,57 @@ export default function LearningSync({ downloading, setDownloading }) {
   const startDownloadTime = useRef(0)
   const [downloadDescription, setDownloadDescription] = useState('下载进度')
   const [downloadPercent, setDownloadPercent] = useState(0)
+  const [speed, setSpeed] = useState(0)
   const [timeRemaining, setTimeRemaining] = useState(0)
   const [downloadedSize, setDownloadedSize] = useState(0)
   const [totalSize, setTotalSize] = useState(0)
+  const [selectedSyncOption, setSelectedSyncOption] = useState('sync')
+  const [syncing, setSyncing] = useState(false)
+  const [lastSync, setLastSync] = useState(null)
+  const [downloadingSync, setDownloadingSync] = useState(false)
+
+  const syncTimer = useRef(null)
+  const selectedCourseKeysRef = useRef(selectedCourseKeys)
 
   useEffect(() => {
+    selectedCourseKeysRef.current = selectedCourseKeys
+  }, [selectedCourseKeys])
+
+  const courseColumns = [
+    {
+      title: '课程名称',
+      dataIndex: 'name',
+    },
+  ]
+
+  useEffect(() => {
+    setLoadingCourseList(true)
+    invoke('get_courses').then((res) => {
+      // console.log(res)
+      setCourseList(res)
+      setSelectedCourses(res.map((item) => {
+        return {
+          key: item.id,
+          name: item.name
+        }
+      }))
+    }).catch((err) => {
+      notification.error({
+        message: '获取课程列表失败',
+        description: err
+      })
+    }).finally(() => {
+      setLoadingCourseList(false)
+    })
+
     const unlisten = listen('download-progress', (res) => {
-      // console.log(res.payload)
       const progress = res.payload
       latestProgress.current = progress
       setTotalSize(progress.total_size)
       setDownloadDescription(
         progress.status === 'downloading' ? `正在下载 ${progress.current}/${progress.total} | ${progress.file_name}` :
           progress.status === 'done' ? '下载完成' :
-            progress.status === 'cancel' ? '下载已取消' :
-              progress.status === 'writing' ? `正在导出 PDF ${progress.current}/${progress.total} | ${progress.file_name}` : '下载进度'
+            progress.status === 'cancel' ? '下载已取消' : '下载进度'
       )
     })
 
@@ -63,10 +95,12 @@ export default function LearningSync({ downloading, setDownloading }) {
       const currentTime = Date.now()
       const elapsedTime = currentTime - startTime.current
       if (elapsedTime > 0) {
+        const newSpeed = (latestProgress.current.downloaded_size - lastDownloadedSize.current) / elapsedTime * 1000
         const totalSpeed = latestProgress.current.downloaded_size / (currentTime - startDownloadTime.current) * 1000
         const newTimeRemaining = (latestProgress.current.total_size - latestProgress.current.downloaded_size) / totalSpeed
         const newDownloadPercent = latestProgress.current.downloaded_size / latestProgress.current.total_size * 100
-        if (!isNaN(totalSpeed) && isFinite(newTimeRemaining)) {
+        if (newSpeed && !isNaN(newSpeed)) {
+          setSpeed(newSpeed)
           setTimeRemaining(newTimeRemaining)
           setDownloadPercent(newDownloadPercent)
           setDownloadedSize(latestProgress.current.downloaded_size)
@@ -83,192 +117,39 @@ export default function LearningSync({ downloading, setDownloading }) {
 
   }, [])
 
-  const selectDateMethodOptions = [
-    {
-      label: '日',
-      value: 'day'
-    },
-    {
-      label: '周',
-      value: 'week'
-    },
-    {
-      label: '月',
-      value: 'month'
-    },
-  ]
-
-  const changeDateMethod = (value) => {
-    setSelectedDateMethod(value.target.value)
-  }
-
-  const changeDateRange = (value) => {
-    const startAt = selectedDateMethod === 'day' ? value[0].format('YYYY-MM-DD') :
-      selectedDateMethod === 'week' ? value.startOf('week').format('YYYY-MM-DD') :
-        value.startOf('month').format('YYYY-MM-DD')
-    const endAt = selectedDateMethod === 'day' ? value[1].format('YYYY-MM-DD') :
-      selectedDateMethod === 'week' ? value.endOf('week').format('YYYY-MM-DD') :
-        value.endOf('month').format('YYYY-MM-DD')
-    setLoadingLeftSubList(true)
-    invoke('get_range_subs', { startAt, endAt }).then((res) => {
-      // console.log(res)
-      setLeftSubList(res)
-      setSelectedLeftKeys([])
-    }).catch((err) => {
-      notification.error({
-        message: '获取课程列表失败',
-        description: err
-      })
-    }).finally(() => {
-      setLoadingLeftSubList(false)
-    })
-  }
-
-  const updateRightSubList = () => {
-    let subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.sub_id))
-    if (subs.length === 0) {
-      notification.error({
-        message: '请选择课程',
-      })
-      return
-    }
-    setLoadingRightSubList(true)
-    invoke('get_sub_ppt_urls', { subs }).then((res) => {
-      console.log(res)
-      const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
-      if (subs.length === 0) {
-        notification.error({
-          message: '没有发现智云 PPT',
-        })
-      }
-      setRightSubList(subs)
-      setSelectedRightKeys(subs.map((item) => item.sub_id))
-    }).catch((err) => {
-      notification.error({
-        message: '获取课件列表失败',
-        description: err
-      })
-    }).finally(() => {
-      setLoadingRightSubList(false)
-    })
-  }
-
-  const changePrintPDF = (value) => {
-    // console.log(value)
-    setPrintPDF(value.target.checked)
-  }
-
-  const openDownloadPath = () => {
-    invoke('open_save_path').then((res) => {
-    }).catch((err) => {
-      notification.error({
-        message: '打开下载路径失败',
-        description: err
-      })
-    })
-  }
-
-  const leftColumns = [
-    {
-      dataIndex: 'course_name',
-      title: '课程名称',
-    },
-    {
-      dataIndex: 'sub_name',
-      title: '上课时间',
-    },
-  ];
-
-  const rightColumns = [
-    {
-      dataIndex: 'sub_name',
-      title: '上课时间',
-    },
-    {
-      dataIndex: 'ppt_image_urls',
-      title: '页数',
-      render: (urls) => {
-        return urls.length
-      },
-      searchable: false
-    },
-    {
-      title: '下载路径',
-      dataIndex: 'path',
-    }
-  ];
-
-  const updatePath = () => {
-    dialog.open({
-      directory: true,
-      multiple: false,
-      message: '选择下载路径'
-    }).then((res) => {
-      if (res && res.length !== 0) {
-        setUpdatingPath(true)
-        invoke('update_path', { path: res, uploads: rightSubList }).then((res) => {
-          // console.log(res)
-          notification.success({
-            message: '下载路径修改成功',
-          })
-          setRightSubList(res)
-        }).catch((err) => {
-          notification.error({
-            message: '下载路径修改失败',
-            description: err
-          })
-        }).finally(() => {
-          setUpdatingPath(false)
-        })
-      }
-    }).catch((err) => {
-      notification.error({
-        message: '下载路径修改失败',
-        description: err
-      })
-    })
-  }
-
-  const cancelDownload = () => {
-    invoke('cancel_download').then((res) => {
-      // console.log(res)
-      setDownloading(false)
-    }).catch((err) => {
-      notification.error({
-        message: '取消下载失败',
-        description: err
-      })
-    })
-  }
-
-  const downloadSubsPPT = () => {
-    let subs = rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id))
-    if (subs.length === 0) {
+  const downloadUploads = () => {
+    let uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id))
+    if (uploads.length === 0) {
       notification.error({
         message: '请选择课件',
       })
       return
     }
-    setDownloading(true)
+    setDownloadingSync(true)
     setDownloadedSize(0)
     setTotalSize(0)
     startTime.current = Date.now()
     startDownloadTime.current = Date.now()
     lastDownloadedSize.current = 0
     setDownloadPercent(0)
-    setTimeRemaining(Infinity)
+    setSpeed(0)
+    setTimeRemaining(0)
     setDownloadDescription('正在下载')
-    invoke('download_ppts', { subs: subs, toPdf: printPDF }).then((res) => {
+    invoke('download_uploads', { uploads, syncUpload: true }).then((res) => {
       // console.log(res)
-      if (res.length === selectedRightKeys.length) {
+      if (res.length === selectedUploadKeys.length) {
         notification.success({
           message: '下载完成',
         })
         setDownloadPercent(100)
+      } else {
+        notification.error({
+          message: '部分课件下载失败',
+        })
       }
-      let haveDownloaded = res.map((item) => item.sub_id)
-      setSelectedRightKeys(selectedRightKeys.filter((item) => !haveDownloaded.includes(item)))
-      setRightSubList(rightSubList.filter((item) => !haveDownloaded.includes(item.sub_id)))
+      let haveDownloaded = res.map((item) => item.reference_id)
+      setSelectedUploadKeys(selectedUploadKeys.filter((item) => !haveDownloaded.includes(item)))
+      setUploadList(uploadList.filter((item) => !haveDownloaded.includes(item.reference_id)))
       latestProgress.current = {
         status: null,
         file_name: null,
@@ -278,6 +159,7 @@ export default function LearningSync({ downloading, setDownloading }) {
         total: 0
       }
       lastDownloadedSize.current = 0
+      setSpeed(0)
       setDownloadedSize(0)
       setTotalSize(0)
     }).catch((err) => {
@@ -285,131 +167,291 @@ export default function LearningSync({ downloading, setDownloading }) {
         message: '下载失败',
         description: err
       })
-      setDownloadDescription(`下载失败：${err}`)
     }).finally(() => {
-      setDownloading(false)
+      setDownloadingSync(false)
     })
+  }
+
+  const onSelectChange = (newSelectedRowKeys) => {
+    // console.log('selectedRowKeys changed: ', newSelectedRowKeys);
+    setSelectedCourseKeys(newSelectedRowKeys)
+  };
+
+  const onUploadSelectChange = (newSelectedRowKeys) => {
+    // console.log('selectedRowKeys changed: ', newSelectedRowKeys);
+    setSelectedUploadKeys(newSelectedRowKeys)
+  }
+
+  const updateUploadList = () => {
+    stopSync()
+    startSync()
+  }
+
+  const cancelDownload = () => {
+    invoke('cancel_download').then((res) => {
+      // console.log(res)
+      setDownloadingSync(false)
+    }).catch((err) => {
+      notification.error({
+        message: '取消下载失败',
+        description: err
+      })
+    })
+  }
+
+  const updatePath = () => {
+    dialog.open({
+      directory: true,
+      multiple: false,
+      message: '选择同步路径'
+    }).then((res) => {
+      if (res && res.length !== 0) {
+        setUpdatingPath(true)
+        invoke('update_path', { path: res, uploads: [] }).then((res) => {
+          // console.log(res)
+          notification.success({
+            message: '同步路径修改成功',
+          })
+          setUploadList([])
+          updateUploadList()
+        }).catch((err) => {
+          notification.error({
+            message: '同步路径修改失败',
+            description: err
+          })
+        }).finally(() => {
+          setUpdatingPath(false)
+        })
+      }
+    }).catch((err) => {
+      notification.error({
+        message: '同步路径修改失败',
+        description: err
+      })
+    })
+  }
+
+  const openDownloadPath = () => {
+    invoke('open_save_path').then((res) => {
+    }).catch((err) => {
+      notification.error({
+        message: '打开同步路径失败',
+        description: err
+      })
+    })
+  }
+
+  const startSync = () => {
+    const syncFunc = () => {
+      if (downloadingSync) return
+      console.log(selectedCourseKeysRef.current)
+      let courses = courseList.filter((item) => selectedCourseKeysRef.current.includes(item.id))
+      setLoadingUploadList(true)
+      invoke('get_uploads_list', { courses, syncUpload: true }).then((uploads) => {
+        // console.log(uploads)
+        if (selectedSyncOption === 'sync') {
+          setUploadList(uploads)
+          setSelectedUploadKeys(uploads.map((item) => item.reference_id))
+        } else {
+          setDownloadingSync(true)
+          setDownloadedSize(0)
+          setTotalSize(0)
+          startTime.current = Date.now()
+          startDownloadTime.current = Date.now()
+          lastDownloadedSize.current = 0
+          setDownloadPercent(0)
+          setSpeed(0)
+          setTimeRemaining(0)
+          setDownloadDescription('正在下载')
+          invoke('download_uploads', { uploads, syncUpload: true }).then((res) => {
+            if (res.length === uploads.length) {
+              notification.success({
+                message: '下载完成',
+              })
+              setDownloadPercent(100)
+            } else {
+              notification.error({
+                message: '部分课件下载失败',
+              })
+            }
+            latestProgress.current = {
+              status: null,
+              file_name: null,
+              downloaded_size: 0,
+              total_size: 0,
+              current: 0,
+              total: 0
+            }
+            lastDownloadedSize.current = 0
+            setSpeed(0)
+            setDownloadedSize(0)
+            setTotalSize(0)
+            // extend uploadList with new downloaded reference_id
+            const newDownloaded = res.filter((item) => !uploadList.map((item) => item.reference_id).includes(item.reference_id))
+            setUploadList([...newDownloaded, ...uploadList])
+          }).catch((err) => {
+            notification.error({
+              message: '下载失败',
+              description: err
+            })
+          }).finally(() => {
+            setDownloadingSync(false)
+          })
+        }
+        setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'))
+      }).catch((err) => {
+        notification.error({
+          message: '获取课件列表失败',
+          description: err
+        })
+      }).finally(() => {
+        const nextSync = Math.floor(Math.random() * 120000) + 180000
+        syncTimer.current = setTimeout(syncFunc, nextSync)
+        setLoadingUploadList(false)
+      })
+    }
+    syncFunc()
+  }
+
+  const stopSync = () => {
+    clearTimeout(syncTimer.current)
+    syncTimer.current = null
+  }
+
+  const uploadColumns = [
+    {
+      title: '文件名',
+      dataIndex: 'file_name',
+    },
+    {
+      title: '大小',
+      dataIndex: 'size',
+      render: (size) => {
+        return bytesToSize(size)
+      },
+      searchable: false
+    },
+    {
+      title: '同步路径',
+      dataIndex: 'path',
+    },
+  ]
+
+  const syncOptions = [
+    { label: '自动下载', value: 'download' },
+    { label: '同步至下载队列', value: 'sync' },
+  ]
+
+  const handleSwitch = (checked) => {
+    setSyncing(checked)
+    setDownloading(checked)
+    if (checked) {
+      startSync()
+    } else {
+      stopSync()
+    }
+  }
+
+  const changeSyncOption = (e) => {
+    setUploadList([])
+    setSelectedSyncOption(e.target.value)
   }
 
   return (
     <div style={{ margin: 20 }}>
       <Card bodyStyle={{ padding: 15 }}>
-        <Row align='middle' justify='space-between' gutter={20}>
-          <Col xs={12} md={14}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'start',
-              flexDirection: 'row'
-            }}>
-              <Radio.Group
-                options={selectDateMethodOptions}
-                onChange={changeDateMethod}
-                value={selectedDateMethod}
-                optionType="button"
-                buttonStyle="solid"
-                size='small'
-                style={{ minWidth: 100 }}
-              />
-              {selectedDateMethod === 'day' && <RangePicker
-                size='small'
-                onChange={changeDateRange}
-                disabled={loadingLeftSubList}
-              />}
-              {selectedDateMethod === 'week' && <DatePicker
-                picker='week'
-                size='small'
-                onChange={changeDateRange}
-                disabled={loadingLeftSubList}
-              />}
-              {selectedDateMethod === 'month' && <DatePicker
-                picker='month'
-                size='small'
-                onChange={changeDateRange}
-                disabled={loadingLeftSubList}
-              />}
-            </div>
-          </Col>
-          <Col xs={12} md={10}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'end',
-              flexDirection: 'row'
-            }}>
-              <Checkbox style={{ marginRight: 10 }} onChange={changePrintPDF} checked={printPDF} disabled={downloading}>导出为 PDF</Checkbox>
-              <Button
-                type='primary'
-                icon={downloading ? <CloseCircleOutlined /> : <DownloadOutlined />}
-                onClick={downloading ? cancelDownload : downloadSubsPPT}
-                disabled={loadingRightSubList}
-              >{downloading ? '取消下载' : '下载课件'}</Button>
-            </div>
-          </Col>
-        </Row>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }} >
+          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
+            <Text style={{ minWidth: 70 }}>自动同步：</Text>
+            <Switch checked={syncing} onChange={handleSwitch} disabled={downloadingSync}/>
+            <Text style={{ minWidth: 105, marginLeft: 30 }}>检测到更新后：</Text>
+            <Radio.Group
+              options={syncOptions}
+              onChange={changeSyncOption}
+              value={selectedSyncOption}
+              optionType="button"
+              disabled={downloadingSync}
+            />
+          </div>
+          {selectedSyncOption === 'sync' && <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
+            <Button
+              type='primary'
+              icon={downloadingSync ? <CloseCircleOutlined /> : <DownloadOutlined />}
+              onClick={downloadingSync ? cancelDownload : downloadUploads}
+              disabled={loadingUploadList}
+            >{downloadingSync ? '取消下载' : '下载课件'}</Button>
+          </div>}
+        </div>
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
         <Col xs={10} md={9} lg={8}>
           <SearchTable
             rowSelection={{
-              selectedRowKeys: selectedLeftKeys,
-              onChange: setSelectedLeftKeys,
+              selectedRowKeys: selectedCourseKeys,
+              onChange: onSelectChange,
             }}
-            rowKey='sub_id'
-            columns={leftColumns}
-            dataSource={leftSubList}
+            columns={courseColumns}
+            dataSource={selectedCourses}
+            loading={loadingCourseList}
             pagination={false}
             scroll={{ y: 'calc(100vh - 335px)' }}
             size='small'
             bordered
-            footer={() => { return '' }}
-            title={() => `课程列表：已选择 ${selectedLeftKeys.length} 门课程`}
-            loading={loadingLeftSubList}
+            footer={() => ''}
+            title={() => `课程列表：已订阅 ${selectedCourseKeys.length} 门课程`}
           />
         </Col>
         <Col xs={14} md={15} lg={16}>
           <SearchTable
-            rowSelection={{
-              selectedRowKeys: selectedRightKeys,
-              onChange: setSelectedRightKeys,
+            rowSelection={selectedSyncOption === 'sync' && {
+              selectedRowKeys: selectedUploadKeys,
+              onChange: onUploadSelectChange,
             }}
-            rowKey='sub_id'
-            columns={rightColumns}
-            dataSource={rightSubList}
+            rowKey='reference_id'
+            columns={uploadColumns}
+            dataSource={uploadList}
+            loading={loadingUploadList || updatingPath || (selectedSyncOption === 'sync' && downloadingSync)}
             pagination={false}
-            scroll={{ y: 'calc(100vh - 335px)' }}
+            scroll={{ y: 'calc(100vh - 357px)' }}
             size='small'
             bordered
-            footer={() => { return '' }}
-            loading={loadingRightSubList || downloading || updatingPath}
+            footer={() => `最后同步时间：${lastSync ? lastSync : '未同步'}`}
             title={() => {
               return (
                 <>
-                  {rightSubList && rightSubList.length !== 0 && <Text ellipsis={{ rows: 1, expandable: false }} style={{ width: 'calc(100% - 80px)' }}>
-                    课件列表：已选择 {selectedRightKeys.length} 个课件 共 {rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id)).reduce((total, item) => {
-                      return total + item.ppt_image_urls.length
-                    }, 0)} 页</Text>}
-                  {(rightSubList && rightSubList.length === 0) && '课件列表为空  点击右侧刷新👉'}
+                  {selectedSyncOption === 'sync' && uploadList && uploadList.length !== 0 && <Text ellipsis={{ rows: 1, expandable: false }} style={{ width: 'calc(100% - 80px)' }}>
+                    下载队列：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => {
+                      return total + item.size
+                    }, 0))}
+                  </Text>}
+                  {selectedSyncOption === 'sync' && (!uploadList || uploadList.length === 0) && '下载队列：暂无文件'}
+                  {selectedSyncOption === 'download' && `已同步 ${uploadList.length} 个文件 共 ${bytesToSize(uploadList.reduce((total, item) => {
+                    return total + item.size
+                  }, 0))}`}
                   <div style={{ float: 'right' }}>
-                    <Tooltip title='刷新课件列表'>
+                    <Tooltip title='立即同步'>
                       <Button
                         type='text'
                         size='small'
                         icon={<ReloadOutlined />}
-                        onClick={updateRightSubList}
-                        loading={loadingRightSubList}
-                        disabled={downloading}
+                        onClick={updateUploadList}
+                        loading={loadingUploadList || downloadingSync}
                       />
                     </Tooltip>
-                    <Tooltip title='修改下载路径'>
+                    <Tooltip title='修改同步路径'>
                       <Button
                         type='text'
                         size='small'
                         icon={<EditOutlined />}
                         onClick={updatePath}
+                        disabled={loadingUploadList || updatingPath || downloadingSync}
                       />
                     </Tooltip>
-                    <Tooltip title='打开下载路径'>
+                    <Tooltip title='打开同步路径'>
                       <Button
                         type='text'
                         size='small'
@@ -446,7 +488,8 @@ export default function LearningSync({ downloading, setDownloading }) {
           bottom: 40,
           width: 'calc(50% - 70px)',
           textAlign: 'right'
-        }}>{downloading && totalSize && totalSize !== 0 && !isNaN(totalSize) && !isNaN(timeRemaining) && isFinite(timeRemaining) ? `PPTs: ${downloadedSize}/${totalSize} | 预计剩余 ${formatTime(timeRemaining)}` : ''}</Text>
+        }}>{downloading && totalSize !== 0 && !isNaN(totalSize) && speed === 0 ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | 0 B/s` :
+          downloading && totalSize !== 0 && !isNaN(totalSize) ? `${bytesToSize(downloadedSize)} / ${bytesToSize(totalSize)} | ${bytesToSize(speed)}/s 剩余 ${formatTime(timeRemaining)}` : ''}</Text>
       <Progress percent={downloadPercent}
         format={(percent) => Math.floor(percent) + '%'}
         style={{

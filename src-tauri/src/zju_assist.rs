@@ -1,8 +1,4 @@
-use bytes::Bytes;
-use chrono::format::format;
-use futures::Stream;
-use log::info;
-use notify_rust::Hint;
+use log::{debug, info};
 use num_bigint::BigUint;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
@@ -12,7 +8,6 @@ use reqwest::{Client, Method, RequestBuilder, Response};
 use reqwest::{Error, IntoUrl};
 use serde::Serialize;
 use serde_json::Value;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
@@ -24,7 +19,8 @@ use crate::model::Subject;
 pub struct ZjuAssist {
     jar: Arc<Jar>,
     have_login: bool,
-    username: String
+    username: String,
+    password: String,
 }
 
 pub struct ZjuRequestBuilder {
@@ -86,11 +82,7 @@ impl ZjuRequestBuilder {
     }
 
     pub fn timeout(&mut self, timeout: std::time::Duration) -> &mut Self {
-        self.request_builder = self
-            .request_builder
-            .try_clone()
-            .unwrap()
-            .timeout(timeout);
+        self.request_builder = self.request_builder.try_clone().unwrap().timeout(timeout);
         self.request_builder_no_proxy = self
             .request_builder_no_proxy
             .try_clone()
@@ -127,7 +119,8 @@ impl ZjuAssist {
         Self {
             jar: Arc::new(Jar::default()),
             have_login: false,
-            username: "".to_string()
+            username: "".to_string(),
+            password: "".to_string(),
         }
     }
 
@@ -233,6 +226,7 @@ impl ZjuAssist {
             .await?;
             self.have_login = true;
             self.username = username.to_string();
+            self.password = password.to_string();
 
             Ok(())
         }
@@ -241,6 +235,8 @@ impl ZjuAssist {
     pub fn logout(&mut self) {
         self.jar = Arc::new(Jar::default());
         self.have_login = false;
+        self.username = "".to_string();
+        self.password = "".to_string();
     }
 
     pub fn is_login(&self) -> bool {
@@ -371,13 +367,10 @@ impl ZjuAssist {
         Ok(())
     }
 
-    pub async fn get_uploads_stream_and_path(
+    pub async fn get_uploads_response(
         &self,
         reference_id: i64,
-        name: &str,
-        path: &str,
-    ) -> Result<(impl Stream<Item = Result<Bytes, Error>>, PathBuf), Box<dyn std::error::Error>>
-    {
+    ) -> Result<Response, Box<dyn std::error::Error>> {
         let res = self
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
@@ -385,7 +378,6 @@ impl ZjuAssist {
             ))
             .send()
             .await?;
-        let mut filename = name.to_string();
         // if the upload is not allowed to download, then get the preview url
         let res = match res.status().is_success() {
             true => res,
@@ -395,20 +387,11 @@ impl ZjuAssist {
                     .await?;
                 let json: Value = res.json().await?;
                 let url = json["url"].as_str().unwrap();
-                if let Some(start) = url.find("name=") {
-                    let start = start + 5;
-                    let end = url[start..].find("&").unwrap_or(url.len() - start);
-                    filename = percent_decode_str(&url[start..start + end])
-                        .decode_utf8_lossy()
-                        .to_string();
-                }
                 self.get(url).send().await?
             }
         };
-        std::fs::create_dir_all(Path::new(path))?;
-        let filepath = Path::new(path).join(filename);
-        let content = res.bytes_stream();
-        Ok((content, filepath))
+
+        Ok(res)
     }
 
     pub async fn get_academic_year_list(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
@@ -706,7 +689,11 @@ impl ZjuAssist {
         }
     }
 
-    pub async fn download_playback(&self, course_id: i64, sub_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn download_playback(
+        &self,
+        course_id: i64,
+        sub_id: i64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let res = self
             .get(format!(
                 "https://classroom.zju.edu.cn/courseapi/v3/portal-home-setting/get-sub-info?course_id={}&sub_id={}",
@@ -740,19 +727,25 @@ impl ZjuAssist {
     }
 
     pub async fn get_score(&mut self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
-
         let data = [
             ("xn", ""),
             ("xq", ""),
             ("zscjl", ""),
             ("zscjr", ""),
             ("_search", ""),
-            ("nd", &SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis().to_string()),
+            (
+                "nd",
+                &SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+                    .to_string(),
+            ),
             ("queryModel.showCount", "5000"),
             ("queryModel.currentPage", "1"),
             ("queryModel.sortName", "xkkh"),
             ("queryModel.sortOrder", "asc"),
-            ("time", "0")
+            ("time", "0"),
         ];
 
         let res = self.post(format!("http://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
@@ -760,13 +753,33 @@ impl ZjuAssist {
             .send()
             .await?;
         let text = res.text().await?;
-        info!("{}", text);
-        let json: Value = serde_json::from_str(&text)?;
-        let score = json["items"].as_array().unwrap();
+        let json = serde_json::from_str(&text);
+        if json.is_err() {
+            let username = self.username.clone();
+            let password = self.password.clone();
+            self.logout();
+            self.login(&username, &password).await?;
 
-        Ok(score.iter().cloned().collect())
+            let res = self.post(format!("http://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
+                .form(&data)
+                .send()
+                .await?;
+            let text = res.text().await?;
+            debug!("{}", text);
+            let json = serde_json::from_str(&text);
+            if json.is_err() {
+                return Err("Get score failed".into());
+            } else {
+                let json: Value = json.unwrap();
+                let score = json["items"].as_array().unwrap();
+                return Ok(score.iter().cloned().collect());
+            }
+        } else {
+            let json: Value = json.unwrap();
+            let score = json["items"].as_array().unwrap();
+            return Ok(score.iter().cloned().collect());
+        }
     }
-
 }
 
 pub async fn get<T: IntoUrl + Clone>(url: T) -> Result<Response, Error> {

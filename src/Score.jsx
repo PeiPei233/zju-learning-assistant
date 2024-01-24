@@ -1,10 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
-import { Button, Card, App, Row, Col, Progress, Tooltip, Typography, Menu, Layout, Radio, DatePicker, Checkbox, Input, Switch, Table } from 'antd';
+import { Button, Card, App, Typography, Input, Switch } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { ReloadOutlined } from '@ant-design/icons';
-import { listen } from '@tauri-apps/api/event'
-import { dialog, shell } from '@tauri-apps/api';
-import { formatTime } from './utils'
+import { SyncOutlined } from '@ant-design/icons';
 import SearchTable from './SearchTable'
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -12,7 +9,6 @@ import 'dayjs/locale/zh-cn';
 dayjs.locale('zh-cn')
 
 const { Text } = Typography
-const { RangePicker } = DatePicker;
 
 export default function Score({ downloading, setDownloading }) {
 
@@ -23,13 +19,15 @@ export default function Score({ downloading, setDownloading }) {
   const [dingUrl, setDingUrl] = useState('')
   const [notify, setNotify] = useState(false)
   const [lastSync, setLastSync] = useState(null)
+  const [totalGp, setTotalGp] = useState(0)
+  const [totalCredit, setTotalCredit] = useState(0)
 
   const syncTimer = useRef(null)
 
   function notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit) {
-    // if (!notify) {
-    //   return
-    // }
+    if (!notify) {
+      return
+    }
     invoke('notify_score', {
       score: item,
       oldTotalGp,
@@ -45,10 +43,10 @@ export default function Score({ downloading, setDownloading }) {
     })
   }
 
-  function handleScoreChange(oldScore, newScore) {
-    // if (!notify) {
-    //   return
-    // }
+  function updateScore(newScore) {
+    const oldScore = score
+    setScore(newScore)
+    setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'))
 
     let totalGp = 0
     let totalCredit = 0
@@ -86,6 +84,9 @@ export default function Score({ downloading, setDownloading }) {
         notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit)
       }
     })
+
+    setTotalGp(totalGp)
+    setTotalCredit(totalCredit)
   }
 
   // sync every 3 to 5 minutes
@@ -93,10 +94,7 @@ export default function Score({ downloading, setDownloading }) {
     const syncFunc = () => {
       setLoading(true)
       invoke('get_score').then((res) => {
-        const oldScore = score
-        setScore(res)
-        handleScoreChange(oldScore, res)
-        setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'))
+        updateScore(res)
       }).catch((err) => {
         notification.error({
           message: '成绩同步失败',
@@ -119,10 +117,7 @@ export default function Score({ downloading, setDownloading }) {
 
   useEffect(() => {
     invoke('get_score').then((res) => {
-      const oldScore = score
-      setScore(res)
-      handleScoreChange(oldScore, res)
-      setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'))
+      updateScore(res)
     }).catch((err) => {
       notification.error({
         message: '获取成绩失败',
@@ -136,10 +131,7 @@ export default function Score({ downloading, setDownloading }) {
   const handleSync = () => {
     setLoading(true)
     invoke('get_score').then((res) => {
-      const oldScore = score
-      setScore(res)
-      handleScoreChange(oldScore, res)
-      setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'))
+      updateScore(res)
       notification.success({
         message: '成绩同步成功',
       })
@@ -155,6 +147,7 @@ export default function Score({ downloading, setDownloading }) {
 
   const handleSwitch = (checked) => {
     setNotify(checked)
+    setDownloading(checked)
     if (checked) {
       startSync()
     } else {
@@ -179,21 +172,36 @@ export default function Score({ downloading, setDownloading }) {
       dataIndex: 'cj',
       width: 65,
       searchable: false,
-      sorter: (a, b) => a.cj.localeCompare(b.cj),
+      sorter: (a, b) => {
+        if (isNaN(parseInt(a.cj)) || isNaN(parseInt(b.cj))) {
+          return a.cj.localeCompare(b.cj)
+        }
+        return parseInt(a.cj) - parseInt(b.cj)
+      }
     },
     {
       title: '学分',
       dataIndex: 'xf',
       width: 65,
       searchable: false,
-      sorter: (a, b) => a.cj.localeCompare(b.cj),
+      sorter: (a, b) => {
+        if (isNaN(parseFloat(a.xf)) || isNaN(parseFloat(b.xf))) {
+          return a.xf.localeCompare(b.xf)
+        }
+        return parseFloat(a.xf) - parseFloat(b.xf)
+      }
     },
     {
       title: '绩点',
       dataIndex: 'jd',
       width: 65,
       searchable: false,
-      sorter: (a, b) => a.cj.localeCompare(b.cj),
+      sorter: (a, b) => {
+        if (isNaN(parseFloat(a.jd)) || isNaN(parseFloat(b.jd))) {
+          return a.jd.localeCompare(b.jd)
+        }
+        return parseFloat(a.jd) - parseFloat(b.jd)
+      }
     },
     {
       title: '补考成绩',
@@ -210,9 +218,7 @@ export default function Score({ downloading, setDownloading }) {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-
-        }}
-        >
+        }} >
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
             <Text style={{ minWidth: 115 }}>钉钉 Webhook：</Text>
             <Input value={dingUrl} onChange={(e) => setDingUrl(e.target.value)} />
@@ -222,7 +228,7 @@ export default function Score({ downloading, setDownloading }) {
             <Switch loading={loading} checked={notify} onChange={handleSwitch} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-            <Button type='primary' icon={<ReloadOutlined />} loading={loading} onClick={handleSync}>立即同步</Button>
+            <Button type='primary' icon={<SyncOutlined />} loading={loading} onClick={handleSync}>{loading ? '正在同步' : '立即同步'}</Button>
           </div>
         </div>
       </Card>
@@ -234,7 +240,9 @@ export default function Score({ downloading, setDownloading }) {
         scroll={{ y: 'calc(100vh - 255px)' }}
         size='small'
         bordered
-        footer={() => `最后同步时间：${lastSync ? lastSync : '未同步'}，共 ${score.length} 条记录`}
+        footer={() => `最后同步时间：${lastSync ? lastSync : '未同步'}，共 ${score.length} 条记录，总绩点 ${(
+          totalCredit === 0 ? 0 : totalGp / totalCredit
+        ).toFixed(2)}，总学分 ${totalCredit.toFixed(2)}`}
         style={{ marginTop: 20 }}
         loading={loading}
       />
