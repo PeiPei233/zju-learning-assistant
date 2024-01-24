@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { FloatButton, ConfigProvider, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { QuestionCircleOutlined } from '@ant-design/icons';
@@ -13,6 +13,20 @@ function Index() {
   const isDarkMode = useMediaQuery({
     query: '(prefers-color-scheme: dark)'
   })
+
+  useEffect(() => {
+    // disable context menu
+    const disableContextMenu = (e) => {
+      e.preventDefault()
+    }
+
+    document.addEventListener('contextmenu', disableContextMenu)
+
+    return () => {
+      document.removeEventListener('contextmenu', disableContextMenu)
+    }
+    
+  }, [])
 
   return (
     <ConfigProvider
