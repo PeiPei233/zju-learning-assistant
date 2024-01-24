@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Form, Button, Card, App, Row, Col, Select, Progress, Tooltip, Typography } from 'antd';
+import { Form, Button, Card, App, Row, Col, Select, Progress, Tooltip, Typography, Switch, Checkbox } from 'antd';
 import { invoke } from '@tauri-apps/api'
 import { ReloadOutlined, DownloadOutlined, CloseCircleOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event'
@@ -163,13 +163,17 @@ export default function Learning({ downloading, setDownloading }) {
     setSpeed(0)
     setTimeRemaining(0)
     setDownloadDescription('正在下载')
-    invoke('download_uploads', { uploads }).then((res) => {
+    invoke('download_uploads', { uploads, syncUpload: false }).then((res) => {
       // console.log(res)
       if (res.length === selectedUploadKeys.length) {
         notification.success({
           message: '下载完成',
         })
         setDownloadPercent(100)
+      } else {
+        notification.error({
+          message: '部分文件下载失败',
+        })
       }
       let haveDownloaded = res.map((item) => item.reference_id)
       setSelectedUploadKeys(selectedUploadKeys.filter((item) => !haveDownloaded.includes(item)))
@@ -248,7 +252,7 @@ export default function Learning({ downloading, setDownloading }) {
       return
     }
     setLoadingUploadList(true)
-    invoke('get_uploads_list', { courses }).then((res) => {
+    invoke('get_uploads_list', { courses, syncUpload: false }).then((res) => {
       // console.log(res)
       setUploadList(res)
       setSelectedUploadKeys(res.map((item) => item.reference_id))
@@ -337,71 +341,62 @@ export default function Learning({ downloading, setDownloading }) {
   return (
     <div style={{ margin: 20 }}>
       <Card bodyStyle={{ padding: 15 }}>
-        <Form
-          layout='horizontal'
-          form={form}
-        >
-          <Row
-            gutter={24}
-            justify="space-between"
-            align="middle"
-          >
-            <Col xs={9} md={10}>
-              <Form.Item label='学年' name='academicYear' style={{ marginBottom: 0 }}>
-                <Select
-                  allowClear
-                  showSearch
-                  width='100%'
-                  optionFilterProp="children"
-                  value={selectedAcademicYear}
-                  onChange={onAcademicYearChange}
-                  filterOption={filterOption}
-                  options={academicYearList.map((item) => {
-                    return {
-                      label: item.name,
-                      value: item.id
-                    }
-                  })}
-                  loading={loadingAcademicYearList}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={9} md={10}>
-              <Form.Item label='学期' name='semester' style={{ marginBottom: 0 }}>
-                <Select
-                  allowClear
-                  showSearch
-                  width='100%'
-                  optionFilterProp="children"
-                  value={selectedSemester}
-                  onChange={onSemesterChange}
-                  filterOption={filterOption}
-                  options={semesterList.map((item) => {
-                    if (selectedAcademicYear && selectedAcademicYear !== item.academic_year_id) {
-                      return null
-                    } else {
-                      return {
-                        label: item.name,
-                        value: item.id
-                      }
-                    }
-                  }).filter((item) => item !== null)}
-                  loading={loadingSemesterList}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={6} md={4}>
-              <Form.Item style={{ marginBottom: 0 }}>
-                <Button
-                  type='primary'
-                  icon={downloading ? <CloseCircleOutlined /> : <DownloadOutlined />}
-                  onClick={downloading ? cancelDownload : downloadUploads}
-                  disabled={loadingUploadList}
-                >{downloading ? '取消下载' : '下载课件'}</Button>
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }} >
+          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
+            <Text style={{ minWidth: 50 }}>学年：</Text>
+            <Select
+              allowClear
+              showSearch
+              style={{ width: 110 }}
+              optionFilterProp="children"
+              value={selectedAcademicYear}
+              onChange={onAcademicYearChange}
+              filterOption={filterOption}
+              options={academicYearList.map((item) => {
+                return {
+                  label: item.name,
+                  value: item.id
+                }
+              })}
+              loading={loadingAcademicYearList}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
+            <Text style={{ minWidth: 50 }}>学期：</Text>
+            <Select
+              allowClear
+              showSearch
+              style={{ width: 140 }}
+              optionFilterProp="children"
+              value={selectedSemester}
+              onChange={onSemesterChange}
+              filterOption={filterOption}
+              options={semesterList.map((item) => {
+                if (selectedAcademicYear && selectedAcademicYear !== item.academic_year_id) {
+                  return null
+                } else {
+                  return {
+                    label: item.name,
+                    value: item.id
+                  }
+                }
+              }).filter((item) => item !== null)}
+              loading={loadingSemesterList}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
+            <Button
+              type='primary'
+              icon={downloading ? <CloseCircleOutlined /> : <DownloadOutlined />}
+              onClick={downloading ? cancelDownload : downloadUploads}
+              disabled={loadingUploadList}
+            >{downloading ? '取消下载' : '下载课件'}</Button>
+          </div>
+        </div>
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
         <Col xs={10} md={9} lg={8}>

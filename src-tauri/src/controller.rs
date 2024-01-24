@@ -7,6 +7,7 @@ use chrono::NaiveDate;
 use futures::TryStreamExt;
 use log::{debug, info};
 use model::{DownloadState, Progress, Uploads};
+use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
 use std::{path::Path, process::Command, sync::Arc};
 use tauri::{State, Window};
@@ -126,8 +127,9 @@ pub async fn get_uploads_list(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     download_state: State<'_, DownloadState>,
     courses: Value,
+    sync_upload: bool,
 ) -> Result<Vec<Uploads>, String> {
-    info!("get_uploads_list");
+    info!("get_uploads_list: {}", sync_upload);
     let zju_assist = state.lock().await.clone();
     let save_path = download_state.save_path.lock().unwrap().clone();
     let mut all_uploads = Vec::new();
@@ -173,6 +175,25 @@ pub async fn get_uploads_list(
         all_uploads.extend(uploads);
     }
 
+    if sync_upload {
+        // remove files that already downloaded
+        let mut sync_uploads = Vec::new();
+        for upload in all_uploads.iter() {
+            let filepath = Path::new(&upload.path)
+                .join(&upload.file_name)
+                .to_str()
+                .unwrap()
+                .to_string();
+            // if path not exists, or size not match, then download
+            if !Path::new(&filepath).exists()
+                || Path::new(&filepath).metadata().unwrap().len() != upload.size as u64
+            {
+                sync_uploads.push(upload.clone());
+            }
+        }
+        all_uploads = sync_uploads;
+    }
+
     Ok(all_uploads)
 }
 
@@ -182,14 +203,16 @@ pub async fn download_uploads(
     download_state: State<'_, DownloadState>,
     window: Window,
     uploads: Vec<Uploads>,
+    sync_upload: bool,
 ) -> Result<Vec<Uploads>, String> {
-    info!("download_uploads");
+    info!("download_uploads: {} {}", uploads.len(), sync_upload);
     download_state
         .should_cancel
         .store(false, std::sync::atomic::Ordering::SeqCst);
     let zju_assist = state.lock().await;
     let total_size = uploads.iter().map(|upload| upload.size).sum::<u128>();
     let mut downloaded_size: u128 = 0;
+    let mut downloaded_uploads = Vec::new();
     for (i, upload) in uploads.iter().enumerate() {
         debug!(
             "download_uploads: start {} {} {} {}",
@@ -209,12 +232,50 @@ pub async fn download_uploads(
                 )
                 .unwrap();
             debug!("download_uploads: cancel");
-            return Ok(uploads[0..i].to_vec());
+            return Ok(downloaded_uploads);
         }
-        let (mut stream, filepath) = zju_assist
-            .get_uploads_stream_and_path(upload.reference_id, &upload.file_name, &upload.path)
+        let res = zju_assist
+            .get_uploads_response(upload.reference_id)
             .await
             .map_err(|err| err.to_string())?;
+
+        if !res.status().is_success() {
+            debug!(
+                "download_uploads: fail {} {} {}",
+                i, upload.reference_id, upload.file_name
+            );
+            continue;
+        }
+
+        // create father dir if not exists
+        std::fs::create_dir_all(Path::new(&upload.path)).map_err(|e| e.to_string())?;
+
+        let content_length = res.content_length().unwrap_or(upload.size as u64) as u128;
+        let mut file_name = upload.file_name.clone();
+        let url = res.url().to_string();
+        if let Some(start) = url.find("name=") {
+            let start = start + 5;
+            let end = url[start..].find("&").unwrap_or(url.len() - start);
+            file_name = percent_decode_str(&url[start..start + end])
+                .decode_utf8_lossy()
+                .to_string();
+        }
+        let filepath = Path::new(&upload.path).join(&file_name);
+
+        info!("download_uploads - filepath: {:?}", filepath);
+        if sync_upload {
+            // if path exists, and size match, then skip
+            if filepath.exists() && filepath.metadata().unwrap().len() == content_length as u64 {
+                debug!(
+                    "download_uploads: skip {} {} {}",
+                    i, upload.reference_id, upload.file_name
+                );
+                downloaded_size += upload.size;
+                downloaded_uploads.push(upload.clone());
+                continue;
+            }
+        }
+
         debug!(
             "download_uploads: stream {} {} {:?}",
             i, upload.reference_id, filepath
@@ -223,6 +284,7 @@ pub async fn download_uploads(
             .await
             .map_err(|e| e.to_string())?;
         let mut current_size: u128 = 0;
+        let mut stream = res.bytes_stream();
         while let Some(item) = stream.try_next().await.map_err(|e| e.to_string())? {
             if download_state
                 .should_cancel
@@ -265,6 +327,7 @@ pub async fn download_uploads(
                 .unwrap();
         }
         downloaded_size += upload.size;
+        downloaded_uploads.push(upload.clone());
         debug!(
             "download_uploads: done {} {} {}",
             i, upload.reference_id, upload.file_name
@@ -280,7 +343,7 @@ pub async fn download_uploads(
         )
         .unwrap();
     info!("download_uploads: done");
-    Ok(uploads)
+    Ok(downloaded_uploads)
 }
 
 #[tauri::command]
@@ -716,7 +779,13 @@ pub async fn notify_score(
         .summary(&format!("考试成绩通知 - {}", kcmc))
         .body(&format!(
             "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
-            cj, xf, jd, new_gpa, new_gpa - old_gpa, total_credit, total_credit - old_total_credit
+            cj,
+            xf,
+            jd,
+            new_gpa,
+            new_gpa - old_gpa,
+            total_credit,
+            total_credit - old_total_credit
         ))
         .show()
         .map_err(|err| err.to_string())?;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { App, Menu, Layout } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { LogoutOutlined } from '@ant-design/icons';
+import { LogoutOutlined, DownloadOutlined, SyncOutlined } from '@ant-design/icons';
 import Learning from './Learning'
 import Classroom from './Classroom'
 import Score from './Score'
@@ -49,10 +49,12 @@ export default function Home({ setIsLogin }) {
         {
           key: 'learning-ppt',
           label: '课件下载',
+          icon: <DownloadOutlined />
         },
         {
           key: 'learning-sync',
           label: '课件同步',
+          icon: <SyncOutlined />
         }
       ]
     },
@@ -68,16 +70,7 @@ export default function Home({ setIsLogin }) {
     }
   ]
 
-  const logoutItem = [
-    {
-      key: 'logout',
-      label: '退出登录',
-      icon: <LogoutOutlined />
-    }
-  ]
-
   const onMenuClick = ({ key }) => {
-    console.log(key)
     setCurrent(key)
   }
 
