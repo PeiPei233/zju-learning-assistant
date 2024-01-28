@@ -111,6 +111,11 @@ export class LearningTask extends Task {
         return invoke('start_download_upload', { id: this.id, upload: this.upload, syncUpload: this.syncUpload })
     }
 
+    public updateProgress(progress: Progress): void {
+        super.updateProgress(progress)
+        this.upload.file_name = progress.file_name
+    }
+
     async cancel(): Promise<any> {
         super.cancel()
         // cancel uploading

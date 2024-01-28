@@ -412,11 +412,14 @@ pub async fn open_file(path: String, folder: bool) -> Result<(), String> {
         if folder {
             // open folder
             #[cfg(target_os = "windows")]
-            Command::new("explorer")
-                .arg("/select")
+            Command::new("cmd")
+                .arg("/c")
+                .arg("start")
+                .arg("explorer.exe")
+                .arg("/select,")
                 .arg(path)
                 .spawn()
-                .map_err(|err| err.to_string())?;
+                .map_err(|err| err.to_string())?; // cmd /c start explorer.exe /select,"path"
 
             #[cfg(target_os = "macos")]
             Command::new("open")
