@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined } from '@ant-design/icons';
+import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined } from '@ant-design/icons';
 import Learning from './Learning'
 import Classroom from './Classroom'
 import Score from './Score'
@@ -21,7 +21,6 @@ const { Text, Link } = Typography;
 export default function Home({ setIsLogin }) {
 
   const { message, modal, notification } = App.useApp()
-  const [downloading, setDownloading] = useState(false)
   const [current, setCurrent] = useState('learning')
 
   const [score, setScore] = useState([])
@@ -421,22 +420,21 @@ export default function Home({ setIsLogin }) {
           selectedKeys={[current]}
           mode="horizontal"
           style={{ width: '100%', lineHeight: '40px' }}
-          disabled={downloading}
         >
           <Menu.Item key='learning' icon={<img src='https://course.zju.edu.cn/static/favicon.ico' style={{ width: 14 }} />}>
             <Tooltip title={syncingUpload ? `学在浙大课件同步正在运行 - 上次同步时间：${lastSyncUpload}` : ''}>
               <Badge dot={true} count={syncingUpload ? 1 : 0} color='green'>
-                <span className={current === 'learning' ? 'ant-menu-item-selected' : ''}>学在浙大</span>
+                <span style={{ color: current === 'learning' ? '#1677ff' : null }}>学在浙大</span>
               </Badge>
             </Tooltip>
           </Menu.Item>
           <Menu.Item key='classroom' icon={<img src='https://resource.cmc.zju.edu.cn/play/0/f18b8f4ee40bcd0765cfe987ca82046e/2022/08/31/fc9355e0290811ed97c77ab369543ec1.png' style={{ width: 14 }} />}>
             智云课堂
           </Menu.Item>
-          <Menu.Item key='score' icon={<div style={{ width: 14 }} >💯</div>}>
+          <Menu.Item key='score' icon={<FileSearchOutlined />}>
             <Tooltip title={notifyScore ? `成绩提醒正在运行 - 上次同步时间：${lastSyncScore}` : ''}>
               <Badge dot={true} count={notifyScore ? 1 : 0} color='green'>
-                <span className={current === 'score' ? 'ant-menu-item-selected' : ''}>成绩查询</span>
+                <span style={{ color: current === 'score' ? '#1677ff' : null }}>成绩查询</span>
               </Badge>
             </Tooltip>
           </Menu.Item>
@@ -446,7 +444,6 @@ export default function Home({ setIsLogin }) {
           selectedKeys={[current]}
           mode="horizontal"
           style={{ float: 'right', lineHeight: '40px', minWidth: 46 * 3 }}
-          disabled={downloading}
         >
           <Menu.Item key='download'>
             <Badge count={downloadingCount} size='small'>
@@ -687,7 +684,7 @@ export default function Home({ setIsLogin }) {
                     fontWeight: 'normal',
                     fontSize: 12
                   }}>检测到成绩更新后，将使用以下钉钉机器人 Webhook 发送通知。若留空，则不使用钉钉机器人发送通知。</Text>
-                  <Space.Compact style={{ marginTop: 10 }}>
+                  <Space.Compact style={{ marginTop: 10, width: '100%' }}>
                     <Input placeholder='输入完整的钉钉机器人 Webhook' value={dingUrlInput} onChange={(e) => setDingUrlInput(e.target.value)} />
                     <Button icon={<Tooltip title='保存'><CheckOutlined /></Tooltip>} onClick={() => {
                       let new_config = config.clone()
