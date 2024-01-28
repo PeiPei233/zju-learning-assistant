@@ -239,6 +239,24 @@ impl ZjuAssist {
         self.password = "".to_string();
     }
 
+    pub async fn relogin(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.have_login {
+            return Err("Not login".into());
+        }
+        let username = self.username.clone();
+        let password = self.password.clone();
+        let jar = Arc::clone(&self.jar);
+        self.logout();
+        let res = self.login(&username, &password).await;
+        if res.is_err() {
+            self.username = username;
+            self.password = password;
+            self.jar = jar;
+            self.have_login = true;
+        }
+        res
+    }
+
     pub fn is_login(&self) -> bool {
         self.have_login
     }
@@ -453,7 +471,6 @@ impl ZjuAssist {
     pub async fn get_month_subs(
         &self,
         month: &str,
-        path: &str,
     ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
         if !self.have_login {
             return Err("Not login".into());
@@ -469,7 +486,6 @@ impl ZjuAssist {
         headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
 
         let mut subs = Vec::new();
-        let path = Path::new(path);
 
         let res = self.get(format!("https://classroom.zju.edu.cn/courseapi/v2/course-live/get-my-course-month?month={}", month))
             .headers(headers.clone())
@@ -489,7 +505,7 @@ impl ZjuAssist {
                     course_name: course_name.clone(),
                     sub_id,
                     sub_name,
-                    path: path.join(&course_name).to_str().unwrap().to_string(),
+                    path: "".to_string(), // path will be set when downloading
                     ppt_image_urls: Vec::new(),
                 });
             }
@@ -501,7 +517,6 @@ impl ZjuAssist {
         &self,
         start: &str, // format: 2021-05-01
         end: &str,
-        path: &str,
     ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
         if !self.have_login {
             return Err("Not login".into());
@@ -517,7 +532,6 @@ impl ZjuAssist {
         headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
 
         let mut subs = Vec::new();
-        let path = Path::new(path);
 
         // enumerate all days
         let start = chrono::NaiveDate::parse_from_str(start, "%Y-%m-%d").unwrap();
@@ -542,7 +556,7 @@ impl ZjuAssist {
                             course_name: course_name.clone(),
                             sub_id,
                             sub_name,
-                            path: path.join(&course_name).to_str().unwrap().to_string(),
+                            path: "".to_string(), // path will be set when downloading
                             ppt_image_urls: Vec::new(),
                         });
                     }
@@ -610,7 +624,6 @@ impl ZjuAssist {
     pub async fn get_course_subs(
         &self,
         course_id: i64,
-        path: &str,
     ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
         if !self.have_login {
             return Err("Not login".into());
@@ -641,7 +654,6 @@ impl ZjuAssist {
         let data = json["data"].as_object().unwrap();
         let course_name = data["title"].as_str().unwrap().replace("/", "_");
         let sub_list = data["sub_list"].as_object().unwrap();
-        let path = Path::new(path);
         let mut subs = Vec::new();
         for (_, year_data) in sub_list {
             for (_, month_data) in year_data.as_object().unwrap() {
@@ -654,7 +666,7 @@ impl ZjuAssist {
                             course_name: course_name.clone(),
                             sub_id,
                             sub_name,
-                            path: path.join(&course_name).to_str().unwrap().to_string(),
+                            path: "".to_string(), // path will be set when downloading
                             ppt_image_urls: Vec::new(),
                         });
                     }
@@ -755,10 +767,7 @@ impl ZjuAssist {
         let text = res.text().await?;
         let json = serde_json::from_str(&text);
         if json.is_err() {
-            let username = self.username.clone();
-            let password = self.password.clone();
-            self.logout();
-            self.login(&username, &password).await?;
+            self.relogin().await?;
 
             let res = self.post(format!("http://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
                 .form(&data)

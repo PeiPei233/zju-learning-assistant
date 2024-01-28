@@ -6,7 +6,8 @@ mod model;
 mod util;
 mod zju_assist;
 
-use directories_next::UserDirs;
+use dashmap::DashMap;
+use directories_next::{ProjectDirs, UserDirs};
 use fern::Dispatch;
 use log::info;
 use log::LevelFilter;
@@ -68,11 +69,28 @@ fn main() {
                 }
             }
 
-            let download_state = model::DownloadState {
-                should_cancel: Arc::new(AtomicBool::new(false)),
-                save_path: Arc::new(std::sync::Mutex::new(save_path)),
+            let mut config = model::Config {
+                save_path,
+                to_pdf: true,
+                auto_download: true,
+                ding_url: "".to_string(),
+                auto_open_download_list: true,
             };
-            app.manage(download_state);
+
+            if let Some(proj_dirs) = ProjectDirs::from("", "", "zju-learning-assistant") {
+                let config_path = proj_dirs.config_dir();
+                if let Ok(config_local) = std::fs::read_to_string(config_path.join("config.json")) {
+                    if let Ok(config_local) = serde_json::from_str::<model::Config>(&config_local) {
+                        info!("Loaded config from file");
+                        config = config_local;
+                    }
+                }
+            }
+            app.manage(Arc::new(Mutex::new(config)));
+
+            let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
+            app.manage(download_states);
+
             let version = app.config().package.version.clone();
             info!("Current version: {:?}", version);
 
@@ -105,19 +123,22 @@ fn main() {
             controller::get_homework_uploads,
             controller::download_file,
             controller::get_uploads_list,
-            controller::download_uploads,
+            controller::start_download_upload,
             controller::cancel_download,
-            controller::update_path,
-            controller::open_save_path,
+            controller::open_file,
+            controller::open_file_upload,
+            controller::open_file_ppts,
             controller::get_latest_version_info,
-            controller::download_ppts,
+            controller::start_download_ppts,
             controller::get_range_subs,
             controller::search_courses,
             controller::get_course_subs,
             controller::get_sub_ppt_urls,
             controller::get_month_subs,
             controller::get_score,
-            controller::notify_score
+            controller::notify_score,
+            controller::get_config,
+            controller::set_config
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

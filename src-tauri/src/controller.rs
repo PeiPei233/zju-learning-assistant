@@ -4,11 +4,14 @@ use crate::util::images_to_pdf;
 use crate::zju_assist::{download_ppt_image, get_ppt_urls, ZjuAssist};
 
 use chrono::NaiveDate;
+use dashmap::DashMap;
+use directories_next::ProjectDirs;
 use futures::TryStreamExt;
 use log::{debug, info};
-use model::{DownloadState, Progress, Uploads};
+use model::{Config, Progress, Upload};
 use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
+use std::sync::atomic::AtomicBool;
 use std::{path::Path, process::Command, sync::Arc};
 use tauri::{State, Window};
 use tokio::io::AsyncWriteExt;
@@ -125,15 +128,15 @@ pub async fn download_file(
 #[tauri::command]
 pub async fn get_uploads_list(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    download_state: State<'_, DownloadState>,
+    config: State<'_, Arc<Mutex<Config>>>,
     courses: Value,
     sync_upload: bool,
-) -> Result<Vec<Uploads>, String> {
+) -> Result<Vec<Upload>, String> {
     info!("get_uploads_list: {}", sync_upload);
     let zju_assist = state.lock().await.clone();
-    let save_path = download_state.save_path.lock().unwrap().clone();
+    let save_path = config.lock().await.save_path.clone();
     let mut all_uploads = Vec::new();
-    let mut tasks: Vec<JoinHandle<Result<Vec<Uploads>, String>>> = Vec::new();
+    let mut tasks: Vec<JoinHandle<Result<Vec<Upload>, String>>> = Vec::new();
     for course in courses.as_array().unwrap() {
         let course_id = course["id"].as_i64().unwrap();
         let course_name = course["name"].as_str().unwrap().replace("/", "-");
@@ -154,12 +157,12 @@ pub async fn get_uploads_list(
                     .to_str()
                     .unwrap()
                     .to_string();
-                let size = upload["size"].as_u64().unwrap_or(1000) as u128;
+                let size = upload["size"].as_u64().unwrap_or(1000);
                 debug!(
                     "get_uploads_list: uploads - {} {} {} {}",
                     reference_id, file_name, path, size
                 );
-                uploads.push(Uploads {
+                uploads.push(Upload {
                     reference_id,
                     file_name,
                     path,
@@ -198,216 +201,302 @@ pub async fn get_uploads_list(
 }
 
 #[tauri::command]
-pub async fn download_uploads(
-    state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    download_state: State<'_, DownloadState>,
+pub async fn start_download_upload(
+    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
     window: Window,
-    uploads: Vec<Uploads>,
+    id: String,
+    upload: Upload,
     sync_upload: bool,
-) -> Result<Vec<Uploads>, String> {
-    info!("download_uploads: {} {}", uploads.len(), sync_upload);
-    download_state
-        .should_cancel
-        .store(false, std::sync::atomic::Ordering::SeqCst);
-    let zju_assist = state.lock().await;
-    let total_size = uploads.iter().map(|upload| upload.size).sum::<u128>();
-    let mut downloaded_size: u128 = 0;
-    let mut downloaded_uploads = Vec::new();
-    for (i, upload) in uploads.iter().enumerate() {
+) -> Result<(), String> {
+    info!("download_upload: {} {}", id, upload.file_name);
+
+    let zju_assist = zju_assist.lock().await.clone();
+    // state -> true: downloading, false: cancel
+    let download_state = Arc::new(AtomicBool::new(true));
+    state.insert(id.clone(), download_state.clone());
+
+    let res = zju_assist
+        .get_uploads_response(upload.reference_id)
+        .await
+        .map_err(|err| err.to_string())?;
+
+    if !res.status().is_success() {
         debug!(
-            "download_uploads: start {} {} {} {}",
-            i, upload.reference_id, upload.file_name, upload.path
+            "download_upload: fail {} {} {}",
+            upload.reference_id, upload.file_name, upload.path
         );
-        if download_state
-            .should_cancel
-            .load(std::sync::atomic::Ordering::SeqCst)
-        {
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        status: "cancel".to_string(),
-                        ..Default::default()
-                    },
-                )
-                .unwrap();
-            debug!("download_uploads: cancel");
-            return Ok(downloaded_uploads);
-        }
-        let res = zju_assist
-            .get_uploads_response(upload.reference_id)
-            .await
-            .map_err(|err| err.to_string())?;
+        state.remove(&id);
+        return Err("下载失败".to_string());
+    }
 
-        if !res.status().is_success() {
-            debug!(
-                "download_uploads: fail {} {} {}",
-                i, upload.reference_id, upload.file_name
-            );
-            continue;
-        }
+    // create father dir if not exists
+    std::fs::create_dir_all(Path::new(&upload.path)).map_err(|e| e.to_string())?;
 
-        // create father dir if not exists
-        std::fs::create_dir_all(Path::new(&upload.path)).map_err(|e| e.to_string())?;
+    let content_length = res.content_length().unwrap_or(upload.size as u64);
+    let mut file_name = upload.file_name.clone();
+    let url = res.url().to_string();
+    if let Some(start) = url.find("name=") {
+        let start = start + 5;
+        let end = url[start..].find("&").unwrap_or(url.len() - start);
+        file_name = percent_decode_str(&url[start..start + end])
+            .decode_utf8_lossy()
+            .to_string();
+    }
+    let filepath = Path::new(&upload.path).join(&file_name);
 
-        let content_length = res.content_length().unwrap_or(upload.size as u64) as u128;
-        let mut file_name = upload.file_name.clone();
-        let url = res.url().to_string();
-        if let Some(start) = url.find("name=") {
-            let start = start + 5;
-            let end = url[start..].find("&").unwrap_or(url.len() - start);
-            file_name = percent_decode_str(&url[start..start + end])
-                .decode_utf8_lossy()
-                .to_string();
-        }
-        let filepath = Path::new(&upload.path).join(&file_name);
+    info!("download_upload - filepath: {:?}", filepath);
 
-        info!("download_uploads - filepath: {:?}", filepath);
-        if sync_upload {
-            // if path exists, and size match, then skip
-            if filepath.exists() && filepath.metadata().unwrap().len() == content_length as u64 {
-                debug!(
-                    "download_uploads: skip {} {} {}",
-                    i, upload.reference_id, upload.file_name
-                );
-                downloaded_size += upload.size;
-                downloaded_uploads.push(upload.clone());
-                continue;
-            }
-        }
-
+    // if path exists, and size match, then skip
+    if sync_upload && filepath.exists() && filepath.metadata().unwrap().len() == content_length {
         debug!(
-            "download_uploads: stream {} {} {:?}",
-            i, upload.reference_id, filepath
+            "download_upload: skip {} {} {}",
+            upload.reference_id, upload.file_name, upload.path
         );
-        let mut file = tokio::fs::File::create(filepath.clone())
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut current_size: u128 = 0;
+        window
+            .emit(
+                "download-progress",
+                Progress {
+                    id: id.clone(),
+                    status: "done".to_string(),
+                    file_name: file_name.clone(),
+                    downloaded_size: content_length,
+                    total_size: content_length,
+                },
+            )
+            .unwrap();
+        info!(
+            "download_upload: done {} {} {}",
+            upload.reference_id, upload.file_name, upload.path
+        );
+        return Ok(());
+    }
+    debug!(
+        "download_upload: stream {} {} {:?}",
+        upload.reference_id, upload.file_name, filepath
+    );
+    let mut file = tokio::fs::File::create(filepath.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    tokio::task::spawn(async move {
+        let mut current_size: u64 = 0;
         let mut stream = res.bytes_stream();
-        while let Some(item) = stream.try_next().await.map_err(|e| e.to_string())? {
-            if download_state
-                .should_cancel
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
+        loop {
+            let res = stream.try_next().await.map_err(|e| e.to_string());
+            if let Err(err) = res {
                 window
                     .emit(
                         "download-progress",
                         Progress {
-                            status: "cancel".to_string(),
-                            ..Default::default()
+                            id: id.clone(),
+                            status: "fail".to_string(),
+                            file_name: file_name.clone(),
+                            downloaded_size: current_size,
+                            total_size: content_length,
                         },
                     )
                     .unwrap();
                 // clean up
-                tokio::fs::remove_file(&filepath.clone())
+                let res = tokio::fs::remove_file(&filepath.clone())
                     .await
-                    .map_err(|e| e.to_string())?;
-                return Ok(uploads[0..i].to_vec());
+                    .map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_upload: clean up fail: {}", err);
+                }
+                break;
             }
 
-            let chunk = item;
-            current_size += chunk.len() as u128;
-            file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "cancel".to_string(),
+                            file_name: file_name.clone(),
+                            downloaded_size: current_size,
+                            total_size: content_length,
+                        },
+                    )
+                    .unwrap();
+                // clean up
+                let res = tokio::fs::remove_file(&filepath.clone())
+                    .await
+                    .map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_upload: clean up fail: {}", err);
+                }
+                break;
+            }
+            let item = res.unwrap();
+            if item.is_none() {
+                break;
+            }
+            let chunk = item.unwrap();
+            current_size += chunk.len() as u64;
+            let res = file.write_all(&chunk).await.map_err(|e| e.to_string());
+            if let Err(err) = res {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "fail".to_string(),
+                            file_name: file_name.clone(),
+                            downloaded_size: current_size,
+                            total_size: content_length,
+                        },
+                    )
+                    .unwrap();
+                // clean up
+                let res = tokio::fs::remove_file(&filepath.clone())
+                    .await
+                    .map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_upload: clean up fail: {}", err);
+                }
+                break;
+            }
 
             window
                 .emit(
                     "download-progress",
                     Progress {
+                        id: id.clone(),
                         status: "downloading".to_string(),
-                        file_name: Some(
-                            filepath.file_name().unwrap().to_str().unwrap().to_string(),
-                        ),
-                        downloaded_size: Some(downloaded_size + current_size),
-                        total_size: Some(total_size),
-                        current: Some(i as u128 + 1),
-                        total: Some(uploads.len() as u128),
+                        file_name: file_name.clone(),
+                        downloaded_size: current_size,
+                        total_size: content_length,
                     },
                 )
                 .unwrap();
         }
-        downloaded_size += upload.size;
-        downloaded_uploads.push(upload.clone());
-        debug!(
-            "download_uploads: done {} {} {}",
-            i, upload.reference_id, upload.file_name
+        window
+            .emit(
+                "download-progress",
+                Progress {
+                    id: id.clone(),
+                    status: "done".to_string(),
+                    file_name: file_name.clone(),
+                    downloaded_size: content_length,
+                    total_size: content_length,
+                },
+            )
+            .unwrap();
+        info!(
+            "download_upload: done {} {} {}",
+            upload.reference_id, upload.file_name, upload.path
         );
-    }
-    window
-        .emit(
-            "download-progress",
-            Progress {
-                status: "done".to_string(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-    info!("download_uploads: done");
-    Ok(downloaded_uploads)
-}
+    });
 
-#[tauri::command]
-pub fn cancel_download(state: State<'_, DownloadState>) -> Result<(), String> {
-    info!("cancel_download");
-    state
-        .should_cancel
-        .store(true, std::sync::atomic::Ordering::SeqCst);
     Ok(())
 }
 
 #[tauri::command]
-pub fn update_path(
-    state: State<'_, DownloadState>,
-    path: String,
-    uploads: Vec<Value>,
-) -> Result<Vec<Value>, String> {
-    info!("update_path: {}", path);
-    let mut new_uploads = uploads.clone();
-    for upload in &mut new_uploads {
-        let new_path = Path::new(&path)
-            .join(
-                Path::new(upload["path"].as_str().unwrap())
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_str()
-                    .unwrap(),
-            )
-            .to_str()
-            .unwrap()
-            .to_string();
-        upload["path"] = Value::String(new_path);
+pub fn cancel_download(
+    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
+    id: String,
+) -> Result<(), String> {
+    info!("cancel_download: {}", id);
+    if let Some(download_state) = state.get(&id) {
+        download_state.store(false, std::sync::atomic::Ordering::SeqCst);
     }
-
-    let mut save_path = state.save_path.lock().unwrap();
-    *save_path = path;
-
-    Ok(new_uploads)
+    Ok(())
 }
 
 #[tauri::command]
-pub fn open_save_path(state: State<'_, DownloadState>) -> Result<(), String> {
-    info!("open_save_path");
-    let save_path = state.save_path.lock().unwrap().clone();
-    if Path::new(&save_path).exists() {
-        #[cfg(target_os = "windows")]
-        Command::new("explorer")
-            .arg(save_path)
-            .spawn()
-            .map_err(|err| err.to_string())?;
+pub async fn open_file(path: String, folder: bool) -> Result<(), String> {
+    info!("open_file: {} {}", path, folder);
+    if Path::new(&path).exists() {
+        if folder {
+            // open folder
+            #[cfg(target_os = "windows")]
+            Command::new("explorer")
+                .arg("/select")
+                .arg(path)
+                .spawn()
+                .map_err(|err| err.to_string())?;
 
-        #[cfg(target_os = "macos")]
-        Command::new("open")
-            .arg(save_path)
-            .spawn()
-            .map_err(|err| err.to_string())?;
+            #[cfg(target_os = "macos")]
+            Command::new("open")
+                .arg("-R")
+                .arg(path)
+                .spawn()
+                .map_err(|err| err.to_string())?;
 
-        #[cfg(target_os = "linux")]
-        Command::new("xdg-open")
-            .arg(save_path)
-            .spawn()
-            .map_err(|err| err.to_string())?;
+            #[cfg(target_os = "linux")]
+            Command::new("xdg-open")
+                .arg(Path::new(&path).parent().unwrap())
+                .spawn()
+                .map_err(|err| err.to_string())?;
+        } else {
+            // open file
+            #[cfg(target_os = "windows")]
+            Command::new("cmd")
+                .arg("/c")
+                .arg("start")
+                .arg(path)
+                .spawn()
+                .map_err(|err| err.to_string())?; // cmd /c start "path"
+
+            #[cfg(target_os = "macos")]
+            Command::new("open")
+                .arg(path)
+                .spawn()
+                .map_err(|err| err.to_string())?;
+
+            #[cfg(target_os = "linux")]
+            Command::new("xdg-open")
+                .arg(path)
+                .spawn()
+                .map_err(|err| err.to_string())?;
+        }
 
         Ok(())
+    } else {
+        Err("下载已删除或未下载".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn open_file_upload(upload: Upload, folder: bool) -> Result<(), String> {
+    info!("open_file_upload: {} {}", upload.file_name, folder);
+    let path = Path::new(&upload.path)
+        .join(&upload.file_name)
+        .to_str()
+        .unwrap()
+        .to_string();
+    open_file(path, folder).await
+}
+
+#[tauri::command]
+pub async fn open_file_ppts(subject: Subject, folder: bool) -> Result<(), String> {
+    info!(
+        "open_file_ppts: {}-{} {}",
+        subject.course_name, subject.sub_name, folder
+    );
+    let path = Path::new(&subject.path)
+        .join(&subject.sub_name)
+        .to_str()
+        .unwrap()
+        .to_string();
+    if Path::new(&path).exists() {
+        let pdf_path = Path::new(&path)
+            .join(format!("{}-{}.pdf", subject.course_name, subject.sub_name))
+            .to_str()
+            .unwrap()
+            .to_string();
+        if Path::new(&pdf_path).exists() {
+            open_file(pdf_path, folder).await
+        } else {
+            let images_path = Path::new(&path)
+                .join("ppt_images")
+                .to_str()
+                .unwrap()
+                .to_string();
+            open_file(images_path, folder).await
+        }
     } else {
         Err("下载已删除或未下载".to_string())
     }
@@ -433,40 +522,26 @@ pub async fn get_latest_version_info() -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn download_ppts(
-    state: State<'_, DownloadState>,
+pub async fn start_download_ppts(
+    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
     window: Window,
-    subs: Vec<Subject>,
+    id: String,
+    subject: Subject,
     to_pdf: bool,
-) -> Result<Vec<Subject>, String> {
-    info!("download_ppts {} {}", subs.len(), to_pdf);
-    state
-        .should_cancel
-        .store(false, std::sync::atomic::Ordering::SeqCst);
-    let mut count = 0;
-    let total_size = subs
-        .iter()
-        .map(|sub| sub.ppt_image_urls.len())
-        .sum::<usize>() as u128;
-    for i in 0..subs.len() {
-        if state
-            .should_cancel
-            .load(std::sync::atomic::Ordering::SeqCst)
-        {
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        status: "cancel".to_string(),
-                        ..Default::default()
-                    },
-                )
-                .unwrap();
-            return Ok(subs[0..i].to_vec());
-        }
-        let sub = &subs[i];
-        let path = Path::new(&sub.path).join(&sub.sub_name);
-        let urls = sub.ppt_image_urls.clone();
+) -> Result<(), String> {
+    info!(
+        "start_download_ppts: {} {} {}",
+        id, subject.course_name, subject.sub_name
+    );
+    // state -> true: downloading, false: cancel
+    let download_state = Arc::new(AtomicBool::new(true));
+    state.insert(id.clone(), download_state.clone());
+
+    tokio::task::spawn(async move {
+        let mut count = 0;
+        let total_size = subject.ppt_image_urls.len();
+        let path = Path::new(&subject.path).join(&subject.sub_name);
+        let urls = subject.ppt_image_urls.clone();
 
         let image_paths = urls
             .clone()
@@ -495,16 +570,16 @@ pub async fn download_ppts(
             .collect::<Vec<_>>();
 
         for task in &mut tasks {
-            if state
-                .should_cancel
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
+            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
                 window
                     .emit(
                         "download-progress",
                         Progress {
+                            id: id.clone(),
                             status: "cancel".to_string(),
-                            ..Default::default()
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            downloaded_size: count,
+                            total_size: total_size as u64,
                         },
                     )
                     .unwrap();
@@ -513,47 +588,93 @@ pub async fn download_ppts(
                     task.abort();
                 }
                 // clean up
-                std::fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
-                return Ok(subs[0..i].to_vec());
+                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_ppts: clean up fail: {}", err);
+                }
+                return;
             }
             window
                 .emit(
                     "download-progress",
                     Progress {
+                        id: id.clone(),
                         status: "downloading".to_string(),
-                        file_name: Some(format!("{}-{}", sub.course_name, sub.sub_name)),
-                        downloaded_size: Some(count as u128),
-                        total_size: Some(total_size as u128),
-                        current: Some(i as u128 + 1),
-                        total: Some(subs.len() as u128),
+                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                        downloaded_size: count,
+                        total_size: total_size as u64,
                     },
                 )
                 .unwrap();
-            task.await.map_err(|err| err.to_string())??;
+            let res = task.await.map_err(|err| err.to_string());
+            if let Err(err) = res {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "fail".to_string(),
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            downloaded_size: count,
+                            total_size: total_size as u64,
+                        },
+                    )
+                    .unwrap();
+                // clean up
+                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_ppts: clean up fail: {}", err);
+                }
+                return;
+            }
+            let res = res.unwrap();
+            if let Err(err) = res {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "fail".to_string(),
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            downloaded_size: count,
+                            total_size: total_size as u64,
+                        },
+                    )
+                    .unwrap();
+                // clean up
+                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_ppts: clean up fail: {}", err);
+                }
+                return;
+            }
             count += 1;
         }
 
-        if state
-            .should_cancel
-            .load(std::sync::atomic::Ordering::SeqCst)
-        {
+        if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
             window
                 .emit(
                     "download-progress",
                     Progress {
+                        id: id.clone(),
                         status: "cancel".to_string(),
-                        ..Default::default()
+                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                        downloaded_size: count,
+                        total_size: total_size as u64,
                     },
                 )
                 .unwrap();
             // clean up
-            std::fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
-            return Ok(subs[0..i].to_vec());
+            let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+            if let Err(err) = res {
+                debug!("download_upload: clean up fail: {}", err);
+            }
+            return;
         }
 
-        if to_pdf && urls.len() > 0 {
+        if urls.len() > 0 && to_pdf {
             let pdf_path = path
-                .join(format!("{}-{}.pdf", sub.course_name, sub.sub_name))
+                .join(format!("{}-{}.pdf", subject.course_name, subject.sub_name))
                 .to_str()
                 .unwrap()
                 .to_string();
@@ -562,38 +683,66 @@ pub async fn download_ppts(
                 .emit(
                     "download-progress",
                     Progress {
+                        id: id.clone(),
                         status: "writing".to_string(),
-                        file_name: Some(format!("{}-{}", sub.course_name, sub.sub_name)),
-                        downloaded_size: Some(count as u128),
-                        total_size: Some(total_size as u128),
-                        current: Some(i as u128 + 1),
-                        total: Some(subs.len() as u128),
+                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                        downloaded_size: count,
+                        total_size: total_size as u64,
                     },
                 )
                 .unwrap();
-            images_to_pdf(image_paths, &pdf_path).map_err(|err| err.to_string())?;
+            let res = images_to_pdf(image_paths, &pdf_path).map_err(|err| err.to_string());
+            if let Err(err) = res {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "fail".to_string(),
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            downloaded_size: count,
+                            total_size: total_size as u64,
+                        },
+                    )
+                    .unwrap();
+                // clean up
+                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_upload: clean up fail: {}", err);
+                }
+                return;
+            }
         }
-    }
-    window
-        .emit(
-            "download-progress",
-            Progress {
-                status: "done".to_string(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-    Ok(subs)
+
+        window
+            .emit(
+                "download-progress",
+                Progress {
+                    id: id.clone(),
+                    status: "done".to_string(),
+                    file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                    downloaded_size: count,
+                    total_size: total_size as u64,
+                },
+            )
+            .unwrap();
+        info!(
+            "download_ppts: done {} {}",
+            subject.course_name, subject.sub_name
+        );
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn get_sub_ppt_urls(
-    state: State<'_, DownloadState>,
+    config: State<'_, Arc<Mutex<Config>>>,
     subs: Vec<Subject>,
 ) -> Result<Vec<Subject>, String> {
     info!("get_sub_ppt_urls");
     let mut new_subs = Vec::new();
-    let save_path = state.save_path.lock().unwrap().clone();
+    let save_path = config.lock().await.save_path.clone();
 
     let tasks = subs
         .into_iter()
@@ -626,13 +775,11 @@ pub async fn get_sub_ppt_urls(
 #[tauri::command]
 pub async fn get_range_subs(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    download_state: State<'_, DownloadState>,
     start_at: String, // format: 2021-05-01
     end_at: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_range_subs: {} {}", start_at, end_at);
     let zju_assist = state.lock().await.clone();
-    let save_path = download_state.save_path.lock().unwrap().clone();
     let mut subs = Vec::new();
     let mut tasks: Vec<JoinHandle<Result<Vec<Subject>, String>>> = Vec::new();
     let start = NaiveDate::parse_from_str(&start_at, "%Y-%m-%d").unwrap();
@@ -641,10 +788,9 @@ pub async fn get_range_subs(
     while date <= end {
         let date_str = date.format("%Y-%m-%d").to_string();
         let zju_assist = zju_assist.clone();
-        let save_path = save_path.clone();
         tasks.push(tokio::task::spawn(async move {
             let sub = zju_assist
-                .get_range_subs(&date_str, &date_str, &save_path)
+                .get_range_subs(&date_str, &date_str)
                 .await
                 .map_err(|err| err.to_string())?;
             Ok(sub)
@@ -663,14 +809,12 @@ pub async fn get_range_subs(
 #[tauri::command]
 pub async fn get_month_subs(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    download_state: State<'_, DownloadState>,
     month: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_month_subs: {}", month);
     let zju_assist = state.lock().await;
-    let save_path = download_state.save_path.lock().unwrap().clone();
     let subs = zju_assist
-        .get_month_subs(&month, &save_path)
+        .get_month_subs(&month)
         .await
         .map_err(|err| err.to_string())?;
     Ok(subs)
@@ -694,16 +838,14 @@ pub async fn search_courses(
 #[tauri::command]
 pub async fn get_course_subs(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    download_state: State<'_, DownloadState>,
     course_ids: Vec<i64>,
 ) -> Result<Vec<Subject>, String> {
     info!("get_course_subs");
     let zju_assist = state.lock().await;
-    let save_path = download_state.save_path.lock().unwrap().clone();
     let mut subs = Vec::new();
     for course_id in course_ids {
         let sub = zju_assist
-            .get_course_subs(course_id, &save_path)
+            .get_course_subs(course_id)
             .await
             .map_err(|err| err.to_string())?;
         subs.extend(sub);
@@ -789,6 +931,37 @@ pub async fn notify_score(
         ))
         .show()
         .map_err(|err| err.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_config(config: State<'_, Arc<Mutex<Config>>>) -> Result<Config, String> {
+    info!("get_config");
+    Ok(config.lock().await.clone())
+}
+
+#[tauri::command]
+pub async fn set_config(
+    config_state: State<'_, Arc<Mutex<Config>>>,
+    config: Config,
+) -> Result<(), String> {
+    info!("set_config");
+    let mut current_config = config_state.lock().await;
+    *current_config = config.clone();
+    drop(current_config);
+
+    // save config to file
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "zju-learning-assistant") {
+        let config_path = proj_dirs.config_dir();
+        // if config path not exists, create it
+        if !config_path.exists() {
+            std::fs::create_dir_all(config_path).map_err(|err| err.to_string())?;
+        }
+        let config_str = serde_json::to_string_pretty(&config).unwrap();
+        std::fs::write(config_path.join("config.json"), config_str)
+            .map_err(|err| err.to_string())?;
+    }
 
     Ok(())
 }

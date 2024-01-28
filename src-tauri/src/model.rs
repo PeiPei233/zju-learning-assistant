@@ -1,27 +1,29 @@
 use serde::{Deserialize, Serialize};
-use std::sync::{atomic::AtomicBool, Arc};
 
-pub struct DownloadState {
-    pub should_cancel: Arc<AtomicBool>,
-    pub save_path: Arc<std::sync::Mutex<String>>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Config {
+    pub save_path: String,
+    pub to_pdf: bool,
+    pub auto_download: bool,
+    pub ding_url: String,
+    pub auto_open_download_list: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Uploads {
+pub struct Upload {
     pub reference_id: i64,
     pub file_name: String,
     pub path: String, // actual save path is path + file_name
-    pub size: u128,
+    pub size: u64,
 }
 
 #[derive(Clone, Serialize, Default)]
 pub struct Progress {
+    pub id: String,
     pub status: String,
-    pub file_name: Option<String>,
-    pub downloaded_size: Option<u128>,
-    pub total_size: Option<u128>,
-    pub current: Option<u128>,
-    pub total: Option<u128>,
+    pub file_name: String,
+    pub downloaded_size: u64,
+    pub total_size: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

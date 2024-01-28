@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FloatButton, ConfigProvider, theme } from 'antd';
+import { FloatButton, ConfigProvider, theme, App } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { shell } from '@tauri-apps/api';
@@ -9,23 +9,27 @@ import Home from './Home'
 
 function Index() {
 
+  const { message, modal, notification } = App.useApp()
+
   const [isLogin, setIsLogin] = useState(false)
   const isDarkMode = useMediaQuery({
     query: '(prefers-color-scheme: dark)'
   })
 
   useEffect(() => {
-    // disable context menu
-    const disableContextMenu = (e) => {
-      e.preventDefault()
+    if (import.meta.env.PROD) {
+      // disable context menu
+      const disableContextMenu = (e) => {
+        e.preventDefault()
+      }
+
+      document.addEventListener('contextmenu', disableContextMenu)
+
+      return () => {
+        document.removeEventListener('contextmenu', disableContextMenu)
+      }
     }
 
-    document.addEventListener('contextmenu', disableContextMenu)
-
-    return () => {
-      document.removeEventListener('contextmenu', disableContextMenu)
-    }
-    
   }, [])
 
   return (
@@ -35,17 +39,22 @@ function Index() {
         algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
       }}
     >
-      {isLogin ? <Home setIsLogin={setIsLogin} /> : <Login setIsLogin={setIsLogin} />}
-      <FloatButton
-        icon={<QuestionCircleOutlined />}
-        onClick={() => {
-          shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch((err) => {
-            console.log(err)
-          })
-        }}
-        tooltip='查看帮助'
-        type='primary'
-      />
+      <App>
+        {isLogin ? <Home setIsLogin={setIsLogin} /> : <Login setIsLogin={setIsLogin} />}
+        <FloatButton
+          icon={<QuestionCircleOutlined />}
+          onClick={() => {
+            shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch((err) => {
+              notification.error({
+                message: '打开帮助失败',
+                description: err.message
+              })
+            })
+          }}
+          tooltip='查看帮助'
+          type='primary'
+        />
+      </App>
     </ConfigProvider>
   )
 }

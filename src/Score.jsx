@@ -1,6 +1,5 @@
-import { useEffect, useState, useRef } from 'react'
-import { Button, Card, App, Typography, Input, Switch } from 'antd';
-import { invoke } from '@tauri-apps/api'
+import { useEffect } from 'react'
+import { Button, Card, App, Typography, Input, Switch, Tooltip } from 'antd';
 import { SyncOutlined } from '@ant-design/icons';
 import SearchTable from './SearchTable'
 import dayjs from 'dayjs';
@@ -10,150 +9,22 @@ dayjs.locale('zh-cn')
 
 const { Text } = Typography
 
-export default function Score({ downloading, setDownloading }) {
+export default function Score({
+  notify,
+  lastSync,
+  totalGp,
+  totalCredit,
+  loading,
+  score,
+  handleSwitch,
+  handleSync
+}) {
 
   const { message, modal, notification } = App.useApp()
 
-  const [score, setScore] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [dingUrl, setDingUrl] = useState('')
-  const [notify, setNotify] = useState(false)
-  const [lastSync, setLastSync] = useState(null)
-  const [totalGp, setTotalGp] = useState(0)
-  const [totalCredit, setTotalCredit] = useState(0)
-
-  const syncTimer = useRef(null)
-
-  function notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit) {
-    if (!notify) {
-      return
-    }
-    invoke('notify_score', {
-      score: item,
-      oldTotalGp,
-      oldTotalCredit,
-      totalGp,
-      totalCredit,
-      dingUrl
-    }).catch((err) => {
-      notification.error({
-        message: '发送通知失败',
-        description: err
-      })
-    })
-  }
-
-  function updateScore(newScore) {
-    const oldScore = score
-    setScore(newScore)
-    setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'))
-
-    let totalGp = 0
-    let totalCredit = 0
-
-    // calculate totalGp and totalCredit of oldScore
-    oldScore.forEach((item) => {
-      if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-        totalGp += parseFloat(item.jd) * parseFloat(item.xf)
-        totalCredit += parseFloat(item.xf)
-      }
-    })
-
-    // enumerate newScore to find new score
-    newScore.forEach((item) => {
-      const oldItem = oldScore.find((oldItem) => oldItem.xkkh === item.xkkh)
-      if (oldItem) {
-        if (oldItem.cj !== item.cj || oldItem.bkcj !== item.bkcj || oldItem.jd !== item.jd || oldItem.xf !== item.xf) {
-          // if the course is in oldScore and the score has changed
-          let oldTotalGp = totalGp
-          let oldTotalCredit = totalCredit
-          if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-            totalGp += parseFloat(item.jd) * parseFloat(item.xf) - parseFloat(oldItem.jd) * parseFloat(oldItem.xf)
-            totalCredit += parseFloat(item.xf) - parseFloat(oldItem.xf)
-          }
-          notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit)
-        }
-      } else {
-        // if the course is not in oldScore
-        let oldTotalGp = totalGp
-        let oldTotalCredit = totalCredit
-        if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-          totalGp += parseFloat(item.jd) * parseFloat(item.xf)
-          totalCredit += parseFloat(item.xf)
-        }
-        notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit)
-      }
-    })
-
-    setTotalGp(totalGp)
-    setTotalCredit(totalCredit)
-  }
-
-  // sync every 3 to 5 minutes
-  const startSync = () => {
-    const syncFunc = () => {
-      setLoading(true)
-      invoke('get_score').then((res) => {
-        updateScore(res)
-      }).catch((err) => {
-        notification.error({
-          message: '成绩同步失败',
-          description: err
-        })
-      }).finally(() => {
-        const nextSync = Math.floor(Math.random() * 120000) + 180000
-        syncTimer.current = setTimeout(syncFunc, nextSync)
-        setLoading(false)
-      })
-    }
-    syncFunc()
-  }
-
-  const stopSync = () => {
-    clearTimeout(syncTimer.current)
-    syncTimer.current = null
-  }
-
-
   useEffect(() => {
-    invoke('get_score').then((res) => {
-      updateScore(res)
-    }).catch((err) => {
-      notification.error({
-        message: '获取成绩失败',
-        description: err
-      })
-    }).finally(() => {
-      setLoading(false)
-    })
+    handleSync()
   }, [])
-
-  const handleSync = () => {
-    setLoading(true)
-    invoke('get_score').then((res) => {
-      updateScore(res)
-      notification.success({
-        message: '成绩同步成功',
-      })
-    }).catch((err) => {
-      notification.error({
-        message: '成绩同步失败',
-        description: err
-      })
-    }).finally(() => {
-      setLoading(false)
-    })
-  }
-
-  const handleSwitch = (checked) => {
-    setNotify(checked)
-    setDownloading(checked)
-    if (checked) {
-      startSync()
-    } else {
-      stopSync()
-    }
-  }
 
   const columns = [
     {
@@ -220,12 +91,10 @@ export default function Score({ downloading, setDownloading }) {
           alignItems: 'center',
         }} >
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-            <Text style={{ minWidth: 115 }}>钉钉 Webhook：</Text>
-            <Input value={dingUrl} onChange={(e) => setDingUrl(e.target.value)} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
             <Text style={{ minWidth: 115 }}>自动同步并提醒：</Text>
-            <Switch loading={loading} checked={notify} onChange={handleSwitch} />
+            <Tooltip title={notify ? '成绩推送已开启，将自动同步最新成绩并在成绩更新时提醒' : '成绩推送已关闭'}>
+              <Switch loading={loading} checked={notify} onChange={handleSwitch} />
+            </Tooltip>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
             <Button type='primary' icon={<SyncOutlined />} loading={loading} onClick={handleSync}>{loading ? '正在同步' : '立即同步'}</Button>
