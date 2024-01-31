@@ -297,6 +297,10 @@ pub async fn start_download_upload(
                         },
                     )
                     .unwrap();
+                info!(
+                    "download_upload: fail {} {} {} {}",
+                    upload.reference_id, upload.file_name, upload.path, err
+                );
                 // clean up
                 let res = tokio::fs::remove_file(&filepath.clone())
                     .await
@@ -349,6 +353,10 @@ pub async fn start_download_upload(
                         },
                     )
                     .unwrap();
+                info!(
+                    "download_upload: fail {} {} {} {}",
+                    upload.reference_id, upload.file_name, upload.path, err
+                );
                 // clean up
                 let res = tokio::fs::remove_file(&filepath.clone())
                     .await
@@ -623,6 +631,10 @@ pub async fn start_download_ppts(
                         },
                     )
                     .unwrap();
+                info!(
+                    "download_ppts: fail {} {} {} {}",
+                    subject.course_name, subject.sub_name, subject.path, err
+                );
                 // clean up
                 let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
                 if let Err(err) = res {
@@ -644,6 +656,10 @@ pub async fn start_download_ppts(
                         },
                     )
                     .unwrap();
+                info!(
+                    "download_ppts: fail {} {} {} {}",
+                    subject.course_name, subject.sub_name, subject.path, err
+                );
                 // clean up
                 let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
                 if let Err(err) = res {
@@ -708,6 +724,10 @@ pub async fn start_download_ppts(
                         },
                     )
                     .unwrap();
+                info!(
+                    "download_ppts: fail {} {} {} {}",
+                    subject.course_name, subject.sub_name, subject.path, err
+                );
                 // clean up
                 let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
                 if let Err(err) = res {

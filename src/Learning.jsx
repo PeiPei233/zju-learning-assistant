@@ -198,7 +198,7 @@ export default function Learning({
         }} >
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
             <Text style={{ minWidth: 75 }}>自动同步：</Text>
-            <Tooltip title={syncing ? (autoDownload ? '自动同步已开启，将自动下载已选课程的课件' : '自动同步已开启，将自动添加已选课程的未下载课件至课件列表') : '自动同步已关闭'}>
+            <Tooltip title={syncing ? (autoDownload ? '自动同步已开启，将自动下载已选课程的课件' : '自动同步已开启，将自动添加已选课程的未下载课件至课件列表') : '开启后，将自动检测学在浙大是否有课件更新'}>
               <Switch checked={syncing} onChange={handleSwitchSync} />
             </Tooltip>
           </div>
