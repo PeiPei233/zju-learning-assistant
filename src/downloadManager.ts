@@ -70,7 +70,7 @@ export class Task {
             return '等待中'
         } else if (this.status === 'downloading') {
             return bytesToSize(this.downloadedSize) + '/' + bytesToSize(this.totalSize) + ' | ' + bytesToSize(this.speed) + '/s' +
-                (!isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' 剩余 ' + formatTime(this.remainingTime) : '')
+                (this.remainingTime && !isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' 剩余 ' + formatTime(this.remainingTime) : '')
         } else if (this.status === 'done') {
             return '下载完成'
         } else if (this.status === 'failed') {
@@ -166,8 +166,8 @@ export class ClassroomTask extends Task {
         if (this.status === 'pending') {
             return '等待中'
         } else if (this.status === 'downloading') {
-            return 'PPTs: ' + this.downloadedSize + '/' + this.totalSize + ' | ' +
-                (!isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' 预计剩余 ' + formatTime(this.remainingTime) : '')
+            return 'PPTs: ' + this.downloadedSize + '/' + this.totalSize +
+                (this.remainingTime && !isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' | 预计剩余 ' + formatTime(this.remainingTime) : '')
         } else if (this.status === 'done') {
             return '下载完成'
         } else if (this.status === 'failed') {

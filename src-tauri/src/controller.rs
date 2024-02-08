@@ -290,7 +290,7 @@ pub async fn start_download_upload(
                         "download-progress",
                         Progress {
                             id: id.clone(),
-                            status: "fail".to_string(),
+                            status: "failed".to_string(),
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
@@ -317,7 +317,7 @@ pub async fn start_download_upload(
                         "download-progress",
                         Progress {
                             id: id.clone(),
-                            status: "cancel".to_string(),
+                            status: "canceled".to_string(),
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
@@ -346,7 +346,7 @@ pub async fn start_download_upload(
                         "download-progress",
                         Progress {
                             id: id.clone(),
-                            status: "fail".to_string(),
+                            status: "failed".to_string(),
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
@@ -587,7 +587,7 @@ pub async fn start_download_ppts(
                         "download-progress",
                         Progress {
                             id: id.clone(),
-                            status: "cancel".to_string(),
+                            status: "canceled".to_string(),
                             file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                             downloaded_size: count,
                             total_size: total_size as u64,
@@ -624,7 +624,7 @@ pub async fn start_download_ppts(
                         "download-progress",
                         Progress {
                             id: id.clone(),
-                            status: "fail".to_string(),
+                            status: "failed".to_string(),
                             file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                             downloaded_size: count,
                             total_size: total_size as u64,
@@ -649,7 +649,7 @@ pub async fn start_download_ppts(
                         "download-progress",
                         Progress {
                             id: id.clone(),
-                            status: "fail".to_string(),
+                            status: "failed".to_string(),
                             file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                             downloaded_size: count,
                             total_size: total_size as u64,
@@ -676,7 +676,7 @@ pub async fn start_download_ppts(
                     "download-progress",
                     Progress {
                         id: id.clone(),
-                        status: "cancel".to_string(),
+                        status: "canceled".to_string(),
                         file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                         downloaded_size: count,
                         total_size: total_size as u64,
@@ -717,7 +717,7 @@ pub async fn start_download_ppts(
                         "download-progress",
                         Progress {
                             id: id.clone(),
-                            status: "fail".to_string(),
+                            status: "failed".to_string(),
                             file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                             downloaded_size: count,
                             total_size: total_size as u64,
@@ -752,6 +752,202 @@ pub async fn start_download_ppts(
         info!(
             "download_ppts: done {} {}",
             subject.course_name, subject.sub_name
+        );
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_download_playback(
+    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
+    window: Window,
+    id: String,
+    subject: Subject,
+    sync_upload: bool,
+) -> Result<(), String> {
+    info!(
+        "start_download_playback: {} {} {}",
+        id, subject.course_name, subject.sub_name
+    );
+
+    let zju_assist = zju_assist.lock().await.clone();
+    // state -> true: downloading, false: cancel
+    let download_state = Arc::new(AtomicBool::new(true));
+    state.insert(id.clone(), download_state.clone());
+
+    let res = zju_assist
+        .get_playback_response(subject.course_id, subject.sub_id)
+        .await
+        .map_err(|err| err.to_string())?;
+
+    if !res.status().is_success() {
+        debug!(
+            "start_download_playback: fail {} {} {}",
+            subject.course_name, subject.sub_name, subject.path
+        );
+        state.remove(&id);
+        return Err("下载失败".to_string());
+    }
+
+    // create father dir if not exists
+    std::fs::create_dir_all(Path::new(&subject.path)).map_err(|e| e.to_string())?;
+
+    let content_length = res.content_length().unwrap_or(0);
+    let file_name = format!("{}-{}.mp4", subject.course_name, subject.sub_name);
+    let filepath = Path::new(&subject.path).join(&file_name);
+
+    info!("download_playback - filepath: {:?}", filepath);
+
+    // if path exists, and size match, then skip
+    if sync_upload && filepath.exists() && filepath.metadata().unwrap().len() == content_length {
+        debug!(
+            "download_playback: skip {} {} {}",
+            subject.course_name, subject.sub_name, subject.path
+        );
+        window
+            .emit(
+                "download-progress",
+                Progress {
+                    id: id.clone(),
+                    status: "done".to_string(),
+                    file_name: file_name.clone(),
+                    downloaded_size: content_length,
+                    total_size: content_length,
+                },
+            )
+            .unwrap();
+        info!(
+            "download_playback: done {} {} {}",
+            subject.course_name, subject.sub_name, subject.path
+        );
+        return Ok(());
+    }
+    debug!(
+        "download_playback: stream {} {} {:?}",
+        subject.course_name, subject.sub_name, filepath
+    );
+    let mut file = tokio::fs::File::create(filepath.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    tokio::task::spawn(async move {
+        let mut current_size: u64 = 0;
+        let mut stream = res.bytes_stream();
+        loop {
+            let res = stream.try_next().await.map_err(|e| e.to_string());
+            if let Err(err) = res {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "failed".to_string(),
+                            file_name: file_name.clone(),
+                            downloaded_size: current_size,
+                            total_size: content_length,
+                        },
+                    )
+                    .unwrap();
+                info!(
+                    "download_playback: fail {} {} {} {}",
+                    subject.course_name, subject.sub_name, subject.path, err
+                );
+                // clean up
+                let res = tokio::fs::remove_file(&filepath.clone())
+                    .await
+                    .map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_playback: clean up fail: {}", err);
+                }
+                break;
+            }
+
+            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "canceled".to_string(),
+                            file_name: file_name.clone(),
+                            downloaded_size: current_size,
+                            total_size: content_length,
+                        },
+                    )
+                    .unwrap();
+                // clean up
+                let res = tokio::fs::remove_file(&filepath.clone())
+                    .await
+                    .map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_playback: clean up fail: {}", err);
+                }
+                break;
+            }
+            let item = res.unwrap();
+            if item.is_none() {
+                break;
+            }
+            let chunk = item.unwrap();
+            current_size += chunk.len() as u64;
+            let res = file.write_all(&chunk).await.map_err(|e| e.to_string());
+            if let Err(err) = res {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "failed".to_string(),
+                            file_name: file_name.clone(),
+                            downloaded_size: current_size,
+                            total_size: content_length,
+                        },
+                    )
+                    .unwrap();
+                info!(
+                    "download_playback: fail {} {} {} {}",
+                    subject.course_name, subject.sub_name, subject.path, err
+                );
+                // clean up
+                let res = tokio::fs::remove_file(&filepath.clone())
+                    .await
+                    .map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_playback: clean up fail: {}", err);
+                }
+                break;
+            }
+
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        id: id.clone(),
+                        status: "downloading".to_string(),
+                        file_name: file_name.clone(),
+                        downloaded_size: current_size,
+                        total_size: content_length,
+                    },
+                )
+                .unwrap();
+        }
+        window
+            .emit(
+                "download-progress",
+                Progress {
+                    id: id.clone(),
+                    status: "done".to_string(),
+                    file_name: file_name.clone(),
+                    downloaded_size: content_length,
+                    total_size: content_length,
+                },
+            )
+            .unwrap();
+        info!(
+            "download_playback: done {} {} {}",
+            subject.course_name, subject.sub_name, subject.path
         );
     });
 

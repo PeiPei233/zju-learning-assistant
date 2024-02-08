@@ -81,16 +81,6 @@ impl ZjuRequestBuilder {
         self
     }
 
-    pub fn timeout(&mut self, timeout: std::time::Duration) -> &mut Self {
-        self.request_builder = self.request_builder.try_clone().unwrap().timeout(timeout);
-        self.request_builder_no_proxy = self
-            .request_builder_no_proxy
-            .try_clone()
-            .unwrap()
-            .timeout(timeout);
-        self
-    }
-
     pub async fn send(&self) -> Result<Response, Error> {
         // total 6 retries, 3 with proxy, 3 without proxy
         let mut res = self.request_builder.try_clone().unwrap().send().await;
@@ -701,11 +691,11 @@ impl ZjuAssist {
         }
     }
 
-    pub async fn download_playback(
+    pub async fn get_playback_response(
         &self,
         course_id: i64,
         sub_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<Response, Box<dyn std::error::Error>> {
         let res = self
             .get(format!(
                 "https://classroom.zju.edu.cn/courseapi/v3/portal-home-setting/get-sub-info?course_id={}&sub_id={}",
@@ -730,12 +720,8 @@ impl ZjuAssist {
 
         let url = Self::get_auth_play_url(url, &id, &tenant_id, phone);
         let res = self.get(url).send().await?;
-        let content = res.bytes().await?;
 
-        let mut file = File::create("test.mp4")?;
-        file.write_all(&content)?;
-
-        Ok(())
+        Ok(res)
     }
 
     pub async fn get_score(&mut self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {

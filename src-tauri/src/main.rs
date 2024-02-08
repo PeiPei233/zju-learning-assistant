@@ -130,6 +130,7 @@ fn main() {
             controller::open_file_ppts,
             controller::get_latest_version_info,
             controller::start_download_ppts,
+            controller::start_download_playback,
             controller::get_range_subs,
             controller::search_courses,
             controller::get_course_subs,
