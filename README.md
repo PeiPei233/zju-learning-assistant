@@ -20,7 +20,7 @@ P.S. 由于没有购买 CA 签名，ZJU Learning Assistant (aka. ZLA) 没有签�
 从 [Release](https://github.com/PeiPei233/zju-learning-assistant/releases) 下载对应系统的最新版本，安装后打开即可。
 - Windows 用户可下载 `.exe` `.msi` 文件进行安装。
 - Linux 用户可下载 `.AppImage` 文件，赋予可执行权限后运行。或者下载 `.deb` 文件进行安装。
-- Mac 用户可下载 `.dmg` 文件进行安装。Intel 对应 `x86_64` 版本，Apple Silicon 对应 `aarch64` 版本。
+- Mac 用户可下载 `.dmg` 文件进行安装，或下载 `.app.tar.gz` 文件解压后运行。Intel 对应 `x86_64` 版本，Apple Silicon 对应 `aarch64` 版本。
 
 ### 自行编译
 
