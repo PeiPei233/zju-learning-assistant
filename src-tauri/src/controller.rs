@@ -1,7 +1,7 @@
 use crate::model;
 use crate::model::Subject;
 use crate::util::images_to_pdf;
-use crate::zju_assist::{download_ppt_image, get_ppt_urls, ZjuAssist};
+use crate::zju_assist::{download_ppt_image, ZjuAssist};
 
 use chrono::NaiveDate;
 use dashmap::DashMap;
@@ -11,6 +11,7 @@ use log::{debug, info};
 use model::{Config, Progress, Upload};
 use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
+use std::cmp::min;
 use std::sync::atomic::AtomicBool;
 use std::{path::Path, process::Command, sync::Arc};
 use tauri::{Manager, State, Window};
@@ -175,6 +176,7 @@ pub async fn get_uploads_list(
                 uploads.push(Upload {
                     reference_id,
                     file_name,
+                    course_name: course_name.clone(),
                     path,
                     size,
                 });
@@ -966,10 +968,12 @@ pub async fn start_download_playback(
 
 #[tauri::command]
 pub async fn get_sub_ppt_urls(
+    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
     config: State<'_, Arc<Mutex<Config>>>,
     subs: Vec<Subject>,
 ) -> Result<Vec<Subject>, String> {
     info!("get_sub_ppt_urls");
+    let zju_assist = zju_assist.lock().await.clone();
     let mut new_subs = Vec::new();
     let save_path = config.lock().await.save_path.clone();
 
@@ -981,8 +985,9 @@ pub async fn get_sub_ppt_urls(
                 .to_str()
                 .unwrap()
                 .to_string();
+            let zju_assist = zju_assist.clone();
             tokio::task::spawn(async move {
-                let urls = get_ppt_urls(sub.course_id, sub.sub_id)
+                let urls = zju_assist.get_ppt_urls(sub.course_id, sub.sub_id)
                     .await
                     .map_err(|err| err.to_string())?;
                 Ok(Subject {
@@ -1054,23 +1059,46 @@ pub async fn search_courses(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     course_name: String,
     teacher_name: String,
-) -> Result<Vec<Value>, String> {
+) -> Result<Vec<Subject>, String> {
     info!("search_courses: {} {}", course_name, teacher_name);
     let zju_assist = state.lock().await;
     let courses = zju_assist
         .search_courses(&course_name, &teacher_name)
         .await
         .map_err(|err| err.to_string())?;
+    let courses = courses
+        .into_iter()
+        .map(|course| {
+            let course = course.as_object().unwrap();
+            let course_id = course["course_id"].as_i64().unwrap_or(0);
+            let course_name = course["title"].as_str().unwrap_or("").to_string();
+            let lecturer_name = course["realname"].as_str().unwrap_or("").to_string();
+            let path = "".to_string();
+            let ppt_image_urls = Vec::new();
+            let sub_id = 0;
+            let sub_name = course.get("subject_title").map_or("", |v| v.as_str().unwrap_or("")).to_string();
+            Subject {
+                course_id,
+                course_name,
+                lecturer_name,
+                path,
+                ppt_image_urls,
+                sub_id,
+                sub_name: sub_name[..min(sub_name.len(), 7)].to_string(),
+            }
+        })
+        .collect::<Vec<Subject>>();
     Ok(courses)
 }
 
 #[tauri::command]
-pub async fn get_course_subs(
+pub async fn get_course_all_sub_ppts(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    config: State<'_, Arc<Mutex<Config>>>,
     course_ids: Vec<i64>,
 ) -> Result<Vec<Subject>, String> {
     info!("get_course_subs");
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     let mut subs = Vec::new();
     for course_id in course_ids {
         let sub = zju_assist
@@ -1079,7 +1107,7 @@ pub async fn get_course_subs(
             .map_err(|err| err.to_string())?;
         subs.extend(sub);
     }
-    Ok(subs)
+    get_sub_ppt_urls(state, config, subs).await
 }
 
 #[tauri::command]

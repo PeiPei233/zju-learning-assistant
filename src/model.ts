@@ -1,6 +1,7 @@
 export class Upload {
     reference_id: number
     file_name: string
+    course_name: string
     path: string
     size: number
 }
@@ -18,6 +19,7 @@ export class Subject {
     sub_id: number
     course_name: string
     sub_name: string
+    lecturer_name: string
     path: string
     ppt_image_urls: string[]
 }
@@ -48,6 +50,7 @@ export class Config {
         config.auto_download = this.auto_download
         config.ding_url = this.ding_url
         config.auto_open_download_list = this.auto_open_download_list
+        config.tray = this.tray
         return config
     }
 }

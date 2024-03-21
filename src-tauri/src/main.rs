@@ -162,7 +162,7 @@ fn main() {
             controller::start_download_playback,
             controller::get_range_subs,
             controller::search_courses,
-            controller::get_course_subs,
+            controller::get_course_all_sub_ppts,
             controller::get_sub_ppt_urls,
             controller::get_month_subs,
             controller::get_score,

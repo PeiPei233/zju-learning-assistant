@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Button, Card, App, Row, Col, Tooltip, Typography, Layout, Radio, DatePicker } from 'antd';
+import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Radio, DatePicker } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import SearchTable from './SearchTable'
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -17,13 +17,15 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
   const { message, modal, notification } = App.useApp()
 
   const [selectedDateMethod, setSelectedDateMethod] = useState('week')
+  const [selectedCourseRange, setSelectedCourseRange] = useState('my')
   const [leftSubList, setLeftSubList] = useState([])
   const [rightSubList, setRightSubList] = useState([])
   const [selectedLeftKeys, setSelectedLeftKeys] = useState([])
   const [selectedRightKeys, setSelectedRightKeys] = useState([])
   const [loadingLeftSubList, setLoadingLeftSubList] = useState(false)
   const [loadingRightSubList, setLoadingRightSubList] = useState(false)
-  const [updatingPath, setUpdatingPath] = useState(false)
+  const [searchCourseName, setSearchCourseName] = useState('')
+  const [searchTeacherName, setSearchTeacherName] = useState('')
 
   const selectDateMethodOptions = [
     {
@@ -38,6 +40,17 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
       label: '月',
       value: 'month'
     },
+  ]
+
+  const selectCourseRangeOptions = [
+    {
+      label: '我的课程',
+      value: 'my'
+    },
+    {
+      label: '全部课程',
+      value: 'all'
+    }
   ]
 
   const changeDateMethod = (value) => {
@@ -67,42 +80,61 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
   }
 
   const updateRightSubList = () => {
-    let subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.sub_id))
-    if (subs.length === 0) {
-      notification.error({
-        message: '请选择课程',
-      })
-      return
-    }
-    setLoadingRightSubList(true)
-    invoke('get_sub_ppt_urls', { subs }).then((res) => {
-      // console.log(res)
-      const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
+    if (selectedCourseRange === 'my') {
+      let subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.sub_id))
       if (subs.length === 0) {
         notification.error({
-          message: '没有发现智云 PPT',
+          message: '请选择课程',
         })
+        return
       }
-      setRightSubList(subs)
-      setSelectedRightKeys(subs.map((item) => item.sub_id))
-    }).catch((err) => {
-      notification.error({
-        message: '获取课件列表失败',
-        description: err
+      setLoadingRightSubList(true)
+      invoke('get_sub_ppt_urls', { subs }).then((res) => {
+        // console.log(res)
+        const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
+        if (subs.length === 0) {
+          notification.error({
+            message: '没有发现智云 PPT',
+          })
+        }
+        setRightSubList(subs)
+        setSelectedRightKeys(subs.map((item) => item.sub_id))
+      }).catch((err) => {
+        notification.error({
+          message: '获取课件列表失败',
+          description: err
+        })
+      }).finally(() => {
+        setLoadingRightSubList(false)
       })
-    }).finally(() => {
-      setLoadingRightSubList(false)
-    })
-  }
-
-  const openDownloadPath = () => {
-    invoke('open_save_path').then((res) => {
-    }).catch((err) => {
-      notification.error({
-        message: '打开下载路径失败',
-        description: err
+    } else {
+      let subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.course_id))
+      if (subs.length === 0) {
+        notification.error({
+          message: '请选择课程',
+        })
+        return
+      }
+      let course_ids = subs.map((item) => item.course_id)
+      invoke('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
+        // console.log(res)
+        const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
+        if (subs.length === 0) {
+          notification.error({
+            message: '没有发现智云 PPT',
+          })
+        }
+        setRightSubList(subs)
+        setSelectedRightKeys(subs.map((item) => item.sub_id))
+      }).catch((err) => {
+        notification.error({
+          message: '获取课件列表失败',
+          description: err
+        })
+      }).finally(() => {
+        setLoadingRightSubList(false)
       })
-    })
+    }
   }
 
   const leftColumns = [
@@ -114,12 +146,26 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
       dataIndex: 'sub_name',
       title: '上课时间',
     },
+    {
+      dataIndex: 'lecturer_name',
+      title: '教师',
+      responsive: ['lg'],
+    },
   ];
 
   const rightColumns = [
     {
+      title: '课程名称',
+      dataIndex: 'course_name',
+    },
+    {
       dataIndex: 'sub_name',
       title: '上课时间',
+    },
+    {
+      dataIndex: 'lecturer_name',
+      title: '教师',
+      responsive: ['lg'],
     },
     {
       dataIndex: 'ppt_image_urls',
@@ -128,10 +174,6 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
         return urls.length
       },
       searchable: false
-    },
-    {
-      title: '下载路径',
-      dataIndex: 'path',
     }
   ];
 
@@ -149,17 +191,47 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     setSelectedRightKeys([])
   }
 
+  const searchCourse = () => {
+    setLoadingLeftSubList(true)
+    invoke('search_courses', { courseName: searchCourseName, teacherName: searchTeacherName }).then((res) => {
+      // console.log(res)
+      setLeftSubList(res)
+      setSelectedLeftKeys([])
+    }).catch((err) => {
+      notification.error({
+        message: '搜索课程失败',
+        description: err
+      })
+    }).finally(() => {
+      setLoadingLeftSubList(false)
+    })
+  }
+
   return (
     <div style={{ margin: 20 }}>
       <Card bodyStyle={{ padding: 15 }}>
-        <Row align='middle' justify='space-between' gutter={20}>
-          <Col xs={12} md={14}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'start',
-              flexDirection: 'row'
-            }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }} >
+          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
+            <Radio.Group
+              options={selectCourseRangeOptions}
+              onChange={(value) => {
+                setLeftSubList([])
+                setSelectedLeftKeys([])
+                setSelectedCourseRange(value.target.value)
+              }}
+              value={selectedCourseRange}
+              optionType="button"
+              buttonStyle="solid"
+              size='small'
+              style={{ minWidth: 160 }}
+            />
+          </div>
+          {selectedCourseRange === 'my' &&
+            <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
               <Radio.Group
                 options={selectDateMethodOptions}
                 onChange={changeDateMethod}
@@ -186,33 +258,40 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
                 onChange={changeDateRange}
                 disabled={loadingLeftSubList}
               />}
-            </div>
-          </Col>
-          <Col xs={12} md={10}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'end',
-              flexDirection: 'row'
-            }}>
-              <Button
-                type='primary'
-                icon={<DownloadOutlined />}
-                onClick={downloadSubsPPT}
-                disabled={loadingRightSubList}
-              >{'下载课件'}</Button>
-            </div>
-          </Col>
-        </Row>
+            </div>}
+          {selectedCourseRange === 'all' &&
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
+                <Input placeholder='课程名称' size='small' value={searchCourseName} onChange={(e) => setSearchCourseName(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
+                <Input placeholder='教师名称' size='small' value={searchTeacherName} onChange={(e) => setSearchTeacherName(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
+                <Tooltip title='搜索全部课程'>
+                  <Button icon={<SearchOutlined />} size='small' onClick={searchCourse} disabled={loadingLeftSubList} />
+                </Tooltip>
+              </div>
+            </>
+          }
+          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
+            <Button
+              type='primary'
+              icon={<DownloadOutlined />}
+              onClick={downloadSubsPPT}
+              disabled={loadingRightSubList}
+            >{'下载课件'}</Button>
+          </div>
+        </div>
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
-        <Col xs={10} md={9} lg={8}>
+        <Col xs={10}>
           <SearchTable
             rowSelection={{
               selectedRowKeys: selectedLeftKeys,
               onChange: setSelectedLeftKeys,
             }}
-            rowKey='sub_id'
+            rowKey={selectedCourseRange === 'my' ? 'sub_id' : 'course_id'}
             columns={leftColumns}
             dataSource={leftSubList}
             pagination={false}
@@ -224,7 +303,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
             loading={loadingLeftSubList}
           />
         </Col>
-        <Col xs={14} md={15} lg={16}>
+        <Col xs={14}>
           <SearchTable
             rowSelection={{
               selectedRowKeys: selectedRightKeys,
@@ -238,7 +317,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
             size='small'
             bordered
             footer={() => ''}
-            loading={loadingRightSubList || updatingPath}
+            loading={loadingRightSubList}
             title={() => {
               return (
                 <>

@@ -8,6 +8,7 @@ use reqwest::{Client, Method, RequestBuilder, Response};
 use reqwest::{Error, IntoUrl};
 use serde::Serialize;
 use serde_json::Value;
+use std::cmp::min;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
@@ -38,13 +39,13 @@ impl ZjuRequestBuilder {
                 .unwrap(),
         );
 
-        let client_default = Client::builder()
+        let client_no_proxy = Client::builder()
             .cookie_provider(Arc::clone(&client.jar))
             .default_headers(headers.clone())
             .build()
             .unwrap();
 
-        let client_no_proxy = Client::builder()
+        let client_default = Client::builder()
             .cookie_provider(Arc::clone(&client.jar))
             .default_headers(headers)
             .no_proxy()
@@ -212,8 +213,8 @@ impl ZjuAssist {
                 .send()
                 .await?;
             self.post("https://zjuam.zju.edu.cn/cas/login?service=http://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
-            .send()
-            .await?;
+                .send()
+                .await?;
             self.have_login = true;
             self.username = username.to_string();
             self.password = password.to_string();
@@ -490,11 +491,13 @@ impl ZjuAssist {
                 let course_name = course["title"].as_str().unwrap().replace("/", "_");
                 let sub_id = course["sub_id"].as_str().unwrap().parse::<i64>().unwrap();
                 let sub_name = course["sub_title"].as_str().unwrap().replace("/", "_");
+                let lecturer_name = course["realname"].as_str().unwrap().to_string();
                 subs.push(Subject {
                     course_id,
                     course_name: course_name.clone(),
                     sub_id,
                     sub_name,
+                    lecturer_name,
                     path: "".to_string(), // path will be set when downloading
                     ppt_image_urls: Vec::new(),
                 });
@@ -541,11 +544,13 @@ impl ZjuAssist {
                         let course_name = course["title"].as_str().unwrap().replace("/", "_");
                         let sub_id = course["sub_id"].as_str().unwrap().parse::<i64>().unwrap();
                         let sub_name = course["sub_title"].as_str().unwrap().replace("/", "_");
+                        let lecturer_name = course["realname"].as_str().unwrap().to_string();
                         subs.push(Subject {
                             course_id,
                             course_name: course_name.clone(),
                             sub_id,
                             sub_name,
+                            lecturer_name,
                             path: "".to_string(), // path will be set when downloading
                             ppt_image_urls: Vec::new(),
                         });
@@ -594,6 +599,13 @@ impl ZjuAssist {
 
         let mut courses = Vec::new();
         let json: Value = res.json().await?;
+
+        // if code is not 0, then there is an error
+        if json["code"].as_i64().unwrap() != 0 {
+            let msg = json["msg"].as_str().unwrap();
+            return Err(msg.into());
+        }
+
         courses.extend(json["total"]["list"].as_array().unwrap().iter().cloned());
         let mut page = 1;
         let total_course = json["total"]["total"].as_i64().unwrap();
@@ -651,11 +663,13 @@ impl ZjuAssist {
                     for sub in week_data.as_array().unwrap() {
                         let sub_id = sub["id"].as_str().unwrap().parse::<i64>().unwrap();
                         let sub_name = sub["sub_title"].as_str().unwrap().replace("/", "_");
+                        let lecturer_name = sub["lecturer_name"].as_str().unwrap().to_string();
                         subs.push(Subject {
                             course_id,
                             course_name: course_name.clone(),
                             sub_id,
                             sub_name,
+                            lecturer_name,
                             path: "".to_string(), // path will be set when downloading
                             ppt_image_urls: Vec::new(),
                         });

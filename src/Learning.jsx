@@ -171,6 +171,10 @@ export default function Learning({
 
   const uploadColumns = [
     {
+      title: '课程名称',
+      dataIndex: 'course_name',
+    },
+    {
       title: '文件名',
       dataIndex: 'file_name',
     },
@@ -180,11 +184,8 @@ export default function Learning({
       render: (size) => {
         return bytesToSize(size)
       },
-      searchable: false
-    },
-    {
-      title: '下载路径',
-      dataIndex: 'path',
+      searchable: false,
+      sorter: (a, b) => a.size - b.size
     },
   ]
 
