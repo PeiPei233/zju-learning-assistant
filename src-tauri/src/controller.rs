@@ -1029,7 +1029,7 @@ pub async fn get_range_subs(
                 .map_err(|err| err.to_string())?;
             Ok(sub)
         }));
-        date = date + chrono::Duration::days(1);
+        date = date + chrono::Duration::try_days(1).unwrap();
     }
 
     for task in tasks {

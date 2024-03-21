@@ -558,7 +558,7 @@ impl ZjuAssist {
                 }
             }
 
-            date = date + chrono::Duration::days(1);
+            date = date + chrono::Duration::try_days(1).unwrap();
         }
 
         Ok(subs)

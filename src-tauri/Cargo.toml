@@ -22,7 +22,7 @@ reqwest = { version = "0.11.23", features = ["json", "cookies", "stream"] }
 regex = "1"
 num-bigint = "0.4"
 num-traits = "0.2"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.36.0", features = ["full"] }
 percent-encoding = "2.1"
 futures = "0.3"
 bytes = "1.0"
