@@ -20,7 +20,14 @@
       },
       "app": {
         "all": true
+      },
+      "process": {
+        "exit": true
       }
+    },
+    "systemTray": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
     },
     "bundle": {
       "active": true,
@@ -72,7 +79,7 @@
         "title": "zju-learning-assistant",
         "width": 800,
         "minHeight": 400,
-        "minWidth": 680
+        "minWidth": 700
       }
     ],
     "cli": {

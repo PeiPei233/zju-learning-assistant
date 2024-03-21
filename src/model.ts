@@ -28,6 +28,7 @@ export class Config {
     auto_download: boolean
     ding_url: string
     auto_open_download_list: boolean
+    tray: boolean
 
     constructor(config?: Config) {
         if (config) {
@@ -36,6 +37,7 @@ export class Config {
             this.auto_download = config.auto_download
             this.ding_url = config.ding_url
             this.auto_open_download_list = config.auto_open_download_list
+            this.tray = config.tray
         }
     }
 

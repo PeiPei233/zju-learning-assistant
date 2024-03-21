@@ -7,6 +7,7 @@ pub struct Config {
     pub auto_download: bool,
     pub ding_url: String,
     pub auto_open_download_list: bool,
+    pub tray: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

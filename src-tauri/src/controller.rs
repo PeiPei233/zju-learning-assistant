@@ -13,7 +13,7 @@ use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
 use std::sync::atomic::AtomicBool;
 use std::{path::Path, process::Command, sync::Arc};
-use tauri::{State, Window};
+use tauri::{Manager, State, Window};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -21,6 +21,7 @@ use tokio::task::JoinHandle;
 #[tauri::command]
 pub async fn login(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    window: Window,
     username: String,
     password: String,
 ) -> Result<(), String> {
@@ -29,7 +30,12 @@ pub async fn login(
     zju_assist
         .login(&username, &password)
         .await
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+
+    let id_item_handle = window.app_handle().tray_handle().get_item("id");
+    id_item_handle.set_title(format!("已登录：{}", username)).unwrap();
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -43,10 +49,14 @@ pub async fn check_login(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<bool
 }
 
 #[tauri::command]
-pub async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<(), String> {
+pub async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>, window: Window) -> Result<(), String> {
     info!("logout");
     let mut zju_assist = state.lock().await;
     zju_assist.logout();
+
+    let id_item_handle = window.app_handle().tray_handle().get_item("id");
+    id_item_handle.set_title("未登录").unwrap();
+
     Ok(())
 }
 

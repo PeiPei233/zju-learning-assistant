@@ -730,7 +730,7 @@ impl ZjuAssist {
             ("xq", ""),
             ("zscjl", ""),
             ("zscjr", ""),
-            ("_search", ""),
+            ("_search", "false"),
             (
                 "nd",
                 &SystemTime::now()
@@ -764,16 +764,14 @@ impl ZjuAssist {
             let json = serde_json::from_str(&text);
             if json.is_err() {
                 return Err("Get score failed".into());
-            } else {
-                let json: Value = json.unwrap();
-                let score = json["items"].as_array().unwrap();
-                return Ok(score.iter().cloned().collect());
             }
-        } else {
             let json: Value = json.unwrap();
             let score = json["items"].as_array().unwrap();
             return Ok(score.iter().cloned().collect());
         }
+        let json: Value = json.unwrap();
+        let score = json["items"].as_array().unwrap();
+        return Ok(score.iter().cloned().collect());
     }
 }
 

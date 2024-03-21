@@ -5,6 +5,8 @@ import { shell } from '@tauri-apps/api'
 import { getVersion } from '@tauri-apps/api/app';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import Markdown from 'react-markdown';
+import { listen } from '@tauri-apps/api/event';
+import { exit } from '@tauri-apps/api/process';
 
 const { Text, Paragraph } = Typography
 
@@ -60,6 +62,14 @@ export default function Login({ setIsLogin }) {
         console.log(err)
       })
     }).catch((err) => { })
+
+    const unlistenClose = listen('close-requested', () => {
+      exit(0)
+    })
+
+    return () => {
+      unlistenClose.then((fn) => fn())
+    }
   }, [])
 
   const onFinish = async (values) => {

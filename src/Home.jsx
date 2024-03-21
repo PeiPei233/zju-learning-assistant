@@ -11,6 +11,7 @@ import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { listen } from '@tauri-apps/api/event';
 import { dialog } from '@tauri-apps/api';
+import { exit } from '@tauri-apps/api/process';
 import { Config } from './model';
 
 dayjs.locale('zh-cn')
@@ -212,11 +213,18 @@ export default function Home({ setIsLogin }) {
       downloadManager.current.updateProgress(res.payload)
     })
 
+    const unlistenClose = listen('close-requested', () => {
+      if (!configRef.current.tray) {
+        exit(0)
+      }
+    })
+
     return () => {
       stopSyncScore()
       downloadManager.current.cleanUp()
       clearInterval(updateDownloadList)
       unlisten.then((fn) => fn())
+      unlistenClose.then((fn) => fn())
     }
   }, [])
 
@@ -662,6 +670,32 @@ export default function Home({ setIsLogin }) {
             <Switch checked={config.auto_open_download_list} onChange={(checked) => {
               let new_config = config.clone()
               new_config.auto_open_download_list = checked
+              invoke('set_config', { config: new_config }).then((res) => {
+                setConfig(new_config)
+              }).catch((err) => {
+                notification.error({
+                  message: '设置失败',
+                  description: err
+                })
+              })
+            }} />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
+                }}>关闭应用后保持后台运行</Text>}
+              description={<div>
+                <Text type="secondary" style={{
+                  fontWeight: 'normal',
+                  fontSize: 12
+                }}>若开启，关闭应用窗口后应用会保持后台运行，并保留托盘图标。</Text>
+              </div>}
+            />
+            <Switch checked={config.tray} onChange={(checked) => {
+              let new_config = config.clone()
+              new_config.tray = checked
               invoke('set_config', { config: new_config }).then((res) => {
                 setConfig(new_config)
               }).catch((err) => {

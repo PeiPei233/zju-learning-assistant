@@ -11,8 +11,13 @@ use directories_next::{ProjectDirs, UserDirs};
 use fern::Dispatch;
 use log::info;
 use log::LevelFilter;
+use tauri::SystemTrayMenuItem;
 use std::sync::{atomic::AtomicBool, Arc};
+use tauri::CustomMenuItem;
 use tauri::Manager;
+use tauri::SystemTray;
+use tauri::SystemTrayEvent;
+use tauri::SystemTrayMenu;
 use tokio::sync::Mutex;
 use zju_assist::ZjuAssist;
 
@@ -43,7 +48,64 @@ fn setup_logging(level: LevelFilter, to_file: bool) -> Result<(), fern::InitErro
 }
 
 fn main() {
+    let zju_assist = Arc::new(Mutex::new(ZjuAssist::new()));
+
+    // get user download path
+    let mut save_path = "Downloads".to_string();
+    if let Some(user_dirs) = UserDirs::new() {
+        if let Some(download_dir) = user_dirs.download_dir() {
+            save_path = download_dir.to_str().unwrap().to_string();
+        }
+    }
+
+    let mut config = model::Config {
+        save_path,
+        to_pdf: true,
+        auto_download: true,
+        ding_url: "".to_string(),
+        auto_open_download_list: true,
+        tray: true,
+    };
+
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "zju-learning-assistant") {
+        let config_path = proj_dirs.config_dir();
+        if let Ok(config_local) = std::fs::read_to_string(config_path.join("config.json")) {
+            if let Ok(config_local) = serde_json::from_str::<model::Config>(&config_local) {
+                info!("Loaded config from file");
+                config = config_local;
+            }
+        }
+    }
+    let config_state = Arc::new(Mutex::new(config));
+
+    let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
+
     tauri::Builder::default()
+        .system_tray(SystemTray::new().with_menu(
+            SystemTrayMenu::new()
+                .add_item(CustomMenuItem::new("id", "未登录").disabled())
+                .add_native_item(SystemTrayMenuItem::Separator)
+                .add_item(CustomMenuItem::new("quit".to_string(), "退出")),
+        ))
+        .on_system_tray_event(|app, event| match event {
+            SystemTrayEvent::LeftClick { .. } => {
+                app.get_window("main").unwrap().show().unwrap();
+            }
+            SystemTrayEvent::MenuItemClick { id, .. } => {
+                if id == "quit" {
+                    app.exit(0);
+                }
+            }
+            _ => {}
+        })
+        .on_window_event(|event| match event.event() {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                event.window().hide().unwrap();
+                api.prevent_close();
+                event.window().emit("close-requested", {}).unwrap();
+            }
+            _ => {}
+        })
         .setup(|app| {
             match app.get_cli_matches() {
                 Ok(matches) => {
@@ -58,55 +120,22 @@ fn main() {
                 }
                 Err(_) => {}
             }
-            let zju_assist = Arc::new(Mutex::new(ZjuAssist::new()));
             app.manage(zju_assist);
-
-            // get user download path
-            let mut save_path = "Downloads".to_string();
-            if let Some(user_dirs) = UserDirs::new() {
-                if let Some(download_dir) = user_dirs.download_dir() {
-                    save_path = download_dir.to_str().unwrap().to_string();
-                }
-            }
-
-            let mut config = model::Config {
-                save_path,
-                to_pdf: true,
-                auto_download: true,
-                ding_url: "".to_string(),
-                auto_open_download_list: true,
-            };
-
-            if let Some(proj_dirs) = ProjectDirs::from("", "", "zju-learning-assistant") {
-                let config_path = proj_dirs.config_dir();
-                if let Ok(config_local) = std::fs::read_to_string(config_path.join("config.json")) {
-                    if let Ok(config_local) = serde_json::from_str::<model::Config>(&config_local) {
-                        info!("Loaded config from file");
-                        config = config_local;
-                    }
-                }
-            }
-            app.manage(Arc::new(Mutex::new(config)));
-
-            let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
+            app.manage(config_state);
             app.manage(download_states);
 
             let version = app.config().package.version.clone();
             info!("Current version: {:?}", version);
-
             if let Ok(os) = sys_info::os_type() {
                 info!("Operating System: {}", os);
             }
             if let Ok(version) = sys_info::os_release() {
                 info!("OS Version: {}", version);
             }
-
             info!("Rust version: {}", rustc_version_runtime::version());
-
             if let Ok(mem) = sys_info::mem_info() {
                 info!("Total Memory: {} KB", mem.total);
             }
-
             if let Ok(path) = std::env::current_dir() {
                 info!("Current path: {}", path.display());
             }
