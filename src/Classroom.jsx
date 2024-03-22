@@ -116,6 +116,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
         return
       }
       let course_ids = subs.map((item) => item.course_id)
+      setLoadingRightSubList(true)
       invoke('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
         // console.log(res)
         const subs = res.filter((item) => item.ppt_image_urls.length !== 0)

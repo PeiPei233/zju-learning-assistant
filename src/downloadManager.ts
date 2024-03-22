@@ -103,6 +103,7 @@ export class LearningTask extends Task {
         this.path = upload.path
         this.upload = upload
         this.syncUpload = syncUpload
+        this.totalSize = upload.size
     }
 
     async start(): Promise<any> {
@@ -147,6 +148,7 @@ export class ClassroomTask extends Task {
         this.path = subject.path
         this.subject = subject
         this.toPdf = toPdf
+        this.totalSize = subject.ppt_image_urls.length
     }
 
     async start(): Promise<any> {

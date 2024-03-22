@@ -1,4 +1,5 @@
 use image::{ColorType, GenericImageView, ImageFormat};
+use log::info;
 use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
 use num_bigint::BigUint;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
@@ -121,6 +122,7 @@ pub fn rsa_no_padding(src: &str, modulus: &str, exponent: &str) -> String {
 
 pub async fn measure_latency(client: Client, url: &str) -> Result<u128, reqwest::Error> {
     let start = Instant::now();
+    info!("GET {}", url);
     client.get(url).send().await?;
     Ok(start.elapsed().as_millis())
 } 

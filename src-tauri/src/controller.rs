@@ -1,7 +1,7 @@
 use crate::model;
 use crate::model::Subject;
 use crate::util::images_to_pdf;
-use crate::zju_assist::{download_ppt_image, ZjuAssist};
+use crate::zju_assist::ZjuAssist;
 
 use chrono::NaiveDate;
 use dashmap::DashMap;
@@ -13,6 +13,7 @@ use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
 use std::cmp::min;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
 use tauri::{Manager, State, Window};
 use tokio::io::AsyncWriteExt;
@@ -445,14 +446,11 @@ pub async fn open_file(path: String, folder: bool) -> Result<(), String> {
         if folder {
             // open folder
             #[cfg(target_os = "windows")]
-            Command::new("cmd")
-                .arg("/c")
-                .arg("start")
-                .arg("explorer.exe")
+            Command::new("explorer.exe")
                 .arg("/select,")
                 .arg(path)
                 .spawn()
-                .map_err(|err| err.to_string())?; // cmd /c start explorer.exe /select,"path"
+                .map_err(|err| err.to_string())?; // explorer.exe /select,"path"
 
             #[cfg(target_os = "macos")]
             Command::new("open")
@@ -559,6 +557,7 @@ pub async fn get_latest_version_info() -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn start_download_ppts(
+    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
     state: State<'_, DashMap<String, Arc<AtomicBool>>>,
     window: Window,
     id: String,
@@ -571,6 +570,7 @@ pub async fn start_download_ppts(
     );
     // state -> true: downloading, false: cancel
     let download_state = Arc::new(AtomicBool::new(true));
+    let zju_assist = zju_assist.lock().await.clone();
     state.insert(id.clone(), download_state.clone());
 
     tokio::task::spawn(async move {
@@ -592,18 +592,32 @@ pub async fn start_download_ppts(
             })
             .collect::<Vec<_>>();
 
-        let mut tasks = urls
+        let mut tasks: Vec<JoinHandle<Result<(), String>>> = Vec::new();
+        for (url, path) in urls
             .clone()
             .into_iter()
-            .zip(image_paths.clone())
-            .map(|(url, path)| {
-                tokio::task::spawn(async move {
-                    download_ppt_image(&url, &path)
+            .zip(image_paths.clone().into_iter())
+        {
+            let zju_assist = zju_assist.clone();
+            let task = tokio::task::spawn(async move {
+                let res = zju_assist
+                    .download_ppt_image(&url, &path)
+                    .await
+                    .map_err(|err| err.to_string());
+                // if download fail, retry once
+                if let Err(_) = res {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    return zju_assist
+                        .download_ppt_image(&url, &path)
                         .await
-                        .map_err(|err| err.to_string())
-                })
-            })
-            .collect::<Vec<_>>();
+                        .map_err(|err| err.to_string());
+                }
+                Ok(())
+            });
+            tasks.push(task);
+            // delay 50ms to avoid too many requests
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
 
         for task in &mut tasks {
             if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
@@ -990,28 +1004,40 @@ pub async fn get_sub_ppt_urls(
     let mut new_subs = Vec::new();
     let save_path = config.lock().await.save_path.clone();
 
-    let tasks = subs
-        .into_iter()
-        .map(|sub| {
-            let path = Path::new(&save_path)
-                .join(&sub.course_name)
-                .to_str()
-                .unwrap()
-                .to_string();
-            let zju_assist = zju_assist.clone();
-            tokio::task::spawn(async move {
-                let urls = zju_assist
+    let mut tasks: Vec<JoinHandle<Result<Subject, String>>> = Vec::new();
+    for sub in subs.into_iter() {
+        let path = Path::new(&save_path)
+            .join(&sub.course_name)
+            .to_str()
+            .unwrap()
+            .to_string();
+        let zju_assist = zju_assist.clone();
+        let task = tokio::task::spawn(async move {
+            let urls_res = zju_assist
+                .get_ppt_urls(sub.course_id, sub.sub_id)
+                .await
+                .map_err(|err| err.to_string());
+            let urls;
+            if let Ok(urls_res) = urls_res {
+                urls = urls_res;
+            } else {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                // retry once
+                urls = zju_assist
                     .get_ppt_urls(sub.course_id, sub.sub_id)
                     .await
                     .map_err(|err| err.to_string())?;
-                Ok(Subject {
-                    ppt_image_urls: urls,
-                    path,
-                    ..sub
-                })
+            }
+            Ok(Subject {
+                ppt_image_urls: urls,
+                path,
+                ..sub
             })
-        })
-        .collect::<Vec<JoinHandle<Result<Subject, String>>>>();
+        });
+        tasks.push(task);
+        // delay 25ms to avoid too many requests
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 
     for task in tasks {
         new_subs.push(task.await.map_err(|err| err.to_string())??);

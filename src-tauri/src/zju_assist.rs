@@ -31,7 +31,12 @@ pub struct ZjuRequestBuilder {
 }
 
 impl ZjuRequestBuilder {
-    fn new<U: IntoUrl + Clone>(client: ZjuAssist, method: Method, url: U, proxy_first: bool) -> Self {
+    fn new<U: IntoUrl + Clone>(
+        client: ZjuAssist,
+        method: Method,
+        url: U,
+        proxy_first: bool,
+    ) -> Self {
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
@@ -81,11 +86,7 @@ impl ZjuRequestBuilder {
 
     pub fn form<T: Serialize + ?Sized>(&mut self, form: &T) -> &mut Self {
         self.request_builder_first = self.request_builder_first.try_clone().unwrap().form(form);
-        self.request_builder_second = self
-            .request_builder_second
-            .try_clone()
-            .unwrap()
-            .form(form);
+        self.request_builder_second = self.request_builder_second.try_clone().unwrap().form(form);
         self
     }
 
@@ -96,8 +97,8 @@ impl ZjuRequestBuilder {
 
         while res.is_err() && retries > 0 {
             retries -= 1;
-            // wait for 100ms before retry
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // wait for 200ms before retry
+            tokio::time::sleep(Duration::from_millis(200)).await;
             if retries % 2 == 0 {
                 res = self
                     .request_builder_second
@@ -180,7 +181,7 @@ impl ZjuAssist {
         if self.have_login {
             return Ok(());
         }
-        
+
         let res = self
             .get("https://zjuam.zju.edu.cn/cas/login")
             .send()
@@ -799,6 +800,7 @@ impl ZjuAssist {
                         course_id, sub_id
                     ))?;
                 }
+                tokio::time::sleep(Duration::from_millis(200)).await;
                 continue;
             }
             for ppt_content in ppt_list {
@@ -809,6 +811,53 @@ impl ZjuAssist {
             }
         }
         Ok(urls)
+    }
+
+    pub async fn download_ppt_image(
+        &self,
+        url: &str,
+        path: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        const MAX_RETRIES: usize = 5;
+        let mut retries = 0;
+
+        let file_path = match Path::new(path).extension() {
+            Some(_) => Path::new(path).to_path_buf(),
+            None => Path::new(path).join(url.split("/").last().unwrap()),
+        };
+
+        while retries < MAX_RETRIES {
+            let res = self.get(url).send().await?;
+            let content = res.bytes().await?;
+            if content.is_empty() || image::guess_format(&content).is_err() {
+                retries += 1;
+                continue;
+            }
+
+            if let Some(parent) = file_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut file = File::create(file_path.clone())?;
+            file.write_all(&content)?;
+
+            let metadata = file.metadata()?;
+            if metadata.len() > 0 {
+                return Ok(());
+            } else {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                retries += 1;
+            }
+        }
+
+        // clean up
+        if file_path.exists() {
+            std::fs::remove_file(file_path)?;
+        }
+
+        Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to download file after several attempts",
+        )))
     }
 
     pub async fn get_score(&mut self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
@@ -860,50 +909,4 @@ impl ZjuAssist {
         let score = json["items"].as_array().unwrap();
         return Ok(score.iter().cloned().collect());
     }
-}
-
-pub async fn get<T: IntoUrl + Clone>(url: T) -> Result<Response, Error> {
-    ZjuAssist::new().get(url).send().await
-}
-
-pub async fn download_ppt_image(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    const MAX_RETRIES: usize = 5;
-    let mut retries = 0;
-
-    let file_path = match Path::new(path).extension() {
-        Some(_) => Path::new(path).to_path_buf(),
-        None => Path::new(path).join(url.split("/").last().unwrap()),
-    };
-
-    while retries < MAX_RETRIES {
-        let res = get(url).await?;
-        let content = res.bytes().await?;
-        if content.is_empty() || image::guess_format(&content).is_err() {
-            retries += 1;
-            continue;
-        }
-
-        if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut file = File::create(file_path.clone())?;
-        file.write_all(&content)?;
-
-        let metadata = file.metadata()?;
-        if metadata.len() > 0 {
-            return Ok(());
-        } else {
-            retries += 1;
-        }
-    }
-
-    // clean up
-    if file_path.exists() {
-        std::fs::remove_file(file_path)?;
-    }
-
-    Err(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "Failed to download file after several attempts",
-    )))
 }

@@ -18,6 +18,12 @@ function Index() {
   })
 
   useEffect(() => {
+    invoke('test_connection').catch((err) => {
+      notification.error({
+        message: '连接失败',
+        description: err.message
+      })
+    })
     if (import.meta.env.PROD) {
       // disable context menu
       const disableContextMenu = (e) => {
@@ -30,14 +36,6 @@ function Index() {
         document.removeEventListener('contextmenu', disableContextMenu)
       }
     }
-
-    invoke('test_connection').catch((err) => {
-      notification.error({
-        message: '连接失败',
-        description: err.message
-      })
-    })
-
   }, [])
 
   return (
