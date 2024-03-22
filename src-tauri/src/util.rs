@@ -1,7 +1,9 @@
 use image::{ColorType, GenericImageView, ImageFormat};
 use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
+use num_bigint::BigUint;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
-use std::path::Path;
+use reqwest::Client;
+use std::{path::Path, time::Instant};
 
 // reference:
 // https://github.com/typst/pdf-writer/blob/main/examples/image.rs
@@ -101,3 +103,24 @@ pub fn images_to_pdf(
 
     Ok(())
 }
+
+pub fn rsa_no_padding(src: &str, modulus: &str, exponent: &str) -> String {
+    let m = BigUint::parse_bytes(modulus.as_bytes(), 16).unwrap();
+    let e = BigUint::parse_bytes(exponent.as_bytes(), 16).unwrap();
+
+    let input_nr = BigUint::from_bytes_be(src.as_bytes());
+
+    let crypt_nr = input_nr.modpow(&e, &m);
+
+    crypt_nr
+        .to_bytes_be()
+        .iter()
+        .map(|byte| format!("{:02x}", byte))
+        .collect()
+}
+
+pub async fn measure_latency(client: Client, url: &str) -> Result<u128, reqwest::Error> {
+    let start = Instant::now();
+    client.get(url).send().await?;
+    Ok(start.elapsed().as_millis())
+} 

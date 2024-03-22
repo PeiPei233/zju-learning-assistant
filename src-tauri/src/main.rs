@@ -144,6 +144,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             controller::login,
             controller::check_login,
+            controller::test_connection,
             controller::logout,
             controller::get_courses,
             controller::get_academic_year_list,
@@ -168,7 +169,7 @@ fn main() {
             controller::get_score,
             controller::notify_score,
             controller::get_config,
-            controller::set_config
+            controller::set_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

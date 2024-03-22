@@ -4,6 +4,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { shell } from '@tauri-apps/api';
 import { useMediaQuery } from 'react-responsive'
+import { invoke } from '@tauri-apps/api'
 import Login from './Login'
 import Home from './Home'
 
@@ -29,6 +30,13 @@ function Index() {
         document.removeEventListener('contextmenu', disableContextMenu)
       }
     }
+
+    invoke('test_connection').catch((err) => {
+      notification.error({
+        message: '连接失败',
+        description: err.message
+      })
+    })
 
   }, [])
 

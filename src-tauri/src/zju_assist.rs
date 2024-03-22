@@ -1,5 +1,4 @@
 use log::{debug, info};
-use num_bigint::BigUint;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use reqwest::cookie::{CookieStore, Jar};
@@ -10,11 +9,12 @@ use serde::Serialize;
 use serde_json::Value;
 use std::cmp::min;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
 use url::Url;
 
 use crate::model::Subject;
+use crate::util::{measure_latency, rsa_no_padding};
 
 #[derive(Clone)]
 pub struct ZjuAssist {
@@ -22,15 +22,16 @@ pub struct ZjuAssist {
     have_login: bool,
     username: String,
     password: String,
+    proxy_first: bool,
 }
 
 pub struct ZjuRequestBuilder {
-    request_builder: RequestBuilder,
-    request_builder_no_proxy: RequestBuilder,
+    request_builder_first: RequestBuilder,
+    request_builder_second: RequestBuilder,
 }
 
 impl ZjuRequestBuilder {
-    fn new<U: IntoUrl + Clone>(client: ZjuAssist, method: Method, url: U) -> Self {
+    fn new<U: IntoUrl + Clone>(client: ZjuAssist, method: Method, url: U, proxy_first: bool) -> Self {
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
@@ -39,33 +40,39 @@ impl ZjuRequestBuilder {
                 .unwrap(),
         );
 
-        let client_no_proxy = Client::builder()
+        let client_default = Client::builder()
             .cookie_provider(Arc::clone(&client.jar))
             .default_headers(headers.clone())
             .build()
             .unwrap();
 
-        let client_default = Client::builder()
+        let client_no_proxy = Client::builder()
             .cookie_provider(Arc::clone(&client.jar))
             .default_headers(headers)
             .no_proxy()
             .build()
             .unwrap();
-
-        Self {
-            request_builder: client_default.request(method.clone(), url.clone()),
-            request_builder_no_proxy: client_no_proxy.request(method, url),
+        if proxy_first {
+            Self {
+                request_builder_first: client_default.request(method.clone(), url.clone()),
+                request_builder_second: client_no_proxy.request(method, url),
+            }
+        } else {
+            Self {
+                request_builder_first: client_no_proxy.request(method.clone(), url.clone()),
+                request_builder_second: client_default.request(method, url),
+            }
         }
     }
 
     pub fn headers(&mut self, headers: HeaderMap) -> &mut Self {
-        self.request_builder = self
-            .request_builder
+        self.request_builder_first = self
+            .request_builder_first
             .try_clone()
             .unwrap()
             .headers(headers.clone());
-        self.request_builder_no_proxy = self
-            .request_builder_no_proxy
+        self.request_builder_second = self
+            .request_builder_second
             .try_clone()
             .unwrap()
             .headers(headers.clone());
@@ -73,9 +80,9 @@ impl ZjuRequestBuilder {
     }
 
     pub fn form<T: Serialize + ?Sized>(&mut self, form: &T) -> &mut Self {
-        self.request_builder = self.request_builder.try_clone().unwrap().form(form);
-        self.request_builder_no_proxy = self
-            .request_builder_no_proxy
+        self.request_builder_first = self.request_builder_first.try_clone().unwrap().form(form);
+        self.request_builder_second = self
+            .request_builder_second
             .try_clone()
             .unwrap()
             .form(form);
@@ -84,20 +91,22 @@ impl ZjuRequestBuilder {
 
     pub async fn send(&self) -> Result<Response, Error> {
         // total 6 retries, 3 with proxy, 3 without proxy
-        let mut res = self.request_builder.try_clone().unwrap().send().await;
+        let mut res = self.request_builder_first.try_clone().unwrap().send().await;
         let mut retries = 5;
 
         while res.is_err() && retries > 0 {
             retries -= 1;
+            // wait for 100ms before retry
+            tokio::time::sleep(Duration::from_millis(100)).await;
             if retries % 2 == 0 {
                 res = self
-                    .request_builder_no_proxy
+                    .request_builder_second
                     .try_clone()
                     .unwrap()
                     .send()
                     .await;
             } else {
-                res = self.request_builder.try_clone().unwrap().send().await;
+                res = self.request_builder_first.try_clone().unwrap().send().await;
             }
         }
 
@@ -112,38 +121,55 @@ impl ZjuAssist {
             have_login: false,
             username: "".to_string(),
             password: "".to_string(),
+            proxy_first: true,
         }
     }
 
-    fn rsa_no_padding(src: &str, modulus: &str, exponent: &str) -> String {
-        let m = BigUint::parse_bytes(modulus.as_bytes(), 16).unwrap();
-        let e = BigUint::parse_bytes(exponent.as_bytes(), 16).unwrap();
-
-        let input_nr = BigUint::from_bytes_be(src.as_bytes());
-
-        let crypt_nr = input_nr.modpow(&e, &m);
-
-        crypt_nr
-            .to_bytes_be()
-            .iter()
-            .map(|byte| format!("{:02x}", byte))
-            .collect()
-    }
-
     pub fn request<U: IntoUrl + Clone>(&self, method: Method, url: U) -> ZjuRequestBuilder {
-        ZjuRequestBuilder::new(self.clone(), method, url)
+        ZjuRequestBuilder::new(self.clone(), method, url, self.proxy_first)
     }
 
     pub fn get<U: IntoUrl + Clone>(&self, url: U) -> ZjuRequestBuilder {
         info!("GET {}", url.as_str());
-        // self.client.get(url)
         self.request(Method::GET, url)
     }
 
     pub fn post<U: IntoUrl + Clone>(&self, url: U) -> ZjuRequestBuilder {
         info!("POST {}", url.as_str());
-        // self.client.post(url)
         self.request(Method::POST, url)
+    }
+
+    pub async fn test_connection(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let headers = HeaderMap::new();
+        let client_default = Client::builder()
+            .default_headers(headers.clone())
+            .build()
+            .unwrap();
+        let client_no_proxy = Client::builder()
+            .default_headers(headers)
+            .no_proxy()
+            .build()
+            .unwrap();
+        let (latency_default, latency_no_proxy) = tokio::join!(
+            measure_latency(client_default, "http://zdbk.zju.edu.cn/"),
+            measure_latency(client_no_proxy, "http://zdbk.zju.edu.cn/")
+        );
+        info!("Latency default: {:?}", latency_default);
+        info!("Latency no proxy: {:?}", latency_no_proxy);
+        if latency_default.is_err() && latency_no_proxy.is_err() {
+            return Err("Connection failed".into());
+        }
+        if latency_default.is_err() {
+            self.proxy_first = false;
+        } else if latency_no_proxy.is_err() {
+            self.proxy_first = true;
+        } else if latency_default.unwrap() < latency_no_proxy.unwrap() {
+            self.proxy_first = true;
+        } else {
+            self.proxy_first = false;
+        }
+        info!("Proxy first: {}", self.proxy_first);
+        Ok(())
     }
 
     pub async fn login(
@@ -154,7 +180,7 @@ impl ZjuAssist {
         if self.have_login {
             return Ok(());
         }
-
+        
         let res = self
             .get("https://zjuam.zju.edu.cn/cas/login")
             .send()
@@ -186,7 +212,7 @@ impl ZjuAssist {
         let modulus = json["modulus"].as_str().ok_or("Modulus not found")?;
         let exponent = json["exponent"].as_str().ok_or("Exponent not found")?;
 
-        let rsapwd = Self::rsa_no_padding(password, modulus, exponent);
+        let rsapwd = rsa_no_padding(password, modulus, exponent);
 
         let data = [
             ("username", username),
@@ -768,7 +794,10 @@ impl ZjuAssist {
                 page -= 1;
                 retries -= 1;
                 if retries == 0 {
-                    Err(format!("Get ppt urls failed for course_id: {}, sub_id: {}, please retry later.", course_id, sub_id))?;
+                    Err(format!(
+                        "Get ppt urls failed for course_id: {}, sub_id: {}, please retry later.",
+                        course_id, sub_id
+                    ))?;
                 }
                 continue;
             }

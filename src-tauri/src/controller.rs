@@ -34,7 +34,9 @@ pub async fn login(
         .map_err(|err| err.to_string())?;
 
     let id_item_handle = window.app_handle().tray_handle().get_item("id");
-    id_item_handle.set_title(format!("已登录：{}", username)).unwrap();
+    id_item_handle
+        .set_title(format!("已登录：{}", username))
+        .unwrap();
 
     Ok(())
 }
@@ -43,10 +45,21 @@ pub async fn login(
 pub async fn check_login(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<bool, String> {
     info!("check_login");
     let zju_assist = state.lock().await;
-    match zju_assist.is_login() {
+    let is_login = zju_assist.is_login();
+    match is_login {
         true => Ok(true),
         false => Err("Not login".to_string()),
     }
+}
+
+#[tauri::command]
+pub async fn test_connection(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<(), String> {
+    info!("test_connection");
+    let mut zju_assist = state.lock().await;
+    zju_assist
+        .test_connection()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -987,7 +1000,8 @@ pub async fn get_sub_ppt_urls(
                 .to_string();
             let zju_assist = zju_assist.clone();
             tokio::task::spawn(async move {
-                let urls = zju_assist.get_ppt_urls(sub.course_id, sub.sub_id)
+                let urls = zju_assist
+                    .get_ppt_urls(sub.course_id, sub.sub_id)
                     .await
                     .map_err(|err| err.to_string())?;
                 Ok(Subject {
@@ -1076,7 +1090,10 @@ pub async fn search_courses(
             let path = "".to_string();
             let ppt_image_urls = Vec::new();
             let sub_id = 0;
-            let sub_name = course.get("subject_title").map_or("", |v| v.as_str().unwrap_or("")).to_string();
+            let sub_name = course
+                .get("subject_title")
+                .map_or("", |v| v.as_str().unwrap_or(""))
+                .to_string();
             Subject {
                 course_id,
                 course_name,
