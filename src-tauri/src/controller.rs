@@ -46,8 +46,7 @@ pub async fn login(
 pub async fn check_login(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<bool, String> {
     info!("check_login");
     let zju_assist = state.lock().await;
-    let is_login = zju_assist.is_login();
-    match is_login {
+    match zju_assist.is_login() {
         true => Ok(true),
         false => Err("Not login".to_string()),
     }
@@ -357,7 +356,7 @@ pub async fn start_download_upload(
                 if let Err(err) = res {
                     debug!("download_upload: clean up fail: {}", err);
                 }
-                break;
+                return;
             }
             let item = res.unwrap();
             if item.is_none() {
@@ -923,7 +922,7 @@ pub async fn start_download_playback(
                 if let Err(err) = res {
                     debug!("download_playback: clean up fail: {}", err);
                 }
-                break;
+                return;
             }
             let item = res.unwrap();
             if item.is_none() {

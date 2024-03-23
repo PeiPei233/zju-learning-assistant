@@ -294,6 +294,7 @@ export class DownloadManager {
         })
         this.downloading = []
         this.queue = []
+        this.tasks = []
     }
 
     getTasks(): Task[] {
@@ -326,6 +327,26 @@ export class DownloadManager {
             this.tasks[index].status = 'pending'
             this.queue.push(this.tasks[index])
         }
+        this._adjustQueue()
+    }
+
+    cancelAllTasks(): void {
+        this.tasks.forEach(item => {
+            if (item.status !== 'done') {
+                item.cancel()
+            }
+        })
+        this.downloading = []
+        this.queue = []
+    }
+
+    reDownloadAllTasks(): void {
+        this.tasks.forEach(item => {
+            if (item.status === 'canceled' || item.status === 'failed') {
+                item.status = 'pending'
+                this.queue.push(item)
+            }
+        })
         this._adjustQueue()
     }
 

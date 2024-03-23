@@ -1,20 +1,17 @@
 import { useEffect, useState, useRef } from 'react'
 import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined } from '@ant-design/icons';
+import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined } from '@ant-design/icons';
 import Learning from './Learning'
 import Classroom from './Classroom'
 import Score from './Score'
 import { DownloadManager } from './downloadManager';
 import { LearningTask } from './downloadManager';
-import dayjs from 'dayjs';
-import 'dayjs/locale/zh-cn';
 import { listen } from '@tauri-apps/api/event';
 import { dialog } from '@tauri-apps/api';
 import { exit } from '@tauri-apps/api/process';
 import { Config } from './model';
-
-dayjs.locale('zh-cn')
+import dayjs from 'dayjs'
 
 const { Header, Content, Footer, Sider } = Layout;
 const { Text, Link } = Typography;
@@ -505,7 +502,44 @@ export default function Home({ setIsLogin }) {
       <Drawer
         open={openDownloadDrawer}
         onClose={() => setOpenDownloadDrawer(false)}
-        title='下载列表'
+        closeIcon={<ArrowLeftOutlined />}
+        title={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignContent: 'center' }}>
+            <div>下载列表</div>
+            <div style={{ float: 'right' }}>
+              <Tooltip title='全部重新开始'>
+                <Button
+                  type='text'
+                  icon={<ReloadOutlined />}
+                  size='small'
+                  onClick={() => {
+                    downloadManager.current.reDownloadAllTasks()
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title='全部取消'>
+                <Button
+                  type='text'
+                  icon={<CloseOutlined />}
+                  size='small'
+                  onClick={() => {
+                    downloadManager.current.cancelAllTasks()
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title='全部删除'>
+                <Button
+                  type='text'
+                  icon={<DeleteOutlined />}
+                  size='small'
+                  onClick={() => {
+                    downloadManager.current.cleanUp()
+                  }}
+                />
+              </Tooltip>
+            </div>
+          </div>
+        }
       >
         <List
           itemLayout='horizontal'
@@ -576,6 +610,7 @@ export default function Home({ setIsLogin }) {
       </Drawer>
       <Drawer
         open={openSettingDrawer}
+        closeIcon={<ArrowLeftOutlined />}
         onClose={() => {
           setDingUrlInput(config.ding_url)
           setOpenSettingDrawer(false)

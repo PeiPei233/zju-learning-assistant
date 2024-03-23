@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { FloatButton, ConfigProvider, theme, App } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import dayjs from 'dayjs';
+import 'dayjs/locale/zh-cn';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { shell } from '@tauri-apps/api';
 import { useMediaQuery } from 'react-responsive'
 import { invoke } from '@tauri-apps/api'
 import Login from './Login'
 import Home from './Home'
+dayjs.locale('zh-cn')
 
 function Index() {
 
