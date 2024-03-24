@@ -152,6 +152,7 @@ export default function Login({ setIsLogin }) {
         </a>
       </div>
       <Modal
+        centered
         open={openVersionModal}
         onCancel={() => setOpenVersionModal(false)}
         footer={null}

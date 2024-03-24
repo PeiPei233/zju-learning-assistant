@@ -439,7 +439,7 @@ pub fn cancel_download(
 }
 
 #[tauri::command]
-pub async fn open_file(path: String, folder: bool) -> Result<(), String> {
+pub fn open_file(path: String, folder: bool) -> Result<(), String> {
     info!("open_file: {} {}", path, folder);
     if Path::new(&path).exists() {
         if folder {
@@ -493,18 +493,18 @@ pub async fn open_file(path: String, folder: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn open_file_upload(upload: Upload, folder: bool) -> Result<(), String> {
+pub fn open_file_upload(upload: Upload, folder: bool) -> Result<(), String> {
     info!("open_file_upload: {} {}", upload.file_name, folder);
     let path = Path::new(&upload.path)
         .join(&upload.file_name)
         .to_str()
         .unwrap()
         .to_string();
-    open_file(path, folder).await
+    open_file(path, folder)
 }
 
 #[tauri::command]
-pub async fn open_file_ppts(subject: Subject, folder: bool) -> Result<(), String> {
+pub fn open_file_ppts(subject: Subject, folder: bool) -> Result<(), String> {
     info!(
         "open_file_ppts: {}-{} {}",
         subject.course_name, subject.sub_name, folder
@@ -521,14 +521,14 @@ pub async fn open_file_ppts(subject: Subject, folder: bool) -> Result<(), String
             .unwrap()
             .to_string();
         if Path::new(&pdf_path).exists() {
-            open_file(pdf_path, folder).await
+            open_file(pdf_path, folder)
         } else {
             let images_path = Path::new(&path)
                 .join("ppt_images")
                 .to_str()
                 .unwrap()
                 .to_string();
-            open_file(images_path, folder).await
+            open_file(images_path, folder)
         }
     } else {
         Err("下载已删除或未下载".to_string())
