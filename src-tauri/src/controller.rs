@@ -3,7 +3,7 @@ use crate::model::Subject;
 use crate::util::images_to_pdf;
 use crate::zju_assist::ZjuAssist;
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use dashmap::DashMap;
 use directories_next::ProjectDirs;
 use futures::TryStreamExt;
@@ -12,10 +12,11 @@ use model::{Config, Progress, Upload};
 use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
 use std::cmp::min;
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
-use tauri::{Manager, State, Window};
+use tauri::{CustomMenuItem, Manager, State, SystemTrayMenu, SystemTrayMenuItem, Window};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -68,8 +69,111 @@ pub async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>, window: Window) -> 
     let mut zju_assist = state.lock().await;
     zju_assist.logout();
 
-    let id_item_handle = window.app_handle().tray_handle().get_item("id");
-    id_item_handle.set_title("未登录").unwrap();
+    window
+        .app_handle()
+        .tray_handle()
+        .set_menu(
+            SystemTrayMenu::new()
+                .add_item(CustomMenuItem::new("id", "未登录").disabled())
+                .add_native_item(SystemTrayMenuItem::Separator)
+                .add_item(CustomMenuItem::new("quit".to_string(), "退出")),
+        )
+        .unwrap();
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_sync_todo(
+    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    window: Window,
+) -> Result<(), String> {
+    info!("start_sync_todo");
+
+    let mut notified_map: HashMap<String, DateTime<Utc>> = HashMap::new();
+
+    loop {
+        let zju_assist = zju_assist.lock().await.clone();
+        if !zju_assist.is_login() {
+            break;
+        }
+        let mut todo_list = zju_assist
+            .get_todo_list()
+            .await
+            .map_err(|err| err.to_string())?;
+        // sort todo list by end_time like 2024-06-06T12:00:00Z
+        todo_list.sort_by(|a, b| {
+            let a = a["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
+            let b = b["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
+
+            let a = a
+                .parse::<DateTime<Utc>>()
+                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+            let b = b
+                .parse::<DateTime<Utc>>()
+                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+
+            a.cmp(&b)
+        });
+        let mut menu = SystemTrayMenu::new()
+            .add_item(
+                CustomMenuItem::new("id", format!("已登录：{}", zju_assist.get_username()))
+                    .disabled(),
+            )
+            .add_native_item(SystemTrayMenuItem::Separator);
+        if todo_list.len() > 0 {
+            for todo in todo_list.iter() {
+                let end_time = todo["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
+                let end_time = end_time
+                    .parse::<DateTime<Utc>>()
+                    .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+                let course_id = todo["course_id"].as_i64().unwrap();
+                let id = todo["id"].as_i64().unwrap();
+                let course_name = todo["course_name"].as_str().unwrap();
+                let title = todo["title"].as_str().unwrap();
+
+                let tray_title = format!(
+                    "{}: {}-{}",
+                    end_time.format("%Y-%m-%d %H:%M:%S"),
+                    title,
+                    course_name
+                );
+                let tray_id = format!("todo-{}-{}", course_id, id);
+                menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
+
+                let diff = end_time - Utc::now();
+                if diff.num_hours() < 1000000000
+                    && (notified_map.get(&tray_id).is_none()
+                        || (Utc::now() - notified_map[&tray_id]).num_hours() > 1)
+                {
+                    notify_rust::Notification::new()
+                        .summary(&format!(
+                            "距离 {} 截止仅剩 {} 分钟",
+                            title,
+                            diff.num_minutes()
+                        ))
+                        .body(&format!(
+                            "{}-{}：{}",
+                            course_name,
+                            title,
+                            end_time.format("%Y-%m-%d %H:%M:%S")
+                        ))
+                        .icon("zju-learning-assistant")
+                        .show()
+                        .unwrap();
+                    notified_map.insert(tray_id.clone(), Utc::now());
+                }
+            }
+        } else {
+            menu = menu.add_item(CustomMenuItem::new("todo", "暂无待办事项").disabled());
+        }
+        menu = menu.add_native_item(SystemTrayMenuItem::Separator);
+        menu = menu.add_item(CustomMenuItem::new("quit", "退出"));
+
+        window.app_handle().tray_handle().set_menu(menu).unwrap();
+
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    }
 
     Ok(())
 }
@@ -77,7 +181,7 @@ pub async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>, window: Window) -> 
 #[tauri::command]
 pub async fn get_courses(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
     info!("get_courses");
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     zju_assist
         .get_courses()
         .await
@@ -89,7 +193,7 @@ pub async fn get_academic_year_list(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
 ) -> Result<Vec<Value>, String> {
     info!("get_academic_year_list");
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     zju_assist
         .get_academic_year_list()
         .await
@@ -101,7 +205,7 @@ pub async fn get_semester_list(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
 ) -> Result<Vec<Value>, String> {
     info!("get_semester_list");
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     zju_assist
         .get_semester_list()
         .await
@@ -114,7 +218,7 @@ pub async fn get_activities_uploads(
     course_id: i64,
 ) -> Result<Vec<Value>, String> {
     info!("get_activities_uploads: {}", course_id);
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     zju_assist
         .get_activities_uploads(course_id)
         .await
@@ -127,7 +231,7 @@ pub async fn get_homework_uploads(
     course_id: i64,
 ) -> Result<Vec<Value>, String> {
     info!("get_homework_uploads: {}", course_id);
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     zju_assist
         .get_homework_uploads(course_id)
         .await
@@ -142,7 +246,7 @@ pub async fn download_file(
     path: String,
 ) -> Result<(), String> {
     info!("download_file: {}", reference_id);
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     zju_assist
         .download_file(reference_id, &file_name, &path)
         .await
@@ -1085,7 +1189,7 @@ pub async fn get_month_subs(
     month: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_month_subs: {}", month);
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     let subs = zju_assist
         .get_month_subs(&month)
         .await
@@ -1100,7 +1204,7 @@ pub async fn search_courses(
     teacher_name: String,
 ) -> Result<Vec<Subject>, String> {
     info!("search_courses: {} {}", course_name, teacher_name);
-    let zju_assist = state.lock().await;
+    let zju_assist = state.lock().await.clone();
     let courses = zju_assist
         .search_courses(&course_name, &teacher_name)
         .await

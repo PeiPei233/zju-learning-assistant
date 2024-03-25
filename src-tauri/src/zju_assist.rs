@@ -140,6 +140,10 @@ impl ZjuAssist {
         self.request(Method::POST, url)
     }
 
+    pub fn get_username(&self) -> String {
+        self.username.clone()
+    }
+
     pub async fn test_connection(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let headers = HeaderMap::new();
         let client_default = Client::builder()
@@ -278,6 +282,8 @@ impl ZjuAssist {
     pub fn is_login(&self) -> bool {
         self.have_login
     }
+
+    // courses
 
     pub async fn get_courses(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
         if !self.have_login {
@@ -463,6 +469,25 @@ impl ZjuAssist {
             .cloned()
             .collect())
     }
+
+    pub async fn get_todo_list(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+        if !self.have_login {
+            return Err("Not login".into());
+        }
+        let res = self
+            .get("https://courses.zju.edu.cn/api/todos?no-intercept=true")
+            .send()
+            .await?;
+        let json: Value = res.json().await?;
+        Ok(json["todo_list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect())
+    }
+
+    // classroom
 
     pub fn get_token(&self) -> Result<String, Box<dyn std::error::Error>> {
         if !self.have_login {
@@ -859,6 +884,8 @@ impl ZjuAssist {
             "Failed to download file after several attempts",
         )))
     }
+
+    // zdbk
 
     pub async fn get_score(&mut self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
         let data = [

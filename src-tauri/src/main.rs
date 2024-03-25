@@ -11,13 +11,13 @@ use directories_next::{ProjectDirs, UserDirs};
 use fern::Dispatch;
 use log::info;
 use log::LevelFilter;
-use tauri::SystemTrayMenuItem;
 use std::sync::{atomic::AtomicBool, Arc};
 use tauri::CustomMenuItem;
 use tauri::Manager;
 use tauri::SystemTray;
 use tauri::SystemTrayEvent;
 use tauri::SystemTrayMenu;
+use tauri::SystemTrayMenuItem;
 use tokio::sync::Mutex;
 use zju_assist::ZjuAssist;
 
@@ -81,12 +81,14 @@ fn main() {
     let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
 
     tauri::Builder::default()
-        .system_tray(SystemTray::new().with_menu(
-            SystemTrayMenu::new()
-                .add_item(CustomMenuItem::new("id", "未登录").disabled())
-                .add_native_item(SystemTrayMenuItem::Separator)
-                .add_item(CustomMenuItem::new("quit".to_string(), "退出")),
-        ))
+        .system_tray(
+            SystemTray::new().with_menu(
+                SystemTrayMenu::new()
+                    .add_item(CustomMenuItem::new("id", "未登录").disabled())
+                    .add_native_item(SystemTrayMenuItem::Separator)
+                    .add_item(CustomMenuItem::new("quit".to_string(), "退出")),
+            ),
+        )
         .on_system_tray_event(|app, event| match event {
             SystemTrayEvent::LeftClick { .. } => {
                 app.get_window("main").unwrap().show().unwrap();
@@ -94,6 +96,17 @@ fn main() {
             SystemTrayEvent::MenuItemClick { id, .. } => {
                 if id == "quit" {
                     app.exit(0);
+                } else if id.starts_with("todo-") {
+                    let course_id_id = id.split("-").collect::<Vec<&str>>();
+                    let course_id = course_id_id[1];
+                    let id = course_id_id[2];
+                    let url = format!(
+                        "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
+                        course_id, id
+                    );
+                    if let Err(e) = tauri::api::shell::open(&app.shell_scope(), url, None) {
+                        info!("Failed to open url: {}", e);
+                    }
                 }
             }
             _ => {}
@@ -146,6 +159,7 @@ fn main() {
             controller::check_login,
             controller::test_connection,
             controller::logout,
+            controller::start_sync_todo,
             controller::get_courses,
             controller::get_academic_year_list,
             controller::get_semester_list,

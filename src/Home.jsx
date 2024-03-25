@@ -187,6 +187,7 @@ export default function Home({ setIsLogin }) {
     }).catch((err) => {
       setIsLogin(false)
     })
+    invoke('start_sync_todo')
 
     invoke('get_config').then((res) => {
       console.log(res)
