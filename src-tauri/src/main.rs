@@ -156,6 +156,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             controller::login,
+            controller::get_auto_login_info,
             controller::check_login,
             controller::test_connection,
             controller::logout,

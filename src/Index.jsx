@@ -16,11 +16,19 @@ function Index() {
   const { message, modal, notification } = App.useApp()
 
   const [isLogin, setIsLogin] = useState(false)
+  const [autoLoginUsername, setAutoLoginUsername] = useState('')
+  const [autoLoginPassword, setAutoLoginPassword] = useState('')
   const isDarkMode = useMediaQuery({
     query: '(prefers-color-scheme: dark)'
   })
 
   useEffect(() => {
+    invoke('get_auto_login_info').then((res) => {
+      if (res) {
+        setAutoLoginUsername(res[0])
+        setAutoLoginPassword(res[1])
+      }
+    })
     invoke('test_connection').catch((err) => {
       notification.error({
         message: '连接失败',
@@ -49,7 +57,10 @@ function Index() {
       }}
     >
       <App>
-        {isLogin ? <Home setIsLogin={setIsLogin} /> : <Login setIsLogin={setIsLogin} />}
+        {isLogin ?
+          <Home setIsLogin={setIsLogin} setAutoLoginUsername={setAutoLoginUsername} setAutoLoginPassword={setAutoLoginPassword} /> :
+          <Login setIsLogin={setIsLogin} autoLoginUsername={autoLoginUsername} autoLoginPassword={autoLoginPassword} />
+        }
         <FloatButton
           icon={<QuestionCircleOutlined />}
           onClick={() => {

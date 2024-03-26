@@ -7,6 +7,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use dashmap::DashMap;
 use directories_next::ProjectDirs;
 use futures::TryStreamExt;
+use keyring::Entry;
 use log::{debug, info};
 use model::{Config, Progress, Upload};
 use percent_encoding::percent_decode_str;
@@ -27,8 +28,9 @@ pub async fn login(
     window: Window,
     username: String,
     password: String,
+    auto_login: bool,
 ) -> Result<(), String> {
-    info!("login: {}", username);
+    info!("login: {} auto_login: {}", username, auto_login);
     let mut zju_assist = state.lock().await;
     zju_assist
         .login(&username, &password)
@@ -40,7 +42,26 @@ pub async fn login(
         .set_title(format!("已登录：{}", username))
         .unwrap();
 
+    if auto_login {
+        let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
+        entry.set_password(&format!("{}\n{}", username, password)).map_err(|err| err.to_string())?;
+    } else {
+        let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
+        let _ = entry.delete_password();
+    }
+
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_auto_login_info() -> Result<(String, String), String> {
+    info!("get_auto_login_info");
+    let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
+    let content = entry.get_password().map_err(|err| err.to_string())?;
+    let mut content = content.split('\n');
+    let username = content.next().unwrap_or("").to_string();
+    let password = content.next().unwrap_or("").to_string();
+    Ok((username, password))
 }
 
 #[tauri::command]
@@ -142,7 +163,7 @@ pub async fn start_sync_todo(
                 menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
 
                 let diff = end_time - Utc::now();
-                if diff.num_hours() < 1000000000
+                if diff.num_hours() < 1
                     && (notified_map.get(&tray_id).is_none()
                         || (Utc::now() - notified_map[&tray_id]).num_hours() > 1)
                 {
@@ -153,12 +174,11 @@ pub async fn start_sync_todo(
                             diff.num_minutes()
                         ))
                         .body(&format!(
-                            "{}-{}：{}",
+                            "{}-{}: {}",
                             course_name,
                             title,
                             end_time.format("%Y-%m-%d %H:%M:%S")
                         ))
-                        .icon("zju-learning-assistant")
                         .show()
                         .unwrap();
                     notified_map.insert(tray_id.clone(), Utc::now());

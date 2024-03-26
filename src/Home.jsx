@@ -16,7 +16,7 @@ import dayjs from 'dayjs'
 const { Header, Content, Footer, Sider } = Layout;
 const { Text, Link } = Typography;
 
-export default function Home({ setIsLogin }) {
+export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPassword }) {
 
   const { message, modal, notification } = App.useApp()
   const [current, setCurrent] = useState('learning')
@@ -180,6 +180,8 @@ export default function Home({ setIsLogin }) {
   }
 
   useEffect(() => {
+    setAutoLoginUsername('')
+    setAutoLoginPassword('')
     invoke('check_login').then((res) => {
       if (!res) {
         setIsLogin(false)

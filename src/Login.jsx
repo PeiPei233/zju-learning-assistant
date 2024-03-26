@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Form, Input, Button, Card, App, Typography, Badge, Modal } from 'antd';
+import { Form, Input, Button, Card, App, Typography, Badge, Modal, Checkbox } from 'antd';
 import { invoke } from '@tauri-apps/api'
 import { shell } from '@tauri-apps/api'
 import { getVersion } from '@tauri-apps/api/app';
@@ -29,7 +29,7 @@ function convertUrlsToMarkdown(text) {
   return newText;
 }
 
-export default function Login({ setIsLogin }) {
+export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword }) {
 
   const [form] = Form.useForm()
   const { message, modal, notification } = App.useApp()
@@ -72,9 +72,19 @@ export default function Login({ setIsLogin }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (autoLoginUsername && autoLoginPassword) {
+      notification.info({
+        message: `正在自动登录 ${autoLoginUsername}...`,
+      })
+      form.setFieldsValue({ username: autoLoginUsername, password: autoLoginPassword, remember: true })
+      onFinish({ username: autoLoginUsername, password: autoLoginPassword, remember: true })
+    }
+  }, [autoLoginUsername, autoLoginPassword])
+
   const onFinish = async (values) => {
     setLoading(true)
-    invoke('login', { username: values.username, password: values.password })
+    invoke('login', { username: values.username, password: values.password, autoLogin: values.remember })
       .then((res) => {
         setIsLogin(true)
       }).catch((err) => {
@@ -101,20 +111,27 @@ export default function Login({ setIsLogin }) {
           width: 300,
           marginTop: 20
         }}
-        bodyStyle={{ padding: '24px 24px 0 24px' }}
+        styles={{ body: { padding: '24px 24px 0 24px' } }}
       >
         <Form
           name="normal_login"
           className="login-form"
-          initialValues={{ remember: true }}
           onFinish={onFinish}
           form={form}
+          initialValues={{
+            username: autoLoginUsername,
+            password: autoLoginPassword,
+            remember: true
+          }}
         >
           <Form.Item
             name="username"
             rules={[{ required: true, message: '请输入学号!' }]}
           >
-            <Input prefix={<UserOutlined className="site-form-item-icon" />} placeholder="学号" />
+            <Input
+              prefix={<UserOutlined className="site-form-item-icon" />}
+              placeholder="学号"
+            />
           </Form.Item>
           <Form.Item
             name="password"
@@ -125,6 +142,12 @@ export default function Login({ setIsLogin }) {
               type="password"
               placeholder="密码"
             />
+          </Form.Item>
+          <Form.Item
+            name="remember"
+            valuePropName="checked"
+          >
+            <Checkbox>下次自动登录</Checkbox>
           </Form.Item>
           <Form.Item>
             <Button
