@@ -44,7 +44,9 @@ pub async fn login(
 
     if auto_login {
         let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
-        entry.set_password(&format!("{}\n{}", username, password)).map_err(|err| err.to_string())?;
+        entry
+            .set_password(&format!("{}\n{}", username, password))
+            .map_err(|err| err.to_string())?;
     } else {
         let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
         let _ = entry.delete_password();
@@ -118,12 +120,23 @@ pub async fn start_sync_todo(
         if !zju_assist.is_login() {
             break;
         }
-        let mut todo_list = zju_assist
+        let todo_list = zju_assist
             .get_todo_list()
             .await
             .map_err(|err| err.to_string())?;
+        let todo_list_no_end_time = todo_list
+            .iter()
+            .filter(|todo| todo["end_time"].is_null())
+            .map(|todo| todo.clone())
+            .collect::<Vec<_>>();
+        let mut todo_list_with_end_time = todo_list
+            .iter()
+            .filter(|todo| !todo["end_time"].is_null())
+            .map(|todo| todo.clone())
+            .collect::<Vec<_>>();
+
         // sort todo list by end_time like 2024-06-06T12:00:00Z
-        todo_list.sort_by(|a, b| {
+        todo_list_with_end_time.sort_by(|a, b| {
             let a = a["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
             let b = b["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
 
@@ -143,7 +156,7 @@ pub async fn start_sync_todo(
             )
             .add_native_item(SystemTrayMenuItem::Separator);
         if todo_list.len() > 0 {
-            for todo in todo_list.iter() {
+            for todo in todo_list_with_end_time.iter() {
                 let end_time = todo["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
                 let end_time = end_time
                     .parse::<DateTime<Utc>>()
@@ -154,7 +167,7 @@ pub async fn start_sync_todo(
                 let title = todo["title"].as_str().unwrap();
 
                 let tray_title = format!(
-                    "{}: {}-{}",
+                    "{}  {}-{}",
                     end_time.format("%Y-%m-%d %H:%M:%S"),
                     title,
                     course_name
@@ -183,6 +196,16 @@ pub async fn start_sync_todo(
                         .unwrap();
                     notified_map.insert(tray_id.clone(), Utc::now());
                 }
+            }
+            for todo in todo_list_no_end_time.iter() {
+                let course_id = todo["course_id"].as_i64().unwrap();
+                let id = todo["id"].as_i64().unwrap();
+                let course_name = todo["course_name"].as_str().unwrap();
+                let title = todo["title"].as_str().unwrap();
+
+                let tray_title = format!("No Deadline  {}-{}", title, course_name);
+                let tray_id = format!("todo-{}-{}", course_id, id);
+                menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
             }
         } else {
             menu = menu.add_item(CustomMenuItem::new("todo", "暂无待办事项").disabled());
