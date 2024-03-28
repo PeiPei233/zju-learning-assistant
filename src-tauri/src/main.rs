@@ -80,22 +80,25 @@ fn main() {
 
     let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
 
+    let system_tray = SystemTray::new().with_menu(
+        SystemTrayMenu::new()
+            .add_item(CustomMenuItem::new("id", "未登录").disabled())
+            .add_native_item(SystemTrayMenuItem::Separator)
+            .add_item(CustomMenuItem::new(
+                "open".to_string(),
+                "打开 ZJU Learning Assistant",
+            ))
+            .add_item(CustomMenuItem::new(
+                "quit".to_string(),
+                "退出 ZJU Learning Assistant",
+            )),
+    );
+
+    #[cfg(target_os = "windows")]
+    let system_tray = system_tray.with_tooltip("ZJU Learning Assistant");
+
     tauri::Builder::default()
-        .system_tray(
-            SystemTray::new().with_menu(
-                SystemTrayMenu::new()
-                    .add_item(CustomMenuItem::new("id", "未登录").disabled())
-                    .add_native_item(SystemTrayMenuItem::Separator)
-                    .add_item(CustomMenuItem::new(
-                        "open".to_string(),
-                        "打开 ZJU Learning Assistant",
-                    ))
-                    .add_item(CustomMenuItem::new(
-                        "quit".to_string(),
-                        "退出 ZJU Learning Assistant",
-                    )),
-            ),
-        )
+        .system_tray(system_tray)
         .on_system_tray_event(|app, event| match event {
             #[cfg(target_os = "windows")]
             SystemTrayEvent::LeftClick { .. } => {
