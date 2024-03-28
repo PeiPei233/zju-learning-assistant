@@ -209,6 +209,12 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
   }
 
   const searchCourse = () => {
+    if (searchCourseName === '' && searchTeacherName === '') {
+      notification.error({
+        message: '请输入搜索关键字',
+      })
+      return
+    }
     setLoadingLeftSubList(true)
     invoke('search_courses', { courseName: searchCourseName, teacherName: searchTeacherName }).then((res) => {
       // console.log(res)
@@ -294,7 +300,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
                 <Tooltip title='搜索全部课程'>
-                  <Button icon={<SearchOutlined />} size='small' onClick={searchCourse} disabled={loadingLeftSubList} />
+                  <Button icon={<SearchOutlined />} size='small' onClick={searchCourse} loading={loadingLeftSubList} />
                 </Tooltip>
               </div>
             </>
