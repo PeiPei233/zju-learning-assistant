@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space } from 'antd';
+import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Select } from 'antd';
 import { invoke } from '@tauri-apps/api'
 import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined } from '@ant-design/icons';
 import Learning from './Learning'
@@ -723,32 +723,6 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               title={<Text
                 style={{
                   fontWeight: 'normal',
-                }}>关闭应用后保持后台运行</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>若开启，关闭应用窗口后应用会保持后台运行，并保留托盘图标。</Text>
-              </div>}
-            />
-            <Switch checked={config.tray} onChange={(checked) => {
-              let new_config = config.clone()
-              new_config.tray = checked
-              invoke('set_config', { config: new_config }).then((res) => {
-                setConfig(new_config)
-              }).catch((err) => {
-                notification.error({
-                  message: '设置失败',
-                  description: err
-                })
-              })
-            }} />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
                 }}>钉钉机器人 Webhook</Text>}
               description={
                 <div>
@@ -777,6 +751,32 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                 </div>
               }
             />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
+                }}>关闭应用后保持后台运行</Text>}
+              description={<div>
+                <Text type="secondary" style={{
+                  fontWeight: 'normal',
+                  fontSize: 12
+                }}>若开启，关闭应用窗口后应用会保持后台运行，并保留托盘图标。</Text>
+              </div>}
+            />
+            <Switch checked={config.tray} onChange={(checked) => {
+              let new_config = config.clone()
+              new_config.tray = checked
+              invoke('set_config', { config: new_config }).then((res) => {
+                setConfig(new_config)
+              }).catch((err) => {
+                notification.error({
+                  message: '设置失败',
+                  description: err
+                })
+              })
+            }} />
           </List.Item>
         </List>
       </Drawer>

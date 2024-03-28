@@ -1201,7 +1201,10 @@ pub async fn get_sub_ppt_urls(
     }
 
     for task in tasks {
-        new_subs.push(task.await.map_err(|err| err.to_string())??);
+        let sub = task.await.map_err(|err| err.to_string())??;
+        if sub.ppt_image_urls.len() > 0 {
+            new_subs.push(sub);
+        }
     }
 
     Ok(new_subs)
@@ -1210,6 +1213,7 @@ pub async fn get_sub_ppt_urls(
 #[tauri::command]
 pub async fn get_range_subs(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    config: State<'_, Arc<Mutex<Config>>>,
     start_at: String, // format: 2021-05-01
     end_at: String,
 ) -> Result<Vec<Subject>, String> {
@@ -1238,12 +1242,13 @@ pub async fn get_range_subs(
         subs.extend(sub);
     }
 
-    Ok(subs)
+    get_sub_ppt_urls(state, config, subs).await
 }
 
 #[tauri::command]
 pub async fn get_month_subs(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    config: State<'_, Arc<Mutex<Config>>>,
     month: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_month_subs: {}", month);
@@ -1252,7 +1257,7 @@ pub async fn get_month_subs(
         .get_month_subs(&month)
         .await
         .map_err(|err| err.to_string())?;
-    Ok(subs)
+    get_sub_ppt_urls(state, config, subs).await
 }
 
 #[tauri::command]

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Radio, DatePicker } from 'antd';
 import { invoke } from '@tauri-apps/api'
 import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
@@ -26,6 +26,11 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
   const [loadingRightSubList, setLoadingRightSubList] = useState(false)
   const [searchCourseName, setSearchCourseName] = useState('')
   const [searchTeacherName, setSearchTeacherName] = useState('')
+  const startAt = useRef(dayjs().startOf('week').format('YYYY-MM-DD'))
+  const endAt = useRef(dayjs().endOf('week').format('YYYY-MM-DD'))
+  const [dayRange, setDayRange] = useState([dayjs(), dayjs()])
+  const [weekValue, setWeekValue] = useState(dayjs())
+  const [monthValue, setMonthValue] = useState(dayjs())
 
   const selectDateMethodOptions = [
     {
@@ -55,53 +60,47 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
 
   const changeDateMethod = (value) => {
     setSelectedDateMethod(value.target.value)
+    if (value.target.value === 'day') {
+      startAt.current = dayjs().format('YYYY-MM-DD')
+      endAt.current = dayjs().format('YYYY-MM-DD')
+    } else if (value.target.value === 'week') {
+      startAt.current = dayjs().startOf('week').format('YYYY-MM-DD')
+      endAt.current = dayjs().endOf('week').format('YYYY-MM-DD')
+    } else {
+      startAt.current = dayjs().startOf('month').format('YYYY-MM-DD')
+      endAt.current = dayjs().endOf('month').format('YYYY-MM-DD')
+    }
+    updateRightSubList()
   }
 
   const changeDateRange = (value) => {
-    const startAt = selectedDateMethod === 'day' ? value[0].format('YYYY-MM-DD') :
-      selectedDateMethod === 'week' ? value.startOf('week').format('YYYY-MM-DD') :
-        value.startOf('month').format('YYYY-MM-DD')
-    const endAt = selectedDateMethod === 'day' ? value[1].format('YYYY-MM-DD') :
-      selectedDateMethod === 'week' ? value.endOf('week').format('YYYY-MM-DD') :
-        value.endOf('month').format('YYYY-MM-DD')
-    setLoadingLeftSubList(true)
-    invoke('get_range_subs', { startAt, endAt }).then((res) => {
-      // console.log(res)
-      setLeftSubList(res)
-      setSelectedLeftKeys([])
-    }).catch((err) => {
-      notification.error({
-        message: '获取课程列表失败',
-        description: err
-      })
-    }).finally(() => {
-      setLoadingLeftSubList(false)
-    })
+    if (selectedDateMethod === 'day') {
+      setDayRange(value)
+      startAt.current = value[0].format('YYYY-MM-DD')
+      endAt.current = value[1].format('YYYY-MM-DD')
+    } else if (selectedDateMethod === 'week') {
+      setWeekValue(value)
+      startAt.current = value.startOf('week').format('YYYY-MM-DD')
+      endAt.current = value.endOf('week').format('YYYY-MM-DD')
+    } else {
+      setMonthValue(value)
+      startAt.current = value.startOf('month').format('YYYY-MM-DD')
+      endAt.current = value.endOf('month').format('YYYY-MM-DD')
+    }
+    updateRightSubList()
   }
 
-  const updateRightSubList = () => {
-    if (selectedCourseRange === 'my') {
-      let subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.sub_id))
-      if (subs.length === 0) {
-        notification.error({
-          message: '请选择课程',
-        })
-        return
-      }
+  const updateRightSubList = (key) => {
+    if (!key) key = selectedCourseRange
+    if (key === 'my') {
       setLoadingRightSubList(true)
-      invoke('get_sub_ppt_urls', { subs }).then((res) => {
+      invoke('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
         // console.log(res)
-        const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
-        if (subs.length === 0) {
-          notification.error({
-            message: '没有发现智云 PPT',
-          })
-        }
-        setRightSubList(subs)
-        setSelectedRightKeys(subs.map((item) => item.sub_id))
+        setRightSubList(res)
+        setSelectedRightKeys(res.map((item) => item.sub_id))
       }).catch((err) => {
         notification.error({
-          message: '获取课件列表失败',
+          message: '获取课程列表失败',
           description: err
         })
       }).finally(() => {
@@ -138,6 +137,10 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     }
   }
 
+  useEffect(() => {
+    updateRightSubList()
+  }, [])
+
   const leftColumns = [
     {
       dataIndex: 'course_name',
@@ -158,10 +161,12 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     {
       title: '课程名称',
       dataIndex: 'course_name',
+      sorter: (a, b) => a.course_name.localeCompare(b.course_name),
     },
     {
       dataIndex: 'sub_name',
       title: '上课时间',
+      sorter: (a, b) => a.sub_name.localeCompare(b.sub_name),
     },
     {
       dataIndex: 'lecturer_name',
@@ -174,9 +179,20 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
       render: (urls) => {
         return urls.length
       },
-      searchable: false
+      searchable: false,
+      sorter: (a, b) => a.ppt_image_urls.length - b.ppt_image_urls.length,
     }
   ];
+
+  let myRightColumns = rightColumns.map((item) => {
+    if (item.dataIndex === 'lecturer_name') {
+      return {
+        ...item,
+        responsive: null
+      }
+    }
+    return item
+  })
 
   const downloadSubsPPT = () => {
     let subs = rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id))
@@ -210,7 +226,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
 
   return (
     <div style={{ margin: 20 }}>
-      <Card bodyStyle={{ padding: 15 }}>
+      <Card styles={{ body: { padding: 15 } }}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -222,7 +238,12 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
               onChange={(value) => {
                 setLeftSubList([])
                 setSelectedLeftKeys([])
+                setRightSubList([])
+                setSelectedRightKeys([])
                 setSelectedCourseRange(value.target.value)
+                if (value.target.value === 'my') {
+                  updateRightSubList('my')
+                }
               }}
               value={selectedCourseRange}
               optionType="button"
@@ -243,21 +264,24 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
                 style={{ minWidth: 100 }}
               />
               {selectedDateMethod === 'day' && <RangePicker
+                value={dayRange}
                 size='small'
                 onChange={changeDateRange}
-                disabled={loadingLeftSubList}
+                disabled={loadingRightSubList}
               />}
               {selectedDateMethod === 'week' && <DatePicker
+                value={weekValue}
                 picker='week'
                 size='small'
                 onChange={changeDateRange}
-                disabled={loadingLeftSubList}
+                disabled={loadingRightSubList}
               />}
               {selectedDateMethod === 'month' && <DatePicker
+                value={monthValue}
                 picker='month'
                 size='small'
                 onChange={changeDateRange}
-                disabled={loadingLeftSubList}
+                disabled={loadingRightSubList}
               />}
             </div>}
           {selectedCourseRange === 'all' &&
@@ -286,7 +310,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
         </div>
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
-        <Col xs={10}>
+        {selectedCourseRange === 'all' && <Col xs={10}>
           <SearchTable
             rowSelection={{
               selectedRowKeys: selectedLeftKeys,
@@ -303,15 +327,15 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
             title={() => `课程列表：已选择 ${selectedLeftKeys.length} 门课程`}
             loading={loadingLeftSubList}
           />
-        </Col>
-        <Col xs={14}>
+        </Col>}
+        <Col xs={selectedCourseRange === 'all' ? 14 : 24}>
           <SearchTable
             rowSelection={{
               selectedRowKeys: selectedRightKeys,
               onChange: setSelectedRightKeys,
             }}
             rowKey='sub_id'
-            columns={rightColumns}
+            columns={selectedCourseRange === 'my' ? myRightColumns : rightColumns}
             dataSource={rightSubList}
             pagination={false}
             scroll={{ y: 'calc(100vh - 270px)' }}
