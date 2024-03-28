@@ -99,7 +99,14 @@ pub async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>, window: Window) -> 
             SystemTrayMenu::new()
                 .add_item(CustomMenuItem::new("id", "未登录").disabled())
                 .add_native_item(SystemTrayMenuItem::Separator)
-                .add_item(CustomMenuItem::new("quit".to_string(), "退出")),
+                .add_item(CustomMenuItem::new(
+                    "open".to_string(),
+                    "打开 ZJU Learning Assistant",
+                ))
+                .add_item(CustomMenuItem::new(
+                    "quit".to_string(),
+                    "退出 ZJU Learning Assistant",
+                )),
         )
         .unwrap();
 
@@ -210,8 +217,16 @@ pub async fn start_sync_todo(
         } else {
             menu = menu.add_item(CustomMenuItem::new("todo", "暂无待办事项").disabled());
         }
-        menu = menu.add_native_item(SystemTrayMenuItem::Separator);
-        menu = menu.add_item(CustomMenuItem::new("quit", "退出"));
+        menu = menu
+            .add_native_item(SystemTrayMenuItem::Separator)
+            .add_item(CustomMenuItem::new(
+                "open".to_string(),
+                "打开 ZJU Learning Assistant",
+            ))
+            .add_item(CustomMenuItem::new(
+                "quit".to_string(),
+                "退出 ZJU Learning Assistant",
+            ));
 
         window.app_handle().tray_handle().set_menu(menu).unwrap();
 
