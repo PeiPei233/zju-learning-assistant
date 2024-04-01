@@ -945,6 +945,27 @@ pub async fn start_download_ppts(
             }
         }
 
+        if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        id: id.clone(),
+                        status: "canceled".to_string(),
+                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                        downloaded_size: count,
+                        total_size: total_size as u64,
+                    },
+                )
+                .unwrap();
+            // clean up
+            let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+            if let Err(err) = res {
+                debug!("download_upload: clean up fail: {}", err);
+            }
+            return;
+        }
+
         window
             .emit(
                 "download-progress",

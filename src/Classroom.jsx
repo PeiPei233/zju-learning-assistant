@@ -70,7 +70,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
       startAt.current = dayjs().startOf('month').format('YYYY-MM-DD')
       endAt.current = dayjs().endOf('month').format('YYYY-MM-DD')
     }
-    updateRightSubList()
+    updateMySubList()
   }
 
   const changeDateRange = (value) => {
@@ -87,58 +87,57 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
       startAt.current = value.startOf('month').format('YYYY-MM-DD')
       endAt.current = value.endOf('month').format('YYYY-MM-DD')
     }
-    updateRightSubList()
+    updateMySubList()
   }
 
-  const updateRightSubList = (key) => {
-    if (!key) key = selectedCourseRange
-    if (key === 'my') {
-      setLoadingRightSubList(true)
-      invoke('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
-        // console.log(res)
-        setRightSubList(res)
-        setSelectedRightKeys(res.map((item) => item.sub_id))
-      }).catch((err) => {
-        notification.error({
-          message: '获取课程列表失败',
-          description: err
-        })
-      }).finally(() => {
-        setLoadingRightSubList(false)
+  const updateMySubList = () => {
+    setLoadingRightSubList(true)
+    invoke('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
+      // console.log(res)
+      setRightSubList(res)
+      setSelectedRightKeys(res.map((item) => item.sub_id))
+    }).catch((err) => {
+      notification.error({
+        message: '获取课程列表失败',
+        description: err
       })
-    } else {
-      let subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.course_id))
+    }).finally(() => {
+      setLoadingRightSubList(false)
+    })
+  }
+
+  const updateAllSubList = () => {
+    let subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.course_id))
+    if (subs.length === 0) {
+      notification.error({
+        message: '请选择课程',
+      })
+      return
+    }
+    let course_ids = subs.map((item) => item.course_id)
+    setLoadingRightSubList(true)
+    invoke('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
+      // console.log(res)
+      const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
       if (subs.length === 0) {
         notification.error({
-          message: '请选择课程',
+          message: '没有发现智云 PPT',
         })
-        return
       }
-      let course_ids = subs.map((item) => item.course_id)
-      setLoadingRightSubList(true)
-      invoke('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
-        // console.log(res)
-        const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
-        if (subs.length === 0) {
-          notification.error({
-            message: '没有发现智云 PPT',
-          })
-        }
-        setRightSubList(subs)
-        setSelectedRightKeys(subs.map((item) => item.sub_id))
-      }).catch((err) => {
-        notification.error({
-          message: '获取课件列表失败',
-          description: err
-        })
-      }).finally(() => {
-        setLoadingRightSubList(false)
+      setRightSubList(subs)
+      setSelectedRightKeys(subs.map((item) => item.sub_id))
+    }).catch((err) => {
+      notification.error({
+        message: '获取课件列表失败',
+        description: err
       })
-    }
+    }).finally(() => {
+      setLoadingRightSubList(false)
+    })
   }
 
   useEffect(() => {
-    updateRightSubList()
+    updateMySubList()
   }, [])
 
   const leftColumns = [
@@ -248,7 +247,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
                 setSelectedRightKeys([])
                 setSelectedCourseRange(value.target.value)
                 if (value.target.value === 'my') {
-                  updateRightSubList('my')
+                  updateMySubList()
                 }
               }}
               value={selectedCourseRange}
@@ -363,7 +362,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
                         type='text'
                         size='small'
                         icon={<ReloadOutlined />}
-                        onClick={updateRightSubList}
+                        onClick={selectedCourseRange === 'my' ? updateMySubList : updateAllSubList}
                         loading={loadingRightSubList}
                       />
                     </Tooltip>
