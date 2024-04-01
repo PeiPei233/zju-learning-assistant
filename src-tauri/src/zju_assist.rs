@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use log::{debug, info};
 use percent_encoding::percent_decode_str;
 use regex::Regex;
@@ -144,7 +145,7 @@ impl ZjuAssist {
         self.username.clone()
     }
 
-    pub async fn test_connection(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn test_connection(&mut self) -> Result<()> {
         let headers = HeaderMap::new();
         let client_default = Client::builder()
             .default_headers(headers.clone())
@@ -162,7 +163,7 @@ impl ZjuAssist {
         info!("Latency default: {:?}", latency_default);
         info!("Latency no proxy: {:?}", latency_no_proxy);
         if latency_default.is_err() && latency_no_proxy.is_err() {
-            return Err("Connection failed".into());
+            return Err(anyhow!("Connection failed"));
         }
         if latency_default.is_err() {
             self.proxy_first = false;
@@ -177,11 +178,7 @@ impl ZjuAssist {
         Ok(())
     }
 
-    pub async fn login(
-        &mut self,
-        username: &str,
-        password: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn login(&mut self, username: &str, password: &str) -> Result<()> {
         if self.have_login {
             return Ok(());
         }
@@ -200,22 +197,22 @@ impl ZjuAssist {
                 .await?;
             text = res.text().await?;
             if !text.contains("统一身份认证平台") {
-                return Err("Login failed".into());
+                return Err(anyhow!("Login failed"));
             }
         }
         let re = Regex::new(r#"<input type="hidden" name="execution" value="(.*?)" />"#).unwrap();
         let execution = re
             .captures(&text)
             .and_then(|cap| cap.get(1).map(|m| m.as_str()))
-            .ok_or("Execution value not found")?;
+            .ok_or(anyhow!("Execution value not found"))?;
         let res = self
             .get("https://zjuam.zju.edu.cn/cas/v2/getPubKey")
             .send()
             .await?;
 
         let json: Value = res.json().await?;
-        let modulus = json["modulus"].as_str().ok_or("Modulus not found")?;
-        let exponent = json["exponent"].as_str().ok_or("Exponent not found")?;
+        let modulus = json["modulus"].as_str().ok_or(anyhow!("Modulus not found"))?;
+        let exponent = json["exponent"].as_str().ok_or(anyhow!("Exponent not found"))?;
 
         let rsapwd = rsa_no_padding(password, modulus, exponent);
 
@@ -234,7 +231,7 @@ impl ZjuAssist {
             .await?;
 
         if res.text().await?.contains("统一身份认证平台") {
-            Err("Login failed: Wrong username or password".into())
+            Err(anyhow!("Login failed: Wrong username or password"))
         } else {
             self.get("https://courses.zju.edu.cn/user/courses")
                 .send()
@@ -260,9 +257,9 @@ impl ZjuAssist {
         self.password = "".to_string();
     }
 
-    pub async fn relogin(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn relogin(&mut self) -> Result<()> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let username = self.username.clone();
         let password = self.password.clone();
@@ -284,9 +281,9 @@ impl ZjuAssist {
 
     // courses
 
-    pub async fn get_courses(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_courses(&self) -> Result<Vec<Value>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let mut courses = Vec::new();
         let res = self.get("https://courses.zju.edu.cn/api/my-courses?conditions=%7B%22status%22:%5B%22ongoing%22,%22notStarted%22%5D,%22keyword%22:%22%22,%22classify_type%22:%22recently_started%22,%22display_studio_list%22:false%7D&fields=id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data),user_stick_course_record(id),classroom_schedule&page=1&page_size=100&showScorePassedStatus=false")
@@ -308,12 +305,9 @@ impl ZjuAssist {
         Ok(courses)
     }
 
-    pub async fn get_activities_uploads(
-        &self,
-        course_id: i64,
-    ) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_activities_uploads(&self, course_id: i64) -> Result<Vec<Value>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let mut uploads = Vec::new();
         let res = self
@@ -333,12 +327,9 @@ impl ZjuAssist {
         Ok(uploads)
     }
 
-    pub async fn get_homework_uploads(
-        &self,
-        course_id: i64,
-    ) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_homework_uploads(&self, course_id: i64) -> Result<Vec<Value>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let mut uploads = Vec::new();
         let res = self.get(format!("https://courses.zju.edu.cn/api/courses/{}/homework-activities?conditions=%7B%22itemsSortBy%22:%7B%22predicate%22:%22module%22,%22reverse%22:false%7D%7D&page=1&page_size=20&reloadPage=false", course_id))
@@ -368,12 +359,7 @@ impl ZjuAssist {
         Ok(uploads)
     }
 
-    pub async fn download_file(
-        &self,
-        reference_id: i64,
-        name: &str,
-        path: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn download_file(&self, reference_id: i64, name: &str, path: &str) -> Result<()> {
         let res = self
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
@@ -408,10 +394,7 @@ impl ZjuAssist {
         Ok(())
     }
 
-    pub async fn get_uploads_response(
-        &self,
-        reference_id: i64,
-    ) -> Result<Response, Box<dyn std::error::Error>> {
+    pub async fn get_uploads_response(&self, reference_id: i64) -> Result<Response> {
         let res = self
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
@@ -435,9 +418,9 @@ impl ZjuAssist {
         Ok(res)
     }
 
-    pub async fn get_academic_year_list(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_academic_year_list(&self) -> Result<Vec<Value>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let res = self
             .get("https://courses.zju.edu.cn/api/my-academic-years?fields=id,name,sort,is_active")
@@ -452,9 +435,9 @@ impl ZjuAssist {
             .collect())
     }
 
-    pub async fn get_semester_list(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_semester_list(&self) -> Result<Vec<Value>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let res = self
             .get("https://courses.zju.edu.cn/api/my-semesters?")
@@ -469,9 +452,9 @@ impl ZjuAssist {
             .collect())
     }
 
-    pub async fn get_todo_list(&self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_todo_list(&self) -> Result<Vec<Value>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let res = self
             .get("https://courses.zju.edu.cn/api/todos?no-intercept=true")
@@ -488,9 +471,9 @@ impl ZjuAssist {
 
     // classroom
 
-    pub fn get_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn get_token(&self) -> Result<String> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         if let Some(cookies) = self
             .jar
@@ -503,19 +486,27 @@ impl ZjuAssist {
             let token = re
                 .captures(&cookie_str)
                 .and_then(|cap| cap.get(1).map(|m| m.as_str()))
-                .ok_or("Token not found, try log in again")?;
+                .ok_or(anyhow!("Token not found, try log in again"))?;
             Ok(token.to_string())
         } else {
-            Err("Token not found, try log in again".into())
+            Err(anyhow!("Token not found, try log in again"))
         }
     }
 
-    pub async fn get_month_subs(
-        &self,
-        month: &str,
-    ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
+    pub async fn keep_classroom_alive(&mut self) -> Result<()> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
+        }
+        let token = self.get_token();
+        if let Err(_) = token {
+            self.relogin().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn get_month_subs(&self, month: &str) -> Result<Vec<Subject>> {
+        if !self.have_login {
+            return Err(anyhow!("Not login"));
         }
         let token = self.get_token()?;
         let mut headers = HeaderMap::new();
@@ -561,9 +552,9 @@ impl ZjuAssist {
         &self,
         start: &str, // format: 2021-05-01
         end: &str,
-    ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Subject>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let token = self.get_token()?;
         let mut headers = HeaderMap::new();
@@ -619,9 +610,9 @@ impl ZjuAssist {
         &self,
         course_name: &str,
         teacher_name: &str,
-    ) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Value>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let token = self.get_token()?;
         let mut headers = HeaderMap::new();
@@ -654,7 +645,7 @@ impl ZjuAssist {
         // if code is not 0, then there is an error
         if json["code"].as_i64().unwrap() != 0 {
             let msg = json["msg"].as_str().unwrap();
-            return Err(msg.into());
+            return Err(anyhow!(msg.to_string()));
         }
 
         courses.extend(json["total"]["list"].as_array().unwrap().iter().cloned());
@@ -674,12 +665,9 @@ impl ZjuAssist {
         Ok(courses)
     }
 
-    pub async fn get_course_subs(
-        &self,
-        course_id: i64,
-    ) -> Result<Vec<Subject>, Box<dyn std::error::Error>> {
+    pub async fn get_course_subs(&self, course_id: i64) -> Result<Vec<Subject>> {
         if !self.have_login {
-            return Err("Not login".into());
+            return Err(anyhow!("Not login"));
         }
         let token = self.get_token()?;
         let mut headers = HeaderMap::new();
@@ -756,11 +744,7 @@ impl ZjuAssist {
         }
     }
 
-    pub async fn get_playback_response(
-        &self,
-        course_id: i64,
-        sub_id: i64,
-    ) -> Result<Response, Box<dyn std::error::Error>> {
+    pub async fn get_playback_response(&self, course_id: i64, sub_id: i64) -> Result<Response> {
         let res = self
             .get(format!(
                 "https://classroom.zju.edu.cn/courseapi/v3/portal-home-setting/get-sub-info?course_id={}&sub_id={}",
@@ -789,11 +773,7 @@ impl ZjuAssist {
         Ok(res)
     }
 
-    pub async fn get_ppt_urls(
-        &self,
-        course_id: i64,
-        sub_id: i64,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    pub async fn get_ppt_urls(&self, course_id: i64, sub_id: i64) -> Result<Vec<String>> {
         let mut urls = Vec::new();
         let res = self.get(format!("https://classroom.zju.edu.cn/pptnote/v1/schedule/search-ppt?course_id={}&sub_id={}&page=1&per_page=100", course_id, sub_id)).send()
             .await?;
@@ -819,7 +799,7 @@ impl ZjuAssist {
                 page -= 1;
                 retries -= 1;
                 if retries == 0 {
-                    Err(format!(
+                    Err(anyhow!(
                         "Get ppt urls failed for course_id: {}, sub_id: {}, please retry later.",
                         course_id, sub_id
                     ))?;
@@ -837,11 +817,7 @@ impl ZjuAssist {
         Ok(urls)
     }
 
-    pub async fn download_ppt_image(
-        &self,
-        url: &str,
-        path: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn download_ppt_image(&self, url: &str, path: &str) -> Result<()> {
         const MAX_RETRIES: usize = 5;
         let mut retries = 0;
 
@@ -878,15 +854,12 @@ impl ZjuAssist {
             std::fs::remove_file(file_path)?;
         }
 
-        Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Failed to download file after several attempts",
-        )))
+        Err(anyhow!("Failed to download file after several attempts"))
     }
 
     // zdbk
 
-    pub async fn get_score(&mut self) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    pub async fn get_score(&mut self) -> Result<Vec<Value>> {
         let data = [
             ("xn", ""),
             ("xq", ""),
@@ -925,7 +898,7 @@ impl ZjuAssist {
             debug!("{}", text);
             let json = serde_json::from_str(&text);
             if json.is_err() {
-                return Err("Get score failed".into());
+                return Err(anyhow!("Get score failed"));
             }
             let json: Value = json.unwrap();
             let score = json["items"].as_array().unwrap();

@@ -41,6 +41,7 @@ md5 = "0.7.0"
 notify-rust = "4.10.0"
 dashmap = "5.5.3"
 keyring = "2.3.2"
+anyhow = "1.0.81"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

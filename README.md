@@ -46,7 +46,7 @@ P.S. 由于没有购买 CA 签名，ZJU Learning Assistant (aka. ZLA) 没有签�
 
 此界面点击右上角可查看版本信息、检查是否有新版。选择自动登录后，下次打开 ZLA 时会自动登录。
 
-登陆后进入以下下载课件的界面。
+登录后进入以下下载课件的界面。
 
 ![Course Page](assets/learning.png)
 

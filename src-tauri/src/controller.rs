@@ -1,7 +1,7 @@
-use crate::model;
 use crate::model::Subject;
 use crate::util::images_to_pdf;
 use crate::zju_assist::ZjuAssist;
+use crate::model;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use dashmap::DashMap;
@@ -729,6 +729,14 @@ pub async fn start_download_ppts(
         "start_download_ppts: {} {} {}",
         id, subject.course_name, subject.sub_name
     );
+
+    let mut zju_assist_mut = zju_assist.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
+
     // state -> true: downloading, false: cancel
     let download_state = Arc::new(AtomicBool::new(true));
     let zju_assist = zju_assist.lock().await.clone();
@@ -972,6 +980,13 @@ pub async fn start_download_playback(
         id, subject.course_name, subject.sub_name
     );
 
+    let mut zju_assist_mut = zju_assist.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
+
     let zju_assist = zju_assist.lock().await.clone();
     // state -> true: downloading, false: cancel
     let download_state = Arc::new(AtomicBool::new(true));
@@ -1161,6 +1176,12 @@ pub async fn get_sub_ppt_urls(
     subs: Vec<Subject>,
 ) -> Result<Vec<Subject>, String> {
     info!("get_sub_ppt_urls");
+    let mut zju_assist_mut = zju_assist.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
     let zju_assist = zju_assist.lock().await.clone();
     let mut new_subs = Vec::new();
     let save_path = config.lock().await.save_path.clone();
@@ -1218,6 +1239,12 @@ pub async fn get_range_subs(
     end_at: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_range_subs: {} {}", start_at, end_at);
+    let mut zju_assist_mut = state.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
     let zju_assist = state.lock().await.clone();
     let mut subs = Vec::new();
     let mut tasks: Vec<JoinHandle<Result<Vec<Subject>, String>>> = Vec::new();
@@ -1252,6 +1279,12 @@ pub async fn get_month_subs(
     month: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_month_subs: {}", month);
+    let mut zju_assist_mut = state.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
     let zju_assist = state.lock().await.clone();
     let subs = zju_assist
         .get_month_subs(&month)
@@ -1267,6 +1300,12 @@ pub async fn search_courses(
     teacher_name: String,
 ) -> Result<Vec<Subject>, String> {
     info!("search_courses: {} {}", course_name, teacher_name);
+    let mut zju_assist_mut = state.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
     let zju_assist = state.lock().await.clone();
     let courses = zju_assist
         .search_courses(&course_name, &teacher_name)
@@ -1307,6 +1346,12 @@ pub async fn get_course_all_sub_ppts(
     course_ids: Vec<i64>,
 ) -> Result<Vec<Subject>, String> {
     info!("get_course_subs");
+    let mut zju_assist_mut = state.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
     let zju_assist = state.lock().await.clone();
     let mut subs = Vec::new();
     for course_id in course_ids {
