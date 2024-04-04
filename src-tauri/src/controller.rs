@@ -1,7 +1,6 @@
-use crate::model::Subject;
+use crate::model::{Config, Progress, Subject, Upload};
 use crate::util::images_to_pdf;
 use crate::zju_assist::ZjuAssist;
-use crate::model;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use dashmap::DashMap;
@@ -9,7 +8,6 @@ use directories_next::ProjectDirs;
 use futures::TryStreamExt;
 use keyring::Entry;
 use log::{debug, info};
-use model::{Config, Progress, Upload};
 use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
 use std::cmp::min;
@@ -48,7 +46,11 @@ pub async fn login(
             .set_password(&format!("{}\n{}", username, password))
             .map_err(|err| err.to_string())?;
     } else {
-        let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
+        let entry = Entry::new("zju-assist", "auto-login");
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => return Ok(()),
+        };
         let _ = entry.delete_password();
     }
 
@@ -114,6 +116,96 @@ pub async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>, window: Window) -> 
 }
 
 #[tauri::command]
+pub async fn sync_todo_once(
+    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    window: Window,
+) -> Result<(), String> {
+    info!("sync_todo_once");
+    let zju_assist = zju_assist.lock().await.clone();
+    let todo_list = zju_assist
+        .get_todo_list()
+        .await
+        .map_err(|err| err.to_string())?;
+    let todo_list_no_end_time = todo_list
+        .iter()
+        .filter(|todo| todo["end_time"].is_null())
+        .map(|todo| todo.clone())
+        .collect::<Vec<_>>();
+    let mut todo_list_with_end_time = todo_list
+        .iter()
+        .filter(|todo| !todo["end_time"].is_null())
+        .map(|todo| todo.clone())
+        .collect::<Vec<_>>();
+
+    // sort todo list by end_time like 2024-06-06T12:00:00Z
+    todo_list_with_end_time.sort_by(|a, b| {
+        let a = a["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
+        let b = b["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
+
+        let a = a
+            .parse::<DateTime<Utc>>()
+            .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+        let b = b
+            .parse::<DateTime<Utc>>()
+            .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+
+        a.cmp(&b)
+    });
+    let mut menu = SystemTrayMenu::new()
+        .add_item(
+            CustomMenuItem::new("id", format!("已登录：{}", zju_assist.get_username())).disabled(),
+        )
+        .add_native_item(SystemTrayMenuItem::Separator);
+    if todo_list.len() > 0 {
+        for todo in todo_list_with_end_time.iter() {
+            let end_time = todo["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
+            let end_time = end_time
+                .parse::<DateTime<Utc>>()
+                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+            let course_id = todo["course_id"].as_i64().unwrap();
+            let id = todo["id"].as_i64().unwrap();
+            let course_name = todo["course_name"].as_str().unwrap();
+            let title = todo["title"].as_str().unwrap();
+
+            let tray_title = format!(
+                "{}  {}-{}",
+                end_time.format("%Y-%m-%d %H:%M:%S"),
+                title,
+                course_name
+            );
+            let tray_id = format!("todo-{}-{}", course_id, id);
+            menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
+        }
+        for todo in todo_list_no_end_time.iter() {
+            let course_id = todo["course_id"].as_i64().unwrap();
+            let id = todo["id"].as_i64().unwrap();
+            let course_name = todo["course_name"].as_str().unwrap();
+            let title = todo["title"].as_str().unwrap();
+
+            let tray_title = format!("No Deadline  {}-{}", title, course_name);
+            let tray_id = format!("todo-{}-{}", course_id, id);
+            menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
+        }
+    } else {
+        menu = menu.add_item(CustomMenuItem::new("todo", "暂无待办事项").disabled());
+    }
+    menu = menu
+        .add_native_item(SystemTrayMenuItem::Separator)
+        .add_item(CustomMenuItem::new(
+            "open".to_string(),
+            "打开 ZJU Learning Assistant",
+        ))
+        .add_item(CustomMenuItem::new(
+            "quit".to_string(),
+            "退出 ZJU Learning Assistant",
+        ));
+
+    window.app_handle().tray_handle().set_menu(menu).unwrap();
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn start_sync_todo(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
     window: Window,
@@ -121,11 +213,16 @@ pub async fn start_sync_todo(
     info!("start_sync_todo");
 
     let mut notified_map: HashMap<String, DateTime<Utc>> = HashMap::new();
+    let mut current_user = zju_assist.lock().await.get_username();
 
     loop {
         let zju_assist = zju_assist.lock().await.clone();
         if !zju_assist.is_login() {
-            break;
+            continue;
+        }
+        if current_user != zju_assist.get_username() {
+            current_user = zju_assist.get_username();
+            notified_map.clear();
         }
         let todo_list = zju_assist
             .get_todo_list()
@@ -232,8 +329,6 @@ pub async fn start_sync_todo(
 
         tokio::time::sleep(Duration::from_secs(60)).await;
     }
-
-    Ok(())
 }
 
 #[tauri::command]

@@ -1,4 +1,4 @@
-export function bytesToSize(bytes) {
+export function bytesToSize(bytes: number): string {
     if (bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -7,7 +7,7 @@ export function bytesToSize(bytes) {
     return `${size} ${sizes[i]}`;
 }
 
-export function formatTime(secs) {
+export function formatTime(secs: number): string {
     const day = Math.floor(secs / 86400)
     const hour = Math.floor((secs - day * 86400) / 3600)
     const minute = Math.floor((secs - day * 86400 - hour * 3600) / 60)
@@ -22,3 +22,23 @@ export function formatTime(secs) {
         return `${second} 秒`
     }
 }
+
+
+export function convertUrlsToMarkdown(text: string): string {
+    const markdownLinkRegex = /\[([^\]]*)\]\((http[s]?:\/\/[^\s\[\]()]+)\)/g;
+    let placeholders: string[] = [];
+    let currentIndex = 0;
+    let newText = text.replace(markdownLinkRegex, (match) => {
+      placeholders.push(match);
+      return `<<${currentIndex++}>>`;
+    });
+  
+    const urlRegex = /http[s]?:\/\/[^\s\[\]()]+/g;
+    newText = newText.replace(urlRegex, (match) => `[${match}](${match})`);
+  
+    placeholders.forEach((placeholder, index) => {
+      newText = newText.replace(`<<${index}>>`, placeholder);
+    });
+  
+    return newText;
+  }

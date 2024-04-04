@@ -253,56 +253,51 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
               value={selectedCourseRange}
               optionType="button"
               buttonStyle="solid"
-              size='small'
-              style={{ minWidth: 160 }}
+              style={{ minWidth: 155 }}
             />
           </div>
           {selectedCourseRange === 'my' &&
-            <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
               <Radio.Group
                 options={selectDateMethodOptions}
                 onChange={changeDateMethod}
                 value={selectedDateMethod}
                 optionType="button"
                 buttonStyle="solid"
-                size='small'
-                style={{ minWidth: 100 }}
+                style={{ minWidth: 106, marginRight: 20 }}
               />
               {selectedDateMethod === 'day' && <RangePicker
                 value={dayRange}
-                size='small'
                 onChange={changeDateRange}
                 disabled={loadingRightSubList}
               />}
               {selectedDateMethod === 'week' && <DatePicker
                 value={weekValue}
                 picker='week'
-                size='small'
                 onChange={changeDateRange}
                 disabled={loadingRightSubList}
               />}
               {selectedDateMethod === 'month' && <DatePicker
                 value={monthValue}
                 picker='month'
-                size='small'
                 onChange={changeDateRange}
                 disabled={loadingRightSubList}
               />}
             </div>}
           {selectedCourseRange === 'all' &&
-            <>
+            <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                <Input placeholder='课程名称' size='small' value={searchCourseName} onChange={(e) => setSearchCourseName(e.target.value)} />
+                <Input placeholder='课程名称' value={searchCourseName} onChange={(e) => setSearchCourseName(e.target.value)} />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-                <Input placeholder='教师名称' size='small' value={searchTeacherName} onChange={(e) => setSearchTeacherName(e.target.value)} />
+                <Input placeholder='教师名称' value={searchTeacherName} onChange={(e) => setSearchTeacherName(e.target.value)} />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
                 <Tooltip title='搜索全部课程'>
-                  <Button icon={<SearchOutlined />} size='small' onClick={searchCourse} loading={loadingLeftSubList} />
+                  <Button icon={<SearchOutlined />} onClick={searchCourse} loading={loadingLeftSubList} />
                 </Tooltip>
               </div>
-            </>
+            </div>
           }
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
             <Button

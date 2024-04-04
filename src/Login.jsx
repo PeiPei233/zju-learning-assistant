@@ -1,41 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Form, Input, Button, Card, App, Typography, Badge, Modal, Checkbox } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { shell } from '@tauri-apps/api'
-import { getVersion } from '@tauri-apps/api/app';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import Markdown from 'react-markdown';
 import { listen } from '@tauri-apps/api/event';
 import { exit } from '@tauri-apps/api/process';
 
 const { Text, Paragraph } = Typography
 
-function convertUrlsToMarkdown(text) {
-  const markdownLinkRegex = /\[([^\]]*)\]\((http[s]?:\/\/[^\s\[\]()]+)\)/g;
-  let placeholders = [];
-  let currentIndex = 0;
-  let newText = text.replace(markdownLinkRegex, (match) => {
-    placeholders.push(match);
-    return `<<${currentIndex++}>>`;
-  });
-
-  const urlRegex = /http[s]?:\/\/[^\s\[\]()]+/g;
-  newText = newText.replace(urlRegex, (match) => `[${match}](${match})`);
-
-  placeholders.forEach((placeholder, index) => {
-    newText = newText.replace(`<<${index}>>`, placeholder);
-  });
-
-  return newText;
-}
-
-export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword }) {
+export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword, currentVersion, latestVersionData, setOpenVersionModal }) {
 
   const [form] = Form.useForm()
   const { message, modal, notification } = App.useApp()
-  const [currentVersion, setCurrentVersion] = useState('')
-  const [latestVersionData, setLatestVersionData] = useState(null)
-  const [openVersionModal, setOpenVersionModal] = useState(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -43,24 +18,6 @@ export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword
       if (res) {
         setIsLogin(true)
       }
-    }).catch((err) => { })
-    getVersion().then((current) => {
-      setCurrentVersion('v' + current)
-      invoke('get_latest_version_info').then((res) => {
-        // console.log(res)
-        const data = res
-        if (!data) throw new Error('获取最新版本信息失败')
-        if (!data.tag_name) throw new Error(JSON.stringify(data))
-        if (data.tag_name !== 'v' + current) {
-          notification.info({
-            message: '发现新版本',
-            description: `当前版本：${'v' + current}，最新版本：${data.tag_name}`
-          })
-        }
-        setLatestVersionData(data)
-      }).catch((err) => {
-        console.log(err)
-      })
     }).catch((err) => { })
 
     const unlistenClose = listen('close-requested', () => {
@@ -174,48 +131,6 @@ export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword
           </Badge>
         </a>
       </div>
-      <Modal
-        centered
-        open={openVersionModal}
-        onCancel={() => setOpenVersionModal(false)}
-        footer={null}
-        title={'ZJU Learning Assistant ' + currentVersion}
-      >
-        <Markdown components={{
-          a({ node, href, ...props }) {
-            return <a
-              {...props}
-              onClick={() => {
-                shell.open(href).catch((err) => {
-                  notification.error({
-                    message: '打开链接失败',
-                    description: err
-                  })
-                })
-              }}
-            />
-          },
-          pre({ node, ...props }) {
-            return <Paragraph>
-              <pre {...props} />
-            </Paragraph>
-          },
-          code({ node, ...props }) {
-            return <Text code {...props} />
-          }
-        }}>
-          {
-            !latestVersionData ? '当前已是最新版本' :
-              latestVersionData.tag_name === currentVersion ? (
-                `当前已是最新版本：[${currentVersion}](${latestVersionData.html_url})\n\n` +
-                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.body)}`
-              ) : (
-                `发现新版：[${latestVersionData.tag_name}](${latestVersionData.html_url})\n\n` +
-                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.body)}`
-              )
-          }
-        </Markdown>
-      </Modal>
     </div>
   )
 }

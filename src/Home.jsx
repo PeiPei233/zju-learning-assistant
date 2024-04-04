@@ -16,7 +16,7 @@ import dayjs from 'dayjs'
 const { Header, Content, Footer, Sider } = Layout;
 const { Text, Link } = Typography;
 
-export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPassword }) {
+export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPassword, currentVersion, latestVersionData, setOpenVersionModal }) {
 
   const { message, modal, notification } = App.useApp()
   const [current, setCurrent] = useState('learning')
@@ -189,7 +189,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }).catch((err) => {
       setIsLogin(false)
     })
-    invoke('start_sync_todo')
+    invoke('sync_todo_once')
 
     invoke('get_config').then((res) => {
       console.log(res)
@@ -431,7 +431,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
         >
           <Menu.Item key='learning' icon={<img src='https://course.zju.edu.cn/static/favicon.ico' style={{ width: 14 }} />}>
             <Tooltip title={syncingUpload ? `学在浙大课件同步正在运行 - 上次同步时间：${lastSyncUpload}` : ''}>
-              <Badge dot={true} count={syncingUpload ? 1 : 0} color='green'>
+              <Badge dot={true} count={syncingUpload ? `学在浙大课件同步正在运行 - 上次同步时间：${lastSyncUpload}` : 0} color='green'>
                 <span style={{ color: current === 'learning' ? '#1677ff' : null }}>学在浙大</span>
               </Badge>
             </Tooltip>
@@ -441,7 +441,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           </Menu.Item>
           <Menu.Item key='score' icon={<FileSearchOutlined />}>
             <Tooltip title={notifyScore ? `成绩提醒正在运行 - 上次同步时间：${lastSyncScore}` : ''}>
-              <Badge dot={true} count={notifyScore ? 1 : 0} color='green'>
+              <Badge dot={true} count={notifyScore ? `成绩提醒正在运行 - 上次同步时间：${lastSyncScore}` : 0} color='green'>
                 <span style={{ color: current === 'score' ? '#1677ff' : null }}>成绩查询</span>
               </Badge>
             </Tooltip>
@@ -462,7 +462,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           </Menu.Item>
           <Menu.Item key='setting'>
             <Tooltip title='设置'>
-              <SettingOutlined />
+              <Badge count={(!latestVersionData || (latestVersionData && latestVersionData.tag_name === currentVersion) ? 0 : `发现新版本：${latestVersionData.tag_name}`)} dot>
+                <SettingOutlined />
+              </Badge>
             </Tooltip>
           </Menu.Item>
           <Menu.Item key='logout'>
@@ -778,7 +780,24 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               })
             }} />
           </List.Item>
+          <a onClick={() => setOpenVersionModal(true)}>
+            <List.Item>
+              <List.Item.Meta
+                title={<Badge count={(!latestVersionData || (latestVersionData && latestVersionData.tag_name === currentVersion) ? 0 : 'New')} size='small'>
+                  <Text
+                    style={{
+                      fontWeight: 'normal',
+                    }}>应用版本</Text>
+                </Badge>}
+              />
+              <Text>{currentVersion}</Text>
+            </List.Item>
+          </a>
         </List>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <Text type='secondary' style={{ fontSize: 12 }}>Made by PeiPei</Text>
+          <Text type='secondary' style={{ fontSize: 12 }}>此软件仅供学习交流使用，严禁用于商业用途</Text>
+        </div>
       </Drawer>
     </Layout>
   )

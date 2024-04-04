@@ -191,7 +191,7 @@ export default function Learning({
 
   return (
     <div style={{ margin: 20 }}>
-      <Card bodyStyle={{ padding: 15 }}>
+      <Card styles={{ body: { padding: 15 } }}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -208,7 +208,7 @@ export default function Learning({
             <Select
               allowClear
               showSearch
-              style={{ width: 110 }}
+              style={{ minWidth: 110 }}
               optionFilterProp="children"
               value={selectedAcademicYear}
               onChange={onAcademicYearChange}
@@ -221,13 +221,11 @@ export default function Learning({
               })}
               loading={loadingAcademicYearList}
             />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-            <Text style={{ minWidth: 50 }}>学期：</Text>
+            <Text style={{ minWidth: 50, marginLeft: 25 }}>学期：</Text>
             <Select
               allowClear
               showSearch
-              style={{ width: 140 }}
+              style={{ minWidth: 140 }}
               optionFilterProp="children"
               value={selectedSemester}
               onChange={onSemesterChange}
