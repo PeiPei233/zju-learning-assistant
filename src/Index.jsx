@@ -55,7 +55,6 @@ function Index() {
         description: err.message
       })
     })
-    invoke('start_sync_todo')
   }, [])
 
   return (

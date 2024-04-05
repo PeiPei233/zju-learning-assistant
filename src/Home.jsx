@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Select } from 'antd';
 import { invoke } from '@tauri-apps/api'
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/api/notification';
 import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined } from '@ant-design/icons';
 import Learning from './Learning'
 import Classroom from './Classroom'
@@ -45,10 +46,11 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
   const [lastSyncUpload, setLastSyncUpload] = useState(null)
 
   const syncScoreTimer = useRef(null)
+  const syncUploadTimer = useRef(null)
   const downloadManager = useRef(null)
-  const syncTimer = useRef(null)
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
+  const notifiedTodo = useRef({})
 
   useEffect(() => {
     selectedCourseKeysRef.current = selectedCourseKeys
@@ -179,6 +181,34 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }
   }
 
+  const syncTodoTask = () => {
+    invoke('sync_todo_once').then((res) => {
+      if (res && res.length !== 0) {
+        res.forEach(async (item) => {
+          if (item.end_time) {
+            const key = `${item.course_id}-${item.id}-${item.end_time}`
+            const diffTime = dayjs(item.end_time).diff(dayjs(), 'minute')
+            if (!notifiedTodo.current[key] && diffTime <= 60 && diffTime > 0 ) {
+              let permissionGranted = await isPermissionGranted();
+              if (!permissionGranted) {
+                const permission = await requestPermission();
+                permissionGranted = permission === 'granted';
+              }
+              if (permissionGranted) {
+                sendNotification({
+                  title: `距离 ${item.title} 截止不足一个小时`,
+                  body: `${item.course_name}-${item.title}: ${dayjs(item.end_time).format('YYYY-MM-DD HH:mm:ss')}`
+                });
+                notifiedTodo.current[key] = true
+              }
+            }
+          }
+        })
+      }
+    })
+    console.log(`sync todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`)
+  }
+
   useEffect(() => {
     setAutoLoginUsername('')
     setAutoLoginPassword('')
@@ -189,7 +219,6 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }).catch((err) => {
       setIsLogin(false)
     })
-    invoke('sync_todo_once')
 
     invoke('get_config').then((res) => {
       console.log(res)
@@ -209,6 +238,10 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       setDownloadingCount(downloadManager.current.getDownloadingCount())
     }, 1000)
 
+    // sync todo every minute
+    syncTodoTask()
+    const syncTodo = setInterval(syncTodoTask, 60000)
+
     const unlisten = listen('download-progress', (res) => {
       downloadManager.current.updateProgress(res.payload)
     })
@@ -221,8 +254,10 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
 
     return () => {
       stopSyncScore()
+      stopSyncUpload()
       downloadManager.current.cleanUp()
       clearInterval(updateDownloadList)
+      clearInterval(syncTodo)
       unlisten.then((fn) => fn())
       unlistenClose.then((fn) => fn())
     }
@@ -393,7 +428,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
         const nextSync = Math.floor(Math.random() * 60000) + 60000
         // const nextSync = Math.floor(Math.random() * 120000) + 180000
         console.log(`sync upload: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}, next sync time: ${dayjs().add(nextSync, 'ms').format('YYYY-MM-DD HH:mm:ss')}`)
-        syncTimer.current = setTimeout(syncUploadTask, nextSync)
+        syncUploadTimer.current = setTimeout(syncUploadTask, nextSync)
         setLoadingUploadList(false)
       })
     }
@@ -401,8 +436,8 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
   }
 
   const stopSyncUpload = () => {
-    clearTimeout(syncTimer.current)
-    syncTimer.current = null
+    clearTimeout(syncUploadTimer.current)
+    syncUploadTimer.current = null
   }
 
   const handleSwitchSyncUpload = (checked) => {

@@ -23,6 +23,9 @@
       },
       "process": {
         "exit": true
+      },
+      "notification": {
+        "all": true
       }
     },
     "systemTray": {

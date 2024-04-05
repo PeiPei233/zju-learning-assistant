@@ -4044,6 +4044,8 @@ dependencies = [
  "heck 0.4.1",
  "http",
  "ignore",
+ "nix",
+ "notify-rust",
  "objc",
  "once_cell",
  "open",

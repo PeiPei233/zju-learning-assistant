@@ -181,7 +181,6 @@ fn main() {
             controller::test_connection,
             controller::logout,
             controller::sync_todo_once,
-            controller::start_sync_todo,
             controller::get_courses,
             controller::get_academic_year_list,
             controller::get_semester_list,
