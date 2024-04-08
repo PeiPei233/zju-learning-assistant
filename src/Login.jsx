@@ -34,7 +34,7 @@ export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword
       notification.info({
         message: `正在自动登录 ${autoLoginUsername}...`,
       })
-      form.setFieldsValue({ username: autoLoginUsername, password: autoLoginPassword, remember: true })
+      form.setFieldsValue({ username: autoLoginUsername, password: '*'.repeat(autoLoginPassword.length), remember: true })
       onFinish({ username: autoLoginUsername, password: autoLoginPassword, remember: true })
     }
   }, [autoLoginUsername, autoLoginPassword])
