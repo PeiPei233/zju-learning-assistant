@@ -2,7 +2,7 @@ use crate::model::{Config, Progress, Subject, Upload};
 use crate::util::images_to_pdf;
 use crate::zju_assist::ZjuAssist;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use dashmap::DashMap;
 use directories_next::ProjectDirs;
 use futures::TryStreamExt;
@@ -160,7 +160,8 @@ pub async fn sync_todo_once(
             let end_time = todo["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
             let end_time = end_time
                 .parse::<DateTime<Utc>>()
-                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap())
+                .with_timezone(&Local);
             let course_id = todo["course_id"].as_i64().unwrap();
             let id = todo["id"].as_i64().unwrap();
             let course_name = todo["course_name"].as_str().unwrap();
