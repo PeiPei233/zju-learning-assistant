@@ -3,7 +3,7 @@ import { Button, Table, Input, Space } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import Highlighter from 'react-highlight-words';
 
-const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, bordered, footer, title, rowSelection, rowKey, onSelectChange, selectedRowKeys, style }) => {
+const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, bordered, footer, title, rowSelection, rowKey, style }) => {
     const [searchText, setSearchText] = useState('')
     const [searchedColumn, setSearchedColumn] = useState('')
     const searchInput = useRef(null)
@@ -134,8 +134,6 @@ const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, b
         bordered={bordered}
         footer={footer}
         title={title}
-        onSelectChange={onSelectChange}
-        selectedRowKeys={selectedRowKeys}
         style={style}
     />
 }

@@ -29,16 +29,16 @@ export function convertUrlsToMarkdown(text: string): string {
     let placeholders: string[] = [];
     let currentIndex = 0;
     let newText = text.replace(markdownLinkRegex, (match) => {
-      placeholders.push(match);
-      return `<<${currentIndex++}>>`;
+        placeholders.push(match);
+        return `<<${currentIndex++}>>`;
     });
-  
+
     const urlRegex = /http[s]?:\/\/[^\s\[\]()]+/g;
     newText = newText.replace(urlRegex, (match) => `[${match}](${match})`);
-  
+
     placeholders.forEach((placeholder, index) => {
-      newText = newText.replace(`<<${index}>>`, placeholder);
+        newText = newText.replace(`<<${index}>>`, placeholder);
     });
-  
+
     return newText;
-  }
+}

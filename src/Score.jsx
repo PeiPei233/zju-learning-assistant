@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Button, Card, App, Typography, Input, Switch, Tooltip } from 'antd';
 import { SyncOutlined } from '@ant-design/icons';
 import SearchTable from './SearchTable'
@@ -21,6 +21,10 @@ export default function Score({
 }) {
 
   const { message, modal, notification } = App.useApp()
+
+  const [selectedXkkh, setSelectedXkkh] = useState([])
+  const [selectedTotalGp, setSelectedTotalGp] = useState(0)
+  const [selectedTotalCredit, setSelectedTotalCredit] = useState(0)
 
   useEffect(() => {
     handleSync()
@@ -82,9 +86,23 @@ export default function Score({
     },
   ]
 
+  const onSelectChange = (selectedRowKeys, selectedRows) => {
+    setSelectedXkkh(selectedRowKeys)
+    let totalGp = 0
+    let totalCredit = 0
+    selectedRows.forEach(row => {
+      if (row.cj !== '合格' && row.cj !== '不合格' && row.cj !== '弃修') {
+        totalGp += parseFloat(row.jd) * parseFloat(row.xf)
+        totalCredit += parseFloat(row.xf)
+      }
+    })
+    setSelectedTotalGp(totalGp)
+    setSelectedTotalCredit(totalCredit)
+  }
+
   return (
     <div style={{ margin: 20 }}>
-      <Card bodyStyle={{ padding: 15 }}>
+      <Card styles={{ body: { padding: 15 } }}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -92,7 +110,7 @@ export default function Score({
         }} >
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
             <Text style={{ minWidth: 115 }}>自动同步并提醒：</Text>
-            <Tooltip title={notify ? '成绩推送已开启，将自动同步最新成绩并在成绩更新时提醒' : '成绩推送已关闭'}>
+            <Tooltip title={notify ? '成绩推送已开启，将自动同步最新成绩并在成绩更新时提醒' : '成绩推送已关闭，开启后将自动同步最新成绩并在成绩更新时提醒'}>
               <Switch loading={loading} checked={notify} onChange={handleSwitch} />
             </Tooltip>
           </div>
@@ -102,6 +120,10 @@ export default function Score({
         </div>
       </Card>
       <SearchTable
+        rowSelection={{
+          selectedRowKeys: selectedXkkh,
+          onChange: onSelectChange,
+        }}
         columns={columns}
         dataSource={score}
         rowKey='xkkh'
@@ -109,9 +131,12 @@ export default function Score({
         scroll={{ y: 'calc(100vh - 255px)' }}
         size='small'
         bordered
-        footer={() => `最后同步时间：${lastSync ? lastSync : '未同步'}，共 ${score.length} 条记录，总绩点 ${(
-          totalCredit === 0 ? 0 : totalGp / totalCredit
-        ).toFixed(2)}，总学分 ${totalCredit.toFixed(2)}`}
+        footer={() => selectedXkkh.length ? `最后同步时间：${lastSync ? lastSync : '未同步'}，已选 ${selectedXkkh.length} 条记录，已选总绩点 ${(
+          selectedTotalCredit === 0 ? 0 : selectedTotalGp / selectedTotalCredit
+        ).toFixed(2)}，已选总学分 ${selectedTotalCredit.toFixed(2)}` :
+          `最后同步时间：${lastSync ? lastSync : '未同步'}，共 ${score.length} 条记录，总绩点 ${(
+            totalCredit === 0 ? 0 : totalGp / totalCredit
+          ).toFixed(2)}，总学分 ${totalCredit.toFixed(2)}`}
         style={{ marginTop: 20 }}
         loading={loading}
       />

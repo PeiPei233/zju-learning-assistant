@@ -188,7 +188,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           if (item.end_time) {
             const key = `${item.course_id}-${item.id}-${item.end_time}`
             const diffTime = dayjs(item.end_time).diff(dayjs(), 'minute')
-            if (!notifiedTodo.current[key] && diffTime <= 60 && diffTime > 0 ) {
+            if (!notifiedTodo.current[key] && diffTime <= 60 && diffTime > 0) {
               let permissionGranted = await isPermissionGranted();
               if (!permissionGranted) {
                 const permission = await requestPermission();
@@ -339,7 +339,6 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }
   }
 
-
   const updatePath = () => {
     dialog.open({
       directory: true,
@@ -365,7 +364,6 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       })
     })
   }
-
 
   const updateUploadList = () => {
     let courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
@@ -567,7 +565,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                   }}
                 />
               </Tooltip>
-              <Tooltip title='全部删除'>
+              <Tooltip title='清空下载列表'>
                 <Button
                   type='text'
                   icon={<DeleteOutlined />}

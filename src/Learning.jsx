@@ -159,16 +159,6 @@ export default function Learning({
   const filterOption = (input, option) =>
     (option?.label ?? '').toLowerCase().includes(input.toLowerCase());
 
-  const onSelectChange = (newSelectedRowKeys) => {
-    // console.log('selectedRowKeys changed: ', newSelectedRowKeys);
-    setSelectedCourseKeys(newSelectedRowKeys)
-  };
-
-  const onUploadSelectChange = (newSelectedRowKeys) => {
-    // console.log('selectedRowKeys changed: ', newSelectedRowKeys);
-    setSelectedUploadKeys(newSelectedRowKeys)
-  }
-
   const uploadColumns = [
     {
       title: '课程名称',
@@ -260,7 +250,7 @@ export default function Learning({
           <SearchTable
             rowSelection={{
               selectedRowKeys: selectedCourseKeys,
-              onChange: onSelectChange,
+              onChange: setSelectedCourseKeys,
             }}
             columns={courseColumns}
             dataSource={selectedCourses}
@@ -277,7 +267,7 @@ export default function Learning({
           <SearchTable
             rowSelection={{
               selectedRowKeys: selectedUploadKeys,
-              onChange: onUploadSelectChange,
+              onChange: setSelectedUploadKeys,
             }}
             rowKey='reference_id'
             columns={uploadColumns}
