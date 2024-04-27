@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Radio, DatePicker } from 'antd';
+import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Segmented, DatePicker } from 'antd';
 import { invoke } from '@tauri-apps/api'
 import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import SearchTable from './SearchTable'
@@ -59,11 +59,11 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
   ]
 
   const changeDateMethod = (value) => {
-    setSelectedDateMethod(value.target.value)
-    if (value.target.value === 'day') {
+    setSelectedDateMethod(value)
+    if (value === 'day') {
       startAt.current = dayjs().format('YYYY-MM-DD')
       endAt.current = dayjs().format('YYYY-MM-DD')
-    } else if (value.target.value === 'week') {
+    } else if (value === 'week') {
       startAt.current = dayjs().startOf('week').format('YYYY-MM-DD')
       endAt.current = dayjs().endOf('week').format('YYYY-MM-DD')
     } else {
@@ -238,15 +238,15 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
           alignItems: 'center',
         }} >
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-            <Radio.Group
+            <Segmented
               options={selectCourseRangeOptions}
               onChange={(value) => {
                 setLeftSubList([])
                 setSelectedLeftKeys([])
                 setRightSubList([])
                 setSelectedRightKeys([])
-                setSelectedCourseRange(value.target.value)
-                if (value.target.value === 'my') {
+                setSelectedCourseRange(value)
+                if (value === 'my') {
                   updateMySubList()
                 }
               }}
@@ -258,7 +258,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
           </div>
           {selectedCourseRange === 'my' &&
             <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-              <Radio.Group
+              <Segmented
                 options={selectDateMethodOptions}
                 onChange={changeDateMethod}
                 value={selectedDateMethod}
