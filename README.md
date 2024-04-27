@@ -95,7 +95,9 @@ ZLA 不会将你的学号、密码上传到任何服务器，用于自动登录�
 
 **Rewrite in Rust!**
 
-之前 QSC 坏掉的时候自己用爬虫写了个计算绩点的 Python 脚本，后来 QSC 修好了，就用它做了个[成绩更新的钉钉机器人推送](https://github.com/PeiPei233/zju-score-push-template)。奈何 Python 做 GUI 打包分发太过于麻烦，于是想着换个语言重写一下爬虫脚本。近日，一位友人想要我把 myc 的计算理论作业和答案全部下载打包给 TA 用于复习 jxg 的小测，联想到之前 n+e 学长做过一个 [清华大学新版网络学堂课程自动下载脚本](https://github.com/Trinkle23897/learn2018-autodown)，于是就想着写一个类似的软件。经过一顿摸索之后发现 Rust + Tauri 这个组合非常好用，至少 Rust 的爬虫比 Node.js 的爬虫好用很多，接近 Python 的爬虫体验了，于是放弃 Electron 转投 Tauri。
+之前 QSC 坏掉的时候自己用爬虫写了个计算绩点的 Python 脚本，后来 QSC 修好了，就用它做了个[成绩更新的钉钉机器人推送](https://github.com/PeiPei233/zju-score-push-template)。奈何 Python 做 GUI 打包分发太过于麻烦，于是想着换个语言重写一下爬虫脚本。看到之前 n+e 学长做过一个 [清华大学新版网络学堂课程自动下载脚本](https://github.com/Trinkle23897/learn2018-autodown)，想到自己曾经补天的时候下载 ppt 时是多么的繁琐，于是就想着写一个类似的软件。经过一顿摸索之后发现 Rust + Tauri 这个组合非常好用，至少 Rust 的爬虫比 Node.js 的爬虫好用很多，接近 Python 的爬虫体验了，于是放弃 Electron 转投 Tauri。
+
+感谢几位友人在开发和测试过程中的鼎力相助：[@wangwhh](https://github.com/wangwhh) [@stormckey](https://github.com/stormckey) [@VVsxmja](https://github.com/VVsxmja) [@abmfy](https://github.com/abmfy)
 
 ## 免责声明
 
