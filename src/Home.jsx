@@ -51,6 +51,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
   const notifiedTodo = useRef({})
+  const todoList = useRef([])
 
   useEffect(() => {
     selectedCourseKeysRef.current = selectedCourseKeys
@@ -184,6 +185,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
   const syncTodoTask = () => {
     invoke('sync_todo_once').then((res) => {
       if (res && res.length !== 0) {
+        todoList.current = res
         res.forEach(async (item) => {
           if (item.end_time) {
             const key = `${item.course_id}-${item.id}-${item.end_time}`
@@ -252,6 +254,11 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       }
     })
 
+    const unlistenAddCalendar = listen('add-calendar', (res) => {
+      console.log(res)
+      invoke('add_calendar', { todoList: todoList.current })
+    })
+
     return () => {
       stopSyncScore()
       stopSyncUpload()
@@ -260,6 +267,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       clearInterval(syncTodo)
       unlisten.then((fn) => fn())
       unlistenClose.then((fn) => fn())
+      unlistenAddCalendar.then((fn) => fn())
     }
   }, [])
 

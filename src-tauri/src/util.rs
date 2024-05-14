@@ -125,4 +125,4 @@ pub async fn measure_latency(client: Client, url: &str) -> Result<u128, reqwest:
     info!("GET {}", url);
     client.get(url).send().await?;
     Ok(start.elapsed().as_millis())
-} 
+}

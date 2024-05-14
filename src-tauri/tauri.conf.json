@@ -26,6 +26,11 @@
       },
       "notification": {
         "all": true
+      },
+      "fs": {
+        "scope": [
+          "$RESOURCE/*"
+        ]
       }
     },
     "systemTray": {
@@ -89,7 +94,7 @@
       "description": "",
       "longDescription": "",
       "beforeHelp": "",
-      "afterHelp": "", 
+      "afterHelp": "",
       "args": [
         {
           "name": "debug",

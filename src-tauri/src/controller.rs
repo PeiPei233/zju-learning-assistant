@@ -14,7 +14,9 @@ use std::cmp::min;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
-use tauri::{CustomMenuItem, Manager, State, SystemTrayMenu, SystemTrayMenuItem, Window};
+use tauri::{
+    AppHandle, CustomMenuItem, Manager, State, SystemTrayMenu, SystemTrayMenuItem, Window,
+};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -192,6 +194,11 @@ pub async fn sync_todo_once(
     menu = menu
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(CustomMenuItem::new(
+            "add-calendar",
+            "添加待办事项到系统日历",
+        ))
+        .add_native_item(SystemTrayMenuItem::Separator)
+        .add_item(CustomMenuItem::new(
             "open".to_string(),
             "打开 ZJU Learning Assistant",
         ))
@@ -203,6 +210,148 @@ pub async fn sync_todo_once(
     window.app_handle().tray_handle().set_menu(menu).unwrap();
 
     Ok(todo_list)
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn add_calendar(handle: AppHandle, todo_list: Vec<Value>) -> Result<(), String> {
+    info!("add_calendar");
+
+    let todo_list = todo_list
+        .iter()
+        .filter(|todo| !todo["end_time"].is_null())
+        .map(|todo| todo.clone())
+        .collect::<Vec<_>>();
+
+    let script_path = handle
+        .path_resolver()
+        .resolve_resource("scripts/add_calendar.applescript")
+        .expect("Failed to resolve script path");
+
+    for todo in todo_list.iter() {
+        let end_time = todo["end_time"]
+            .as_str()
+            .unwrap_or("1970-01-01T00:00:00Z")
+            .parse::<DateTime<Utc>>()
+            .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap())
+            .with_timezone(&Local)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        let course_name = todo["course_name"].as_str().unwrap();
+        let title = todo["title"].as_str().unwrap();
+        let url = format!(
+            "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
+            todo["course_id"].as_i64().unwrap(),
+            todo["id"].as_i64().unwrap()
+        );
+
+        let res = Command::new("osascript")
+            .arg(&script_path)
+            .arg(&title)
+            .arg(&end_time)
+            .arg(&course_name)
+            .arg(&url)
+            .output()
+            .map_err(|err| err.to_string());
+        if let Err(err) = res {
+            println!("add_calendar: {}", err);
+            notify_rust::Notification::new()
+                .summary("添加待办事项到系统日历失败")
+                .body(&err)
+                .show()
+                .unwrap();
+            return Err(err);
+        }
+    }
+
+    notify_rust::Notification::new()
+        .summary("添加待办事项到系统日历")
+        .body("添加成功")
+        .show()
+        .unwrap();
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn add_calendar(
+    config: State<'_, Arc<Mutex<Config>>>,
+    todo_list: Vec<Value>,
+) -> Result<(), String> {
+    use std::io::Write;
+
+    macro_rules! check_or_notify {
+        ($res:expr) => {
+            match $res {
+                Ok(res) => res,
+                Err(err) => {
+                    notify_rust::Notification::new()
+                        .summary("添加待办事项到系统日历失败")
+                        .body(&err)
+                        .show()
+                        .unwrap();
+                    return Err(err);
+                }
+            }
+        };
+    }
+
+    info!("add_calendar");
+
+    let todo_list = todo_list
+        .iter()
+        .filter(|todo| !todo["end_time"].is_null())
+        .map(|todo| todo.clone())
+        .collect::<Vec<_>>();
+
+    let path = config.lock().await.save_path.clone();
+    let ics_file_path = Path::new(&path).join("todo.ics");
+    let mut ics_file = check_or_notify!(
+        std::fs::File::create(ics_file_path.clone()).map_err(|err| err.to_string())
+    );
+
+    // write ics head
+    check_or_notify!(writeln!(ics_file, "BEGIN:VCALENDAR").map_err(|err| err.to_string()));
+    check_or_notify!(writeln!(ics_file, "VERSION:2.0").map_err(|err| err.to_string()));
+    check_or_notify!(
+        writeln!(ics_file, "PRODID:-//Learning in ZJU//EN").map_err(|err| err.to_string())
+    );
+
+    for todo in todo_list.iter() {
+        let end_time = todo["end_time"]
+            .as_str()
+            .unwrap_or("1970-01-01T00:00:00Z")
+            .replace("-", "")
+            .replace(":", "");
+        let course_name = todo["course_name"].as_str().unwrap();
+        let title = todo["title"].as_str().unwrap();
+        let url = format!(
+            "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
+            todo["course_id"].as_i64().unwrap(),
+            todo["id"].as_i64().unwrap()
+        );
+
+        check_or_notify!(writeln!(ics_file, "BEGIN:VEVENT").map_err(|err| err.to_string()));
+        check_or_notify!(writeln!(ics_file, "DTSTART:{}", end_time).map_err(|err| err.to_string()));
+        check_or_notify!(writeln!(ics_file, "DTEND:{}", end_time).map_err(|err| err.to_string()));
+        check_or_notify!(writeln!(ics_file, "SUMMARY:{}", title).map_err(|err| err.to_string()));
+        check_or_notify!(
+            writeln!(ics_file, "DESCRIPTION:{}", course_name).map_err(|err| err.to_string())
+        );
+        check_or_notify!(writeln!(ics_file, "URL:{}", url).map_err(|err| err.to_string()));
+        check_or_notify!(writeln!(ics_file, "END:VEVENT").map_err(|err| err.to_string()));
+    }
+
+    // write ics tail
+    check_or_notify!(writeln!(ics_file, "END:VCALENDAR").map_err(|err| err.to_string()));
+
+    check_or_notify!(open_file(
+        ics_file_path.to_str().unwrap().to_string(),
+        false
+    ));
+
+    Ok(())
 }
 
 #[tauri::command]
