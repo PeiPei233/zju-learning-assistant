@@ -254,9 +254,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       }
     })
 
-    const unlistenAddCalendar = listen('add-calendar', (res) => {
+    const unlistenExportTodo = listen('export-todo', (res) => {
       console.log(res)
-      invoke('add_calendar', { todoList: todoList.current })
+      invoke('export_todo', { todoList: todoList.current, location: res.payload })
     })
 
     return () => {
@@ -267,7 +267,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       clearInterval(syncTodo)
       unlisten.then((fn) => fn())
       unlistenClose.then((fn) => fn())
-      unlistenAddCalendar.then((fn) => fn())
+      unlistenExportTodo.then((fn) => fn())
     }
   }, [])
 

@@ -111,8 +111,9 @@ fn main() {
                 } else if id == "open" {
                     app.get_window("main").unwrap().show().unwrap();
                     app.get_window("main").unwrap().set_focus().unwrap();
-                } else if id == "add-calendar" {
-                    app.emit_all("add-calendar", {}).unwrap();
+                } else if id.starts_with("export-todo-") {
+                    app.emit_all("export-todo", id.split("-").collect::<Vec<&str>>()[2])
+                        .unwrap();
                 } else if id.starts_with("todo-") {
                     let course_id_id = id.split("-").collect::<Vec<&str>>();
                     let course_id = course_id_id[1];
@@ -183,7 +184,7 @@ fn main() {
             controller::test_connection,
             controller::logout,
             controller::sync_todo_once,
-            controller::add_calendar,
+            controller::export_todo,
             controller::get_courses,
             controller::get_academic_year_list,
             controller::get_semester_list,

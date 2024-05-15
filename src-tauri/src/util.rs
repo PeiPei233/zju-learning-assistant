@@ -4,7 +4,8 @@ use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
 use num_bigint::BigUint;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
 use reqwest::Client;
-use std::{path::Path, time::Instant};
+use serde_json::Value;
+use std::{io::Write, path::Path, time::Instant};
 
 // reference:
 // https://github.com/typst/pdf-writer/blob/main/examples/image.rs
@@ -125,4 +126,51 @@ pub async fn measure_latency(client: Client, url: &str) -> Result<u128, reqwest:
     info!("GET {}", url);
     client.get(url).send().await?;
     Ok(start.elapsed().as_millis())
+}
+
+pub fn export_todo_ics(
+    todo_list: Vec<Value>,
+    ics_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let todo_list = todo_list
+        .iter()
+        .filter(|todo| !todo["end_time"].is_null())
+        .map(|todo| todo.clone())
+        .collect::<Vec<_>>();
+
+    let mut ics_file = std::fs::File::create(ics_path)?;
+
+    // write ics head
+    writeln!(ics_file, "BEGIN:VCALENDAR")?;
+    writeln!(ics_file, "VERSION:2.0")?;
+    writeln!(ics_file, "PRODID:-//Learning in ZJU//EN")?;
+
+    for todo in todo_list.iter() {
+        let end_time = todo["end_time"]
+            .as_str()
+            .unwrap_or("1970-01-01T00:00:00Z")
+            .replace("-", "")
+            .replace(":", "");
+        let course_name = todo["course_name"].as_str().unwrap();
+        let title = todo["title"].as_str().unwrap();
+        let url = format!(
+            "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
+            todo["course_id"].as_i64().unwrap(),
+            todo["id"].as_i64().unwrap()
+        );
+
+        writeln!(ics_file, "BEGIN:VEVENT")?;
+        writeln!(ics_file, "DTSTART:{}", end_time)?;
+        writeln!(ics_file, "DTEND:{}", end_time)?;
+        writeln!(ics_file, "SUMMARY:{}", title)?;
+
+        writeln!(ics_file, "DESCRIPTION:{}", course_name)?;
+        writeln!(ics_file, "URL:{}", url)?;
+        writeln!(ics_file, "END:VEVENT")?;
+    }
+
+    // write ics tail
+    writeln!(ics_file, "END:VCALENDAR")?;
+
+    Ok(())
 }
