@@ -163,9 +163,20 @@ pub fn export_todo_ics(
         writeln!(ics_file, "DTSTART:{}", end_time)?;
         writeln!(ics_file, "DTEND:{}", end_time)?;
         writeln!(ics_file, "SUMMARY:{}", title)?;
-
         writeln!(ics_file, "DESCRIPTION:{}", course_name)?;
         writeln!(ics_file, "URL:{}", url)?;
+
+        // add alarm 1 hour before the event
+        writeln!(ics_file, "BEGIN:VALARM")?;
+        writeln!(ics_file, "TRIGGER:-PT1H")?;
+        writeln!(ics_file, "ACTION:DISPLAY")?;
+        writeln!(
+            ics_file,
+            "DESCRIPTION:距离 {} 的 {} 截止仅剩 1 小时",
+            course_name, title
+        )?;
+        writeln!(ics_file, "END:VALARM")?;
+
         writeln!(ics_file, "END:VEVENT")?;
     }
 

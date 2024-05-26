@@ -112,8 +112,7 @@ fn main() {
                     app.get_window("main").unwrap().show().unwrap();
                     app.get_window("main").unwrap().set_focus().unwrap();
                 } else if id.starts_with("export-todo-") {
-                    app.emit_all("export-todo", id.split("-").collect::<Vec<&str>>()[2])
-                        .unwrap();
+                    app.emit_all("export-todo", id[12..].to_string()).unwrap();
                 } else if id.starts_with("todo-") {
                     let course_id_id = id.split("-").collect::<Vec<&str>>();
                     let course_id = course_id_id[1];
