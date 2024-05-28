@@ -7,7 +7,7 @@
   },
   "package": {
     "productName": "zju-learning-assistant",
-    "version": "0.3.4"
+    "version": "0.3.5"
   },
   "tauri": {
     "allowlist": {
