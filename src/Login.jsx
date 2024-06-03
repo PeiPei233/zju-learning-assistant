@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Form, Input, Button, Card, App, Typography, Badge, Modal, Checkbox } from 'antd';
+import { Form, Input, Button, Card, App, Typography, Badge, Checkbox, theme } from 'antd';
 import { invoke } from '@tauri-apps/api'
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event';
 import { exit } from '@tauri-apps/api/process';
 
@@ -9,9 +9,11 @@ const { Text, Paragraph } = Typography
 
 export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword, currentVersion, latestVersionData, setOpenVersionModal }) {
 
-  const [form] = Form.useForm()
+  const { token } = theme.useToken()
   const { message, modal, notification } = App.useApp()
+  const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
+  const [autoLogin, setAutoLogin] = useState(false)
 
   useEffect(() => {
     invoke('check_login').then((res) => {
@@ -31,11 +33,18 @@ export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword
 
   useEffect(() => {
     if (autoLoginUsername && autoLoginPassword) {
-      notification.info({
-        message: `正在自动登录 ${autoLoginUsername}...`,
-      })
-      form.setFieldsValue({ username: autoLoginUsername, password: '*'.repeat(autoLoginPassword.length), remember: true })
-      onFinish({ username: autoLoginUsername, password: autoLoginPassword, remember: true })
+      setAutoLogin(true)
+      invoke('login', { username: autoLoginUsername, password: autoLoginPassword, autoLogin: true })
+        .then((res) => {
+          setIsLogin(true)
+        }).catch((err) => {
+          notification.error({
+            message: '自动登录失败',
+            description: err
+          })
+        }).finally(() => {
+          setAutoLogin(false)
+        })
     }
   }, [autoLoginUsername, autoLoginPassword])
 
@@ -117,6 +126,22 @@ export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword
             </Button>
           </Form.Item>
         </Form>
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          backgroundColor: token.colorBgContainer,
+          borderRadius: 8,
+          display: autoLogin ? 'flex' : 'none',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <LoadingOutlined style={{ fontSize: 36, color: token.colorPrimary }} />
+          <Text style={{ marginTop: 24 }}>正在自动登录 {autoLoginUsername} ...</Text>
+        </div>
       </Card>
       <Text type='secondary' style={{ marginTop: 30 }}>Made by PeiPei</Text>
       <Text type='secondary'>此软件仅供学习交流使用，严禁用于商业用途</Text>
