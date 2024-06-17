@@ -3,7 +3,7 @@
 
 mod controller;
 mod model;
-mod util;
+mod utils;
 mod zju_assist;
 
 use dashmap::DashMap;

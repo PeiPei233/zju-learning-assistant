@@ -9,7 +9,8 @@ on run argv
     else
         set theEndDate to date theEndDate
     end if
-    set theBody to theLocation & return & theURL
+    set theTitle to theTitle & " - " & theLocation
+    set theBody to theURL
 
     tell application "Reminders"
         set existingReminder to (every reminder whose name is theTitle and body is theBody)

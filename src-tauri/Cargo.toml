@@ -43,6 +43,12 @@ dashmap = "5.5.3"
 keyring = "2.3.2"
 anyhow = "1.0.81"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.5.1"
+objc2 = "0.5.2"
+objc2-event-kit = { version = "0.2.2", features = ["all"] }
+objc2-foundation = { version = "0.2.2", features = ["all"] }
+
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
 # If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.

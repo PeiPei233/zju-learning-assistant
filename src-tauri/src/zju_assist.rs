@@ -15,7 +15,7 @@ use std::{fs::File, io::Write, path::Path};
 use url::Url;
 
 use crate::model::Subject;
-use crate::util::{measure_latency, rsa_no_padding};
+use crate::utils::{measure_latency, rsa_no_padding};
 
 #[derive(Clone)]
 pub struct ZjuAssist {

@@ -1,5 +1,5 @@
 use crate::model::{Config, Progress, Subject, Upload};
-use crate::util::{export_todo_ics, images_to_pdf};
+use crate::utils::{export_todo_ics, images_to_pdf};
 use crate::zju_assist::ZjuAssist;
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
@@ -21,6 +21,9 @@ use tauri::{
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+
+#[cfg(target_os = "macos")]
+use crate::utils::macos::add_event;
 
 #[tauri::command]
 pub async fn login(
@@ -347,10 +350,7 @@ pub fn export_todo(
                 .as_str()
                 .unwrap_or("1970-01-01T00:00:00Z")
                 .parse::<DateTime<Utc>>()
-                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap())
-                .with_timezone(&Local)
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string();
+                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
             let course_name = todo["course_name"].as_str().unwrap();
             let title = todo["title"].as_str().unwrap();
             let url = format!(
@@ -359,22 +359,40 @@ pub fn export_todo(
                 todo["id"].as_i64().unwrap()
             );
 
-            let res = Command::new("osascript")
-                .arg(&script_path)
-                .arg(&title)
-                .arg(&end_time)
-                .arg(&course_name)
-                .arg(&url)
-                .output()
-                .map_err(|err| err.to_string());
-            if let Err(err) = res {
-                println!("export_todo: {}", err);
-                notify_rust::Notification::new()
-                    .summary(&format!("添加待办事项到{}失败", app_name))
-                    .body(&err)
-                    .show()
-                    .unwrap();
-                return Err(err);
+            if location == "calendar" {
+                let res = add_event(title, course_name, &url, end_time, end_time)
+                    .map_err(|err| err.to_string());
+                if let Err(err) = res {
+                    println!("export_todo: {}", err);
+                    notify_rust::Notification::new()
+                        .summary(&format!("添加待办事项到{}失败", app_name))
+                        .body(&err)
+                        .show()
+                        .unwrap();
+                    return Err(err);
+                }
+            } else {
+                let end_time = end_time
+                    .with_timezone(&Local)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string();
+                let res = Command::new("osascript")
+                    .arg(&script_path)
+                    .arg(&title)
+                    .arg(&end_time)
+                    .arg(&course_name)
+                    .arg(&url)
+                    .output()
+                    .map_err(|err| err.to_string());
+                if let Err(err) = res {
+                    println!("export_todo: {}", err);
+                    notify_rust::Notification::new()
+                        .summary(&format!("添加待办事项到{}失败", app_name))
+                        .body(&err)
+                        .show()
+                        .unwrap();
+                    return Err(err);
+                }
             }
         }
 
