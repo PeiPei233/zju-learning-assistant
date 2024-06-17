@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useMediaQuery } from 'react-responsive';
 import { Button, Card, App, Typography, Input, Switch, Tooltip } from 'antd';
 import { SyncOutlined } from '@ant-design/icons';
 import SearchTable from './SearchTable'
@@ -25,6 +26,7 @@ export default function Score({
   const [selectedXkkh, setSelectedXkkh] = useState([])
   const [selectedTotalGp, setSelectedTotalGp] = useState(0)
   const [selectedTotalCredit, setSelectedTotalCredit] = useState(0)
+  const max770 = useMediaQuery({ query: '(max-width: 770px)' })
 
   useEffect(() => {
     handleSync()
@@ -40,6 +42,7 @@ export default function Score({
     {
       title: '课程名称',
       dataIndex: 'kcmc',
+      width: max770 ? 113 : undefined,
       sorter: (a, b) => a.kcmc.localeCompare(b.kcmc),
     },
     {
