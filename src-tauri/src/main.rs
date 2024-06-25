@@ -204,6 +204,7 @@ fn main() {
             controller::get_course_all_sub_ppts,
             controller::get_sub_ppt_urls,
             controller::get_month_subs,
+            controller::check_evaluation_done,
             controller::get_score,
             controller::notify_score,
             controller::get_config,

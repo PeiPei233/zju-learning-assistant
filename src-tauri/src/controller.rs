@@ -1588,6 +1588,32 @@ pub async fn get_course_all_sub_ppts(
 }
 
 #[tauri::command]
+pub async fn check_evaluation_done(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    window: Window,
+) -> Result<bool, String> {
+    info!("check_evaluation_done");
+    let mut zju_assist = state.lock().await;
+    let res = zju_assist
+        .check_evaluation_done()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    drop(zju_assist);
+
+    // if need evaluation, and the window is hide, send notification
+    if !res && !window.is_visible().unwrap_or(false) {
+        notify_rust::Notification::new()
+            .summary("教学评价未完成")
+            .body("本学期尚未完成评价，无法查询最新成绩！")
+            .show()
+            .map_err(|err| err.to_string())?;
+    }
+
+    Ok(res)
+}
+
+#[tauri::command]
 pub async fn get_score(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
     info!("get_score");
     let mut zju_assist = state.lock().await;

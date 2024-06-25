@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Ok, Result};
 use log::{debug, info};
 use percent_encoding::percent_decode_str;
 use regex::Regex;
@@ -211,8 +211,12 @@ impl ZjuAssist {
             .await?;
 
         let json: Value = res.json().await?;
-        let modulus = json["modulus"].as_str().ok_or(anyhow!("Modulus not found"))?;
-        let exponent = json["exponent"].as_str().ok_or(anyhow!("Exponent not found"))?;
+        let modulus = json["modulus"]
+            .as_str()
+            .ok_or(anyhow!("Modulus not found"))?;
+        let exponent = json["exponent"]
+            .as_str()
+            .ok_or(anyhow!("Exponent not found"))?;
 
         let rsapwd = rsa_no_padding(password, modulus, exponent);
 
@@ -801,7 +805,8 @@ impl ZjuAssist {
                 if retries == 0 {
                     Err(anyhow!(
                         "Get ppt urls failed for course_id: {}, sub_id: {}, please retry later.",
-                        course_id, sub_id
+                        course_id,
+                        sub_id
                     ))?;
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -858,6 +863,44 @@ impl ZjuAssist {
     }
 
     // zdbk
+
+    pub async fn check_evaluation_done(&mut self) -> Result<bool> {
+        if !self.have_login {
+            return Err(anyhow!("Not login"));
+        }
+
+        let res = self
+            .post(format!(
+                "http://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
+                self.username
+            ))
+            .send()
+            .await?;
+        let text = res.text().await?;
+        let mut json = serde_json::from_str(&text);
+
+        if json.is_err() {
+            self.relogin().await?;
+
+            let res = self
+                .post(format!(
+                    "http://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
+                    self.username
+                ))
+                .send()
+                .await?;
+            let text = res.text().await?;
+            json = serde_json::from_str(&text);
+            if json.is_err() {
+                return Err(anyhow!("Check evaluation failed"));
+            }
+        }
+
+        let json: Value = json.unwrap();
+        let result = json["result"].as_str().unwrap();
+
+        Ok(result == "1")
+    }
 
     pub async fn get_score(&mut self) -> Result<Vec<Value>> {
         let data = [

@@ -11,6 +11,7 @@ import { LearningTask } from './downloadManager';
 import { listen } from '@tauri-apps/api/event';
 import { dialog } from '@tauri-apps/api';
 import { exit } from '@tauri-apps/api/process';
+import { shell } from '@tauri-apps/api';
 import { Config } from './model';
 import dayjs from 'dayjs'
 
@@ -160,8 +161,30 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     setLoadingScore(true)
     invoke('get_score').then((res) => {
       updateScore(res)
-      notification.success({
-        message: '成绩同步成功',
+      invoke('check_evaluation_done').then((res) => {
+        if (!res) {
+          notification.warning({
+            message: '教学评价未完成',
+            description: '本学期尚未完成评价，无法查询最新成绩！',
+            btn: <Button type='primary' onClick={() => {
+              shell.open('https://alt.zju.edu.cn/studentEvaluationBackend/list').catch((err) => {
+                notification.error({
+                  message: '打开教学评价页面失败',
+                  description: err.message
+                })
+              })
+            }}>去评价</Button>
+          })
+        } else {
+          notification.success({
+            message: '成绩同步成功',
+          })
+        }
+      }).catch((err) => {
+        notification.error({
+          message: '查询教学评价失败',
+          description: err
+        })
       })
     }).catch((err) => {
       notification.error({
