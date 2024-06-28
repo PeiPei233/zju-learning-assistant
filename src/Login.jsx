@@ -138,6 +138,7 @@ export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          zIndex: 1000
         }}>
           <LoadingOutlined style={{ fontSize: 36, color: token.colorPrimary }} />
           <Text style={{ marginTop: 24 }}>正在自动登录 {autoLoginUsername} ...</Text>
