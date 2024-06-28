@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Select } from 'antd';
 import { invoke } from '@tauri-apps/api'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/api/notification';
-import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined } from '@ant-design/icons';
+import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined, SendOutlined } from '@ant-design/icons';
 import Learning from './Learning'
 import Classroom from './Classroom'
 import Score from './Score'
@@ -62,9 +62,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     configRef.current = config
   }, [config])
 
-  function notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit) {
-    if (!notifyScore) {
-      return
+  function notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit, dingUrl) {
+    if (!dingUrl) {
+      dingUrl = config.ding_url
     }
     invoke('notify_score', {
       score: item,
@@ -72,7 +72,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       oldTotalCredit,
       totalGp,
       totalCredit,
-      dingUrl: config.ding_url
+      dingUrl
     }).catch((err) => {
       notification.error({
         message: '发送通知失败',
@@ -109,7 +109,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
             totalGp += parseFloat(item.jd) * parseFloat(item.xf) - parseFloat(oldItem.jd) * parseFloat(oldItem.xf)
             totalCredit += parseFloat(item.xf) - parseFloat(oldItem.xf)
           }
-          notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit)
+          if (notifyScore) {
+            notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit)
+          }
         }
       } else {
         // if the course is not in oldScore
@@ -119,7 +121,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           totalGp += parseFloat(item.jd) * parseFloat(item.xf)
           totalCredit += parseFloat(item.xf)
         }
-        notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit)
+        if (notifyScore) {
+          notifyUpdate(item, oldTotalGp, oldTotalCredit, totalGp, totalCredit)
+        }
       }
     })
 
@@ -370,6 +374,19 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }
   }
 
+  const updateConfigField = (field, value) => {
+    let new_config = config.clone()
+    new_config[field] = value
+    invoke('set_config', { config: new_config }).then((res) => {
+      setConfig(new_config)
+    }).catch((err) => {
+      notification.error({
+        message: '设置失败',
+        description: err
+      })
+    })
+  }
+
   const updatePath = () => {
     dialog.open({
       directory: true,
@@ -377,16 +394,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       message: '选择下载路径'
     }).then((res) => {
       if (res && res.length !== 0) {
-        let new_config = config.clone()
-        new_config.save_path = res
-        invoke('set_config', { config: new_config }).then((res) => {
-          setConfig(new_config)
-        }).catch((err) => {
-          notification.error({
-            message: '下载路径修改失败',
-            description: err
-          })
-        })
+        updateConfigField('save_path', res)
       }
     }).catch((err) => {
       notification.error({
@@ -720,16 +728,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               </div>}
             />
             <Switch checked={config.to_pdf} onChange={(checked) => {
-              let new_config = config.clone()
-              new_config.to_pdf = checked
-              invoke('set_config', { config: new_config }).then((res) => {
-                setConfig(new_config)
-              }).catch((err) => {
-                notification.error({
-                  message: '设置失败',
-                  description: err
-                })
-              })
+              updateConfigField('to_pdf', checked)
             }} />
           </List.Item>
           <List.Item>
@@ -746,16 +745,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               </div>}
             />
             <Switch checked={config.auto_download} onChange={(checked) => {
-              let new_config = config.clone()
-              new_config.auto_download = checked
-              invoke('set_config', { config: new_config }).then((res) => {
-                setConfig(new_config)
-              }).catch((err) => {
-                notification.error({
-                  message: '设置失败',
-                  description: err
-                })
-              })
+              updateConfigField('auto_download', checked)
             }} />
           </List.Item>
           <List.Item>
@@ -772,16 +762,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               </div>}
             />
             <Switch checked={config.auto_open_download_list} onChange={(checked) => {
-              let new_config = config.clone()
-              new_config.auto_open_download_list = checked
-              invoke('set_config', { config: new_config }).then((res) => {
-                setConfig(new_config)
-              }).catch((err) => {
-                notification.error({
-                  message: '设置失败',
-                  description: err
-                })
-              })
+              updateConfigField('auto_open_download_list', checked)
             }} />
           </List.Item>
           <List.Item>
@@ -798,20 +779,11 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                   }}>检测到成绩更新后，将使用以下钉钉机器人 Webhook 发送通知。若留空，则不使用钉钉机器人发送通知。</Text>
                   <Space.Compact style={{ marginTop: 10, width: '100%' }}>
                     <Input placeholder='输入完整的钉钉机器人 Webhook' value={dingUrlInput} onChange={(e) => setDingUrlInput(e.target.value)} />
+                    <Button icon={<Tooltip title='发送测试消息'><SendOutlined /></Tooltip>} onClick={() => {
+                      notifyUpdate({ xkkh: '测试课程', kcmc: '测试课程', cj: '100', jd: '5.0', xf: '3.0' }, 5., 37., 5., 40., dingUrlInput)
+                    }}/>
                     <Button icon={<Tooltip title='保存'><CheckOutlined /></Tooltip>} onClick={() => {
-                      let new_config = config.clone()
-                      new_config.ding_url = dingUrlInput
-                      invoke('set_config', { config: new_config }).then((res) => {
-                        setConfig(new_config)
-                        notification.success({
-                          message: '设置成功',
-                        })
-                      }).catch((err) => {
-                        notification.error({
-                          message: '设置失败',
-                          description: err
-                        })
-                      })
+                      updateConfigField('ding_url', dingUrlInput)
                     }} />
                   </Space.Compact>
                 </div>
@@ -832,16 +804,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               </div>}
             />
             <Switch checked={config.tray} onChange={(checked) => {
-              let new_config = config.clone()
-              new_config.tray = checked
-              invoke('set_config', { config: new_config }).then((res) => {
-                setConfig(new_config)
-              }).catch((err) => {
-                notification.error({
-                  message: '设置失败',
-                  description: err
-                })
-              })
+              updateConfigField('tray', checked)
             }} />
           </List.Item>
           <a onClick={() => setOpenVersionModal(true)}>
