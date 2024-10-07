@@ -14,6 +14,8 @@ import { exit } from '@tauri-apps/api/process';
 import { shell } from '@tauri-apps/api';
 import { Config } from './model';
 import dayjs from 'dayjs'
+import LearningIcon from './assets/images/learning.ico'
+import ClassroomIcon from './assets/images/classroom.png'
 
 const { Header, Content, Footer, Sider } = Layout;
 const { Text, Link } = Typography;
@@ -501,14 +503,14 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           mode="horizontal"
           style={{ width: '100%', lineHeight: '40px' }}
         >
-          <Menu.Item key='learning' icon={<img src='https://course.zju.edu.cn/static/favicon.ico' style={{ width: 14 }} />}>
+          <Menu.Item key='learning' icon={<img src={LearningIcon} style={{ width: 14 }} />}>
             <Tooltip title={syncingUpload ? `学在浙大课件同步正在运行 - 上次同步时间：${lastSyncUpload}` : ''}>
               <Badge dot={true} count={syncingUpload ? `学在浙大课件同步正在运行 - 上次同步时间：${lastSyncUpload}` : 0} color='green'>
                 <span style={{ color: current === 'learning' ? '#1677ff' : null }}>学在浙大</span>
               </Badge>
             </Tooltip>
           </Menu.Item>
-          <Menu.Item key='classroom' icon={<img src='https://resource.cmc.zju.edu.cn/play/0/f18b8f4ee40bcd0765cfe987ca82046e/2022/08/31/fc9355e0290811ed97c77ab369543ec1.png' style={{ width: 14 }} />}>
+          <Menu.Item key='classroom' icon={<img src={ClassroomIcon} style={{ width: 14 }} />}>
             智云课堂
           </Menu.Item>
           <Menu.Item key='score' icon={<FileSearchOutlined />}>
@@ -781,7 +783,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                     <Input placeholder='输入完整的钉钉机器人 Webhook' value={dingUrlInput} onChange={(e) => setDingUrlInput(e.target.value)} />
                     <Button icon={<Tooltip title='发送测试消息'><SendOutlined /></Tooltip>} onClick={() => {
                       notifyUpdate({ xkkh: '测试课程', kcmc: '测试课程', cj: '100', jd: '5.0', xf: '3.0' }, 5., 37., 5., 40., dingUrlInput)
-                    }}/>
+                    }} />
                     <Button icon={<Tooltip title='保存'><CheckOutlined /></Tooltip>} onClick={() => {
                       updateConfigField('ding_url', dingUrlInput)
                     }} />
