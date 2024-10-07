@@ -1,13 +1,12 @@
 import { useEffect } from 'react'
 import { ConfigProvider, App, theme } from 'antd'
-import React from 'react'
-import ReactDOM from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
 import { useMediaQuery } from 'react-responsive'
 import zhCN from 'antd/locale/zh_CN';
 import Index from './Index.jsx'
 import './global.css'
 
-function Main() {
+export function Main() {
 
   const isDarkMode = useMediaQuery({
     query: '(prefers-color-scheme: dark)'
@@ -50,6 +49,6 @@ function Main() {
   )
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')).render(
   <Main />
 )

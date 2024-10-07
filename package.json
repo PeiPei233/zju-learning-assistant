@@ -10,7 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tauri-apps/api": "^1.5.1",
+    "@tauri-apps/api": "^2.0.1",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/plugin-fs": "^2.0.0",
+    "@tauri-apps/plugin-notification": "^2.0.0",
+    "@tauri-apps/plugin-process": "^2.0.0",
+    "@tauri-apps/plugin-shell": "^2.0.0",
     "antd": "^5.21.1",
     "dayjs": "^1.11.10",
     "react": "^18.2.0",

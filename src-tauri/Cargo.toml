@@ -2,22 +2,26 @@
 name = "app"
 version = "0.1.0"
 description = "A Tauri App"
-authors = ["you"]
+authors = ["PeiPei"]
 license = ""
 repository = ""
 default-run = "app"
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.77.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
-tauri-build = { version = "1.5.0", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "1.6.7", features = [ "notification-all", "process-exit", "system-tray", "cli", "app-all", "dialog-open", "shell-open"] }
+tauri = { version = "2", features = ["tray-icon"] }
 reqwest = { version = "0.12.3", features = ["json", "cookies", "stream"] }
 regex = "1"
 num-bigint = "0.4"
@@ -42,6 +46,12 @@ notify-rust = "4.10.0"
 dashmap = "5.5.3"
 keyring = "2.3.2"
 anyhow = "1.0.81"
+tauri-plugin-cli = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-process = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-shell = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.5.1"

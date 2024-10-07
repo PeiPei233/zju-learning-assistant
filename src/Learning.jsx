@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button, Card, App, Row, Col, Select, Tooltip, Typography, Switch } from 'antd';
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { bytesToSize } from './utils'
 import { LearningTask } from './downloadManager';

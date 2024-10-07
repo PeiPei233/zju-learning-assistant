@@ -14,10 +14,14 @@ use std::cmp::min;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
+use tauri::menu::Submenu;
+use tauri::path::BaseDirectory;
 use tauri::{
-    AppHandle, CustomMenuItem, Manager, State, SystemTrayMenu, SystemTrayMenuItem,
-    SystemTraySubmenu, Window,
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    AppHandle, Emitter, Manager, State, Window,
 };
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_shell::ShellExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -28,7 +32,7 @@ use crate::utils::macos::add_event;
 #[tauri::command]
 pub async fn login(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    window: Window,
+    handle: AppHandle,
     username: String,
     password: String,
     auto_login: bool,
@@ -40,10 +44,46 @@ pub async fn login(
         .await
         .map_err(|err| err.to_string())?;
 
-    let id_item_handle = window.app_handle().tray_handle().get_item("id");
-    id_item_handle
-        .set_title(format!("已登录：{}", username))
-        .unwrap();
+    let res = handle
+        .app_handle()
+        .tray_by_id("main")
+        .unwrap()
+        .set_menu(Some(
+            Menu::with_items(
+                &handle,
+                &[
+                    &MenuItem::with_id(
+                        &handle,
+                        "id",
+                        format!("已登录：{}", username),
+                        false,
+                        None::<&str>,
+                    )
+                    .map_err(|err| err.to_string())?,
+                    &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+                    &MenuItem::with_id(
+                        &handle,
+                        "open",
+                        "打开 ZJU Learning Assistant",
+                        true,
+                        None::<&str>,
+                    )
+                    .map_err(|err| err.to_string())?,
+                    &MenuItem::with_id(
+                        &handle,
+                        "quit",
+                        "退出 ZJU Learning Assistant",
+                        true,
+                        None::<&str>,
+                    )
+                    .map_err(|err| err.to_string())?,
+                ],
+            )
+            .map_err(|err| err.to_string())?,
+        ));
+    if let Err(e) = res {
+        return Err(e.to_string());
+    }
 
     if auto_login {
         let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
@@ -94,28 +134,44 @@ pub async fn test_connection(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<
 }
 
 #[tauri::command]
-pub async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>, window: Window) -> Result<(), String> {
+pub async fn logout(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    handle: AppHandle,
+) -> Result<(), String> {
     info!("logout");
     let mut zju_assist = state.lock().await;
     zju_assist.logout();
 
-    window
-        .app_handle()
-        .tray_handle()
-        .set_menu(
-            SystemTrayMenu::new()
-                .add_item(CustomMenuItem::new("id", "未登录").disabled())
-                .add_native_item(SystemTrayMenuItem::Separator)
-                .add_item(CustomMenuItem::new(
-                    "open".to_string(),
+    let res = handle.tray_by_id("main").unwrap().set_menu(Some(
+        Menu::with_items(
+            &handle,
+            &[
+                &MenuItem::with_id(&handle, "id", "未登录", false, None::<&str>)
+                    .map_err(|err| err.to_string())?,
+                &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+                &MenuItem::with_id(
+                    &handle,
+                    "open",
                     "打开 ZJU Learning Assistant",
-                ))
-                .add_item(CustomMenuItem::new(
-                    "quit".to_string(),
+                    true,
+                    None::<&str>,
+                )
+                .map_err(|err| err.to_string())?,
+                &MenuItem::with_id(
+                    &handle,
+                    "quit",
                     "退出 ZJU Learning Assistant",
-                )),
+                    true,
+                    None::<&str>,
+                )
+                .map_err(|err| err.to_string())?,
+            ],
         )
-        .unwrap();
+        .map_err(|err| err.to_string())?,
+    ));
+    if let Err(e) = res {
+        return Err(e.to_string());
+    }
 
     Ok(())
 }
@@ -123,7 +179,7 @@ pub async fn logout(state: State<'_, Arc<Mutex<ZjuAssist>>>, window: Window) -> 
 #[tauri::command]
 pub async fn sync_todo_once(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
-    window: Window,
+    handle: AppHandle,
 ) -> Result<Vec<Value>, String> {
     info!("sync_todo_once");
     let zju_assist = zju_assist.lock().await.clone();
@@ -156,11 +212,19 @@ pub async fn sync_todo_once(
 
         a.cmp(&b)
     });
-    let mut menu = SystemTrayMenu::new()
-        .add_item(
-            CustomMenuItem::new("id", format!("已登录：{}", zju_assist.get_username())).disabled(),
+    let menu = Menu::new(&handle).unwrap();
+    menu.append_items(&[
+        &MenuItem::with_id(
+            &handle,
+            "id",
+            format!("已登录：{}", zju_assist.get_username()),
+            false,
+            None::<&str>,
         )
-        .add_native_item(SystemTrayMenuItem::Separator);
+        .map_err(|err| err.to_string())?,
+        &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+    ])
+    .unwrap();
     if todo_list.len() > 0 {
         for todo in todo_list_with_end_time.iter() {
             let end_time = todo["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
@@ -180,7 +244,11 @@ pub async fn sync_todo_once(
                 course_name
             );
             let tray_id = format!("todo-{}-{}", course_id, id);
-            menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
+            menu.append(
+                &MenuItem::with_id(&handle, &tray_id, tray_title, true, None::<&str>)
+                    .map_err(|err| err.to_string())?,
+            )
+            .unwrap();
         }
         for todo in todo_list_no_end_time.iter() {
             let course_id = todo["course_id"].as_i64().unwrap();
@@ -190,60 +258,113 @@ pub async fn sync_todo_once(
 
             let tray_title = format!("No Deadline  {}-{}", title, course_name);
             let tray_id = format!("todo-{}-{}", course_id, id);
-            menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
+            // menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
+            menu.append(
+                &MenuItem::with_id(&handle, &tray_id, tray_title, true, None::<&str>)
+                    .map_err(|err| err.to_string())?,
+            )
+            .unwrap();
         }
     } else {
-        menu = menu.add_item(CustomMenuItem::new("todo", "暂无待办事项").disabled());
+        menu.append(
+            &MenuItem::with_id(&handle, "todo", "暂无待办事项", true, None::<&str>)
+                .map_err(|err| err.to_string())?,
+        )
+        .unwrap();
     }
 
     #[cfg(target_os = "macos")]
-    let mut menu = menu
-        .add_native_item(SystemTrayMenuItem::Separator)
-        .add_submenu(SystemTraySubmenu::new(
+    menu.append_items(&[
+        &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+        &Submenu::with_items(
+            &handle,
             "导出待办事项",
-            SystemTrayMenu::new()
-                .add_item(CustomMenuItem::new(
+            true,
+            &[
+                &MenuItem::with_id(
+                    &handle,
                     "export-todo-calendar",
                     "添加至日历 App",
-                ))
-                .add_item(CustomMenuItem::new(
+                    true,
+                    None::<&str>,
+                )
+                .map_err(|err| err.to_string())?,
+                &MenuItem::with_id(
+                    &handle,
                     "export-todo-reminder",
                     "添加至提醒事项 App",
-                ))
-                .add_item(CustomMenuItem::new(
+                    true,
+                    None::<&str>,
+                )
+                .map_err(|err| err.to_string())?,
+                &MenuItem::with_id(
+                    &handle,
                     "export-todo-ics",
                     "导出为 iCalendar 文件",
-                ))
-                .add_native_item(SystemTrayMenuItem::Separator)
-                .add_item(CustomMenuItem::new("export-todo-help", "查看帮助")),
-        ));
+                    true,
+                    None::<&str>,
+                )
+                .map_err(|err| err.to_string())?,
+                &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+                &MenuItem::with_id(&handle, "export-todo-help", "查看帮助", true, None::<&str>)
+                    .map_err(|err| err.to_string())?,
+            ],
+        )
+        .map_err(|err| err.to_string())?,
+    ])
+    .unwrap();
 
     #[cfg(not(target_os = "macos"))]
-    let mut menu = menu
-        .add_native_item(SystemTrayMenuItem::Separator)
-        .add_submenu(SystemTraySubmenu::new(
+    menu.append_items(&[
+        &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+        &Submenu::with_items(
+            &handle,
             "导出待办事项",
-            SystemTrayMenu::new()
-                .add_item(CustomMenuItem::new(
+            true,
+            &[
+                &MenuItem::with_id(
+                    &handle,
                     "export-todo-ics",
                     "导出为 iCalendar 文件",
-                ))
-                .add_native_item(SystemTrayMenuItem::Separator)
-                .add_item(CustomMenuItem::new("export-todo-help", "查看帮助")),
-        ));
+                    true,
+                    None::<&str>,
+                )
+                .map_err(|err| err.to_string())?,
+                &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+                &MenuItem::with_id(&handle, "export-todo-help", "查看帮助", true, None::<&str>)
+                    .map_err(|err| err.to_string())?,
+            ],
+        )
+        .map_err(|err| err.to_string())?,
+    ])
+    .unwrap();
 
-    menu = menu
-        .add_native_item(SystemTrayMenuItem::Separator)
-        .add_item(CustomMenuItem::new(
-            "open".to_string(),
+    menu.append_items(&[
+        &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+        &MenuItem::with_id(
+            &handle,
+            "open",
             "打开 ZJU Learning Assistant",
-        ))
-        .add_item(CustomMenuItem::new(
-            "quit".to_string(),
+            true,
+            None::<&str>,
+        )
+        .map_err(|err| err.to_string())?,
+        &MenuItem::with_id(
+            &handle,
+            "quit",
             "退出 ZJU Learning Assistant",
-        ));
+            true,
+            None::<&str>,
+        )
+        .map_err(|err| err.to_string())?,
+    ])
+    .unwrap();
 
-    window.app_handle().tray_handle().set_menu(menu).unwrap();
+    handle
+        .tray_by_id("main")
+        .unwrap()
+        .set_menu(Some(menu))
+        .unwrap();
 
     Ok(todo_list)
 }
@@ -258,8 +379,7 @@ pub fn export_todo(
     info!("export_todo to {}", location);
 
     if location == "help" {
-        let res = tauri::api::shell::open(
-            &handle.shell_scope(),
+        let res = handle.shell().open(
             "https://github.com/PeiPei233/zju-learning-assistant?tab=readme-ov-file#导出学在浙大待办事项",
             None,
         )
@@ -275,36 +395,35 @@ pub fn export_todo(
         return Ok(());
     } else if location.starts_with("ics") {
         window.set_focus().unwrap();
-        tauri::api::dialog::FileDialogBuilder::new()
-            .set_parent(&window)
-            .set_file_name("Todo")
+        let file_path = handle
+            .dialog()
+            .file()
             .add_filter("iCalendar", &[&"ics"])
-            .set_title("导出待办事项")
-            .save_file(|ics_path| {
-                let ics_path = match ics_path {
-                    Some(ics_path) => ics_path,
-                    None => return,
-                };
-                let res = export_todo_ics(todo_list, &ics_path.to_str().unwrap())
-                    .map_err(|err| err.to_string());
-                match res {
-                    Ok(_) => {
-                        notify_rust::Notification::new()
-                            .summary("导出待办事项成功")
-                            .body(&format!("文件已保存至：{}", ics_path.to_str().unwrap()))
-                            .show()
-                            .unwrap();
-                    }
-                    Err(err) => {
-                        notify_rust::Notification::new()
-                            .summary("导出待办事项失败")
-                            .body(&err)
-                            .show()
-                            .unwrap();
-                    }
-                }
-            });
-
+            .set_file_name("Todo")
+            .set_parent(&window)
+            .blocking_save_file();
+        let ics_path = match file_path {
+            Some(ics_path) => ics_path,
+            None => return Ok(()),
+        };
+        let res =
+            export_todo_ics(todo_list, &ics_path.to_string()).map_err(|err| err.to_string());
+        match res {
+            Ok(_) => {
+                notify_rust::Notification::new()
+                    .summary("导出待办事项成功")
+                    .body(&format!("文件已保存至：{}", ics_path.to_string()))
+                    .show()
+                    .unwrap();
+            }
+            Err(err) => {
+                notify_rust::Notification::new()
+                    .summary("导出待办事项失败")
+                    .body(&err)
+                    .show()
+                    .unwrap();
+            }
+        }
         return Ok(());
     }
 
@@ -341,8 +460,8 @@ pub fn export_todo(
             _ => return Err("Invalid location".to_string()),
         };
         let script_path = handle
-            .path_resolver()
-            .resolve_resource(script_path)
+            .path()
+            .resolve(script_path, BaseDirectory::Resource)
             .expect("Failed to resolve script path");
 
         for todo in todo_list_with_end_time.iter() {

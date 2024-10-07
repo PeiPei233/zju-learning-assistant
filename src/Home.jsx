@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Select } from 'antd';
-import { invoke } from '@tauri-apps/api'
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/api/notification';
+import { invoke } from '@tauri-apps/api/core'
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined, SendOutlined } from '@ant-design/icons';
 import Learning from './Learning'
 import Classroom from './Classroom'
@@ -9,13 +9,15 @@ import Score from './Score'
 import { DownloadManager } from './downloadManager';
 import { LearningTask } from './downloadManager';
 import { listen } from '@tauri-apps/api/event';
-import { dialog } from '@tauri-apps/api';
-import { exit } from '@tauri-apps/api/process';
-import { shell } from '@tauri-apps/api';
+import {  } from '@tauri-apps/api';
+import { exit } from '@tauri-apps/plugin-process';
+import {  } from '@tauri-apps/api';
 import { Config } from './model';
 import dayjs from 'dayjs'
 import LearningIcon from './assets/images/learning.ico'
 import ClassroomIcon from './assets/images/classroom.png'
+import * as dialog from "@tauri-apps/plugin-dialog"
+import * as shell from "@tauri-apps/plugin-shell"
 
 const { Header, Content, Footer, Sider } = Layout;
 const { Text, Link } = Typography;

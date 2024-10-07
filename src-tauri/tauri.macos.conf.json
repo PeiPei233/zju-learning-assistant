@@ -1,13 +1,13 @@
 {
-  "tauri": {
-    "systemTray": {
+  "bundle": {
+    "resources": [
+      "scripts/*.applescript"
+    ]
+  },
+  "app": {
+    "trayIcon": {
       "iconPath": "icons/icon_template.png",
       "iconAsTemplate": true
-    },
-    "bundle": {
-      "resources": [
-        "scripts/*.applescript"
-      ]
     }
   }
 }

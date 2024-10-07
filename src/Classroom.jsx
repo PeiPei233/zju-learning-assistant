@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Segmented, DatePicker } from 'antd';
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import SearchTable from './SearchTable'
 import dayjs from 'dayjs';

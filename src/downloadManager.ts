@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api"
+import { invoke } from "@tauri-apps/api/core"
 import { bytesToSize, formatTime } from "./utils"
 import { Progress, Subject, Upload } from "./model"
 

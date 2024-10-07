@@ -25,7 +25,6 @@ pub fn add_event(
     start_date: DateTime<chrono::Utc>,
     end_date: DateTime<chrono::Utc>,
 ) -> Result<()> {
-
     unsafe {
         let event_store = EKEventStore::new();
         let result_state = Arc::new((

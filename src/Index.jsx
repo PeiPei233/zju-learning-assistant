@@ -3,13 +3,13 @@ import { FloatButton, Modal, App, Typography } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { QuestionCircleOutlined } from '@ant-design/icons';
-import { shell } from '@tauri-apps/api';
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import Login from './Login'
 import Home from './Home'
 import Markdown from 'react-markdown';
 import { convertUrlsToMarkdown } from './utils';
+import * as shell from "@tauri-apps/plugin-shell"
 dayjs.locale('zh-cn')
 
 function Index() {

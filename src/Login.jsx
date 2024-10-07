@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Form, Input, Button, Card, App, Typography, Badge, Checkbox, theme } from 'antd';
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event';
-import { exit } from '@tauri-apps/api/process';
+import { exit } from '@tauri-apps/plugin-process';
 
 const { Text, Paragraph } = Typography
 
