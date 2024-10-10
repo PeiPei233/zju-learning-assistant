@@ -34,9 +34,9 @@ P.S. 由于没有购买 CA 签名，ZJU Learning Assistant (aka. ZLA) 没有签�
 
 1. 安装 [Node.js](https://nodejs.org/en/)、[Rust](https://www.rust-lang.org/tools/install)
 2. 克隆本仓库
-3. Linux 用户请使用 `sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf` 安装依赖
+3. Linux 用户请使用 `sudo apt update && sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev` 安装依赖
 4. 运行 `npm install` 安装依赖
-5. 运行 `cargo install tauri-cli` 安装 Tauri
+5. 运行 `cargo install tauri-cli --version "^2.0.0" --locked` 安装 Tauri v2 CLI
 6. 运行 `cargo tauri build` 编译，编译后的文件在 `src-tauri/target/release` 目录下
 
 ## 使用手册
@@ -84,7 +84,7 @@ P.S. 由于没有购买 CA 签名，ZJU Learning Assistant (aka. ZLA) 没有签�
 在 ZLA 的任务栏图标菜单中，您可以查看学在浙大的待办事项，同时也可以导出待办事项为。当您选择菜单中的 **导出待办事项** > **导出为 iCalendar 文件** 后，ZLA 会将待办事项导出为 `.ics` 文件。您可以将该文件导入到日历软件中，以便查看学在浙大的待办事项。例如，如果您想跨平台并且去重，可以导入到 Google 日历中。
 
 对于 macOS 用户，还可以选择将待办事项导入到 **日历 App** 或 **提醒事项 App** 中：
-- **导入到日历 App**：ZLA 会将待办事项导入到一个名为 `Learning in ZJU` 的日历中，并自动忽略重复的待办。如果该日历不存在，则会自动创建。由于 macOS 的限制，由 ZLA 自动创建的日历默认保存为本地日历。如果您想上传到 iCloud 日历，可以打开设置中点击自己的 Apple ID，点击右侧的 **iCloud**，点击 **使用 iCloud 的 App** 中的 **显示更多App...** 按钮，将其中的 **iCloud 日历** 右侧的开关关闭后重新打开后选择 **合并** 即可。
+- **导入到日历 App**：ZLA 会将待办事项导入到一个名为 `Learning in ZJU` 的日历中，并自动忽略重复的待办。如果该日历不存在，则会自动创建，由 ZLA 自动创建的日历默认保存在 iCloud 中。
 - **导入到提醒事项 APP**：ZLA 会将待办事项导入到默认待办列表中。若您已经打开了默认待办列表的 iCloud 同步，则会自动同步到 iCloud。
 
 ## 我的信息是否安全？
