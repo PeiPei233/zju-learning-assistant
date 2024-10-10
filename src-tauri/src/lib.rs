@@ -9,6 +9,8 @@ use fern::Dispatch;
 use log::info;
 use log::LevelFilter;
 use std::sync::{atomic::AtomicBool, Arc};
+#[cfg(target_os = "windows")]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     Emitter, Manager,
