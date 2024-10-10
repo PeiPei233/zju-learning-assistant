@@ -44,7 +44,7 @@
   },
   "productName": "zju-learning-assistant",
   "mainBinaryName": "zju-learning-assistant",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "identifier": "com.peipei.zju-learning-assistant",
   "plugins": {
     "cli": {
