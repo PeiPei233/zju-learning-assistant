@@ -14,10 +14,9 @@ use std::cmp::min;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
-use tauri::menu::Submenu;
-use tauri::path::BaseDirectory;
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    path::BaseDirectory,
     AppHandle, Emitter, Manager, State, Window,
 };
 use tauri_plugin_dialog::DialogExt;
@@ -406,8 +405,7 @@ pub fn export_todo(
             Some(ics_path) => ics_path,
             None => return Ok(()),
         };
-        let res =
-            export_todo_ics(todo_list, &ics_path.to_string()).map_err(|err| err.to_string());
+        let res = export_todo_ics(todo_list, &ics_path.to_string()).map_err(|err| err.to_string());
         match res {
             Ok(_) => {
                 notify_rust::Notification::new()
