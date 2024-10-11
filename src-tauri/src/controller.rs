@@ -4,7 +4,6 @@ use crate::zju_assist::ZjuAssist;
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use dashmap::DashMap;
-use directories_next::ProjectDirs;
 use futures::TryStreamExt;
 use keyring::Entry;
 use log::{debug, info};
@@ -14,12 +13,12 @@ use std::cmp::min;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
-use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
-    path::BaseDirectory,
-    AppHandle, Emitter, Manager, State, Window,
-};
+#[cfg(desktop)]
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::path::BaseDirectory;
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_shell::ShellExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
@@ -43,6 +42,7 @@ pub async fn login(
         .await
         .map_err(|err| err.to_string())?;
 
+    #[cfg(desktop)]
     let res = handle
         .app_handle()
         .tray_by_id("main")
@@ -80,6 +80,7 @@ pub async fn login(
             )
             .map_err(|err| err.to_string())?,
         ));
+    #[cfg(desktop)]
     if let Err(e) = res {
         return Err(e.to_string());
     }
@@ -141,6 +142,7 @@ pub async fn logout(
     let mut zju_assist = state.lock().await;
     zju_assist.logout();
 
+    #[cfg(desktop)]
     let res = handle.tray_by_id("main").unwrap().set_menu(Some(
         Menu::with_items(
             &handle,
@@ -168,6 +170,7 @@ pub async fn logout(
         )
         .map_err(|err| err.to_string())?,
     ));
+    #[cfg(desktop)]
     if let Err(e) = res {
         return Err(e.to_string());
     }
@@ -211,7 +214,9 @@ pub async fn sync_todo_once(
 
         a.cmp(&b)
     });
+    #[cfg(desktop)]
     let menu = Menu::new(&handle).unwrap();
+    #[cfg(desktop)]
     menu.append_items(&[
         &MenuItem::with_id(
             &handle,
@@ -243,6 +248,7 @@ pub async fn sync_todo_once(
                 course_name
             );
             let tray_id = format!("todo-{}-{}", course_id, id);
+            #[cfg(desktop)]
             menu.append(
                 &MenuItem::with_id(&handle, &tray_id, tray_title, true, None::<&str>)
                     .map_err(|err| err.to_string())?,
@@ -257,7 +263,7 @@ pub async fn sync_todo_once(
 
             let tray_title = format!("No Deadline  {}-{}", title, course_name);
             let tray_id = format!("todo-{}-{}", course_id, id);
-            // menu = menu.add_item(CustomMenuItem::new(&tray_id, tray_title));
+            #[cfg(desktop)]
             menu.append(
                 &MenuItem::with_id(&handle, &tray_id, tray_title, true, None::<&str>)
                     .map_err(|err| err.to_string())?,
@@ -265,6 +271,7 @@ pub async fn sync_todo_once(
             .unwrap();
         }
     } else {
+        #[cfg(desktop)]
         menu.append(
             &MenuItem::with_id(&handle, "todo", "暂无待办事项", true, None::<&str>)
                 .map_err(|err| err.to_string())?,
@@ -313,6 +320,7 @@ pub async fn sync_todo_once(
     ])
     .unwrap();
 
+    #[cfg(desktop)]
     #[cfg(not(target_os = "macos"))]
     menu.append_items(&[
         &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
@@ -338,6 +346,7 @@ pub async fn sync_todo_once(
     ])
     .unwrap();
 
+    #[cfg(desktop)]
     menu.append_items(&[
         &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
         &MenuItem::with_id(
@@ -359,6 +368,7 @@ pub async fn sync_todo_once(
     ])
     .unwrap();
 
+    #[cfg(desktop)]
     handle
         .tray_by_id("main")
         .unwrap()
@@ -393,13 +403,22 @@ pub fn export_todo(
 
         return Ok(());
     } else if location.starts_with("ics") {
+        #[cfg(desktop)]
         window.set_focus().unwrap();
+        #[cfg(desktop)]
         let file_path = handle
             .dialog()
             .file()
             .add_filter("iCalendar", &[&"ics"])
             .set_file_name("Todo")
             .set_parent(&window)
+            .blocking_save_file();
+        #[cfg(not(desktop))]
+        let file_path = handle
+            .dialog()
+            .file()
+            .add_filter("iCalendar", &[&"ics"])
+            .set_file_name("Todo")
             .blocking_save_file();
         let ics_path = match file_path {
             Some(ics_path) => ics_path,
@@ -729,8 +748,8 @@ pub async fn start_download_upload(
 
     if !res.status().is_success() {
         debug!(
-            "download_upload: fail {} {} {}",
-            upload.reference_id, upload.file_name, upload.path
+            "download_upload: fail {} {} {} {}",
+            upload.reference_id, upload.file_name, upload.path, res.status()
         );
         state.remove(&id);
         return Err("下载失败".to_string());
@@ -920,7 +939,7 @@ pub fn cancel_download(
 }
 
 #[tauri::command]
-pub fn open_file(path: String, folder: bool) -> Result<(), String> {
+pub fn open_file(handle: AppHandle, path: String, folder: bool) -> Result<(), String> {
     info!("open_file: {} {}", path, folder);
     if Path::new(&path).exists() {
         if folder {
@@ -944,6 +963,19 @@ pub fn open_file(path: String, folder: bool) -> Result<(), String> {
                 .arg(Path::new(&path).parent().unwrap())
                 .spawn()
                 .map_err(|err| err.to_string())?;
+
+            // return Err("Open folder is not implemented on mobile".to_string());
+            #[cfg(not(desktop))]
+            handle
+                .shell()
+                .open(
+                    format!(
+                        "file://{}",
+                        Path::new(&path).parent().unwrap().to_str().unwrap()
+                    ),
+                    None,
+                )
+                .map_err(|err| err.to_string())?;
         } else {
             // open file
             #[cfg(target_os = "windows")]
@@ -965,6 +997,12 @@ pub fn open_file(path: String, folder: bool) -> Result<(), String> {
                 .arg(path)
                 .spawn()
                 .map_err(|err| err.to_string())?;
+
+            #[cfg(not(desktop))]
+            handle
+                .shell()
+                .open(format!("file://{}", path), None)
+                .map_err(|err| err.to_string())?;
         }
 
         Ok(())
@@ -974,18 +1012,18 @@ pub fn open_file(path: String, folder: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_file_upload(upload: Upload, folder: bool) -> Result<(), String> {
+pub fn open_file_upload(handle: AppHandle, upload: Upload, folder: bool) -> Result<(), String> {
     info!("open_file_upload: {} {}", upload.file_name, folder);
     let path = Path::new(&upload.path)
         .join(&upload.file_name)
         .to_str()
         .unwrap()
         .to_string();
-    open_file(path, folder)
+    open_file(handle, path, folder)
 }
 
 #[tauri::command]
-pub fn open_file_ppts(subject: Subject, folder: bool) -> Result<(), String> {
+pub fn open_file_ppts(handle: AppHandle, subject: Subject, folder: bool) -> Result<(), String> {
     info!(
         "open_file_ppts: {}-{} {}",
         subject.course_name, subject.sub_name, folder
@@ -1002,14 +1040,14 @@ pub fn open_file_ppts(subject: Subject, folder: bool) -> Result<(), String> {
             .unwrap()
             .to_string();
         if Path::new(&pdf_path).exists() {
-            open_file(pdf_path, folder)
+            open_file(handle, pdf_path, folder)
         } else {
             let images_path = Path::new(&path)
                 .join("ppt_images")
                 .to_str()
                 .unwrap()
                 .to_string();
-            open_file(images_path, folder)
+            open_file(handle, images_path, folder)
         }
     } else {
         Err("下载已删除或未下载".to_string())
@@ -1743,6 +1781,7 @@ pub async fn get_score(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Va
 
 #[tauri::command]
 pub async fn notify_score(
+    handle: AppHandle,
     score: Value,
     old_total_gp: f64,
     old_total_credit: f64,
@@ -1794,8 +1833,25 @@ pub async fn notify_score(
         info!("notify_score - ding res: {:?}", res);
     }
 
-    notify_rust::Notification::new()
-        .summary(&format!("考试成绩通知 - {}", kcmc))
+    // notify_rust::Notification::new()
+    //     .summary(&format!("考试成绩通知 - {}", kcmc))
+    //     .body(&format!(
+    //         "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
+    //         cj,
+    //         xf,
+    //         jd,
+    //         new_gpa,
+    //         new_gpa - old_gpa,
+    //         total_credit,
+    //         total_credit - old_total_credit
+    //     ))
+    //     .show()
+    //     .map_err(|err| err.to_string())?;
+
+    handle
+        .notification()
+        .builder()
+        .title(&format!("考试成绩通知 - {}", kcmc))
         .body(&format!(
             "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
             cj,
@@ -1807,7 +1863,7 @@ pub async fn notify_score(
             total_credit - old_total_credit
         ))
         .show()
-        .map_err(|err| err.to_string())?;
+        .unwrap();
 
     Ok(())
 }
@@ -1820,6 +1876,7 @@ pub async fn get_config(config: State<'_, Arc<Mutex<Config>>>) -> Result<Config,
 
 #[tauri::command]
 pub async fn set_config(
+    handle: AppHandle,
     config_state: State<'_, Arc<Mutex<Config>>>,
     config: Config,
 ) -> Result<(), String> {
@@ -1829,11 +1886,10 @@ pub async fn set_config(
     drop(current_config);
 
     // save config to file
-    if let Some(proj_dirs) = ProjectDirs::from("", "", "zju-learning-assistant") {
-        let config_path = proj_dirs.config_dir();
+    if let Ok(config_path) = handle.path().app_config_dir() {
         // if config path not exists, create it
         if !config_path.exists() {
-            std::fs::create_dir_all(config_path).map_err(|err| err.to_string())?;
+            std::fs::create_dir_all(config_path.clone()).map_err(|err| err.to_string())?;
         }
         let config_str = serde_json::to_string_pretty(&config).unwrap();
         std::fs::write(config_path.join("config.json"), config_str)

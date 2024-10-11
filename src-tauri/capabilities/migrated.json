@@ -23,6 +23,8 @@
     "process:default",
     "dialog:default",
     "notification:default",
-    "shell:default"
+    "shell:default",
+    "os:default",
+    "log:default"
   ]
 }

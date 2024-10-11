@@ -4,83 +4,24 @@ mod utils;
 mod zju_assist;
 
 use dashmap::DashMap;
-use directories_next::{ProjectDirs, UserDirs};
-use fern::Dispatch;
 use log::info;
-use log::LevelFilter;
 use std::sync::{atomic::AtomicBool, Arc};
+#[cfg(desktop)]
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 #[cfg(target_os = "windows")]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
-use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
-    Emitter, Manager,
-};
+use tauri::{Emitter, Manager};
+#[cfg(desktop)]
 use tauri_plugin_cli::CliExt;
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
 use zju_assist::ZjuAssist;
 
-fn setup_logging(level: LevelFilter, to_file: bool) -> Result<(), fern::InitError> {
-    let mut base_config = Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "{}[{}][{}] {}",
-                chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
-                record.target(),
-                record.level(),
-                message
-            ))
-        })
-        .level(level);
-
-    base_config = if to_file {
-        base_config
-            .chain(std::io::stdout())
-            .chain(fern::log_file("zju-learning-assistant.log")?)
-    } else {
-        base_config.chain(std::io::stdout())
-    };
-
-    base_config.apply()?;
-
-    Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let zju_assist = Arc::new(Mutex::new(ZjuAssist::new()));
-
-    // get user download path
-    let mut save_path = "Downloads".to_string();
-    if let Some(user_dirs) = UserDirs::new() {
-        if let Some(download_dir) = user_dirs.download_dir() {
-            save_path = download_dir.to_str().unwrap().to_string();
-        }
-    }
-
-    let mut config = model::Config {
-        save_path,
-        to_pdf: true,
-        auto_download: true,
-        ding_url: "".to_string(),
-        auto_open_download_list: true,
-        tray: true,
-    };
-
-    if let Some(proj_dirs) = ProjectDirs::from("", "", "zju-learning-assistant") {
-        let config_path = proj_dirs.config_dir();
-        if let Ok(config_local) = std::fs::read_to_string(config_path.join("config.json")) {
-            if let Ok(config_local) = serde_json::from_str::<model::Config>(&config_local) {
-                info!("Loaded config from file");
-                config = config_local;
-            }
-        }
-    }
-    let config_state = Arc::new(Mutex::new(config));
-
-    let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
-
     tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
@@ -89,6 +30,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
+                #[cfg(desktop)]
                 #[cfg(not(target_os = "macos"))]
                 window.hide().unwrap();
 
@@ -101,39 +43,101 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
+            #[cfg(desktop)]
             match app.cli().matches() {
                 Ok(matches) => {
                     println!("{:?}", matches);
                     if matches.args.contains_key("debug")
                         && matches.args["debug"].value.as_bool() == Some(true)
                     {
-                        setup_logging(LevelFilter::Debug, true).expect("Failed to setup logging");
+                        app.handle().plugin(
+                            tauri_plugin_log::Builder::default()
+                                .targets([
+                                    Target::new(TargetKind::Stdout),
+                                    Target::new(TargetKind::Folder {
+                                        path: std::env::current_dir()
+                                            .unwrap_or(std::path::PathBuf::from(".")),
+                                        file_name: Some("zju-learning-assistant.log".to_string()),
+                                    }),
+                                ])
+                                .level(log::LevelFilter::Debug)
+                                .build(),
+                        )?;
                     } else {
-                        setup_logging(LevelFilter::Info, false).expect("Failed to setup logging");
+                        app.handle().plugin(
+                            tauri_plugin_log::Builder::default()
+                                .level(log::LevelFilter::Info)
+                                .build(),
+                        )?;
                     }
                 }
                 Err(_) => {}
             }
+            #[cfg(not(desktop))]
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+
+            let zju_assist = Arc::new(Mutex::new(ZjuAssist::new()));
+
+            // get user download path
+            let mut save_path = "Downloads".to_string();
+            if let Ok(download_dir) = app.path().download_dir() {
+                save_path = download_dir.to_str().unwrap().to_string();
+            }
+
+            let mut config = model::Config {
+                save_path,
+                to_pdf: true,
+                auto_download: true,
+                ding_url: "".to_string(),
+                auto_open_download_list: true,
+                tray: true,
+                max_concurrent_tasks: 3,
+            };
+
+            if let Ok(config_dir) = app.path().app_config_dir() {
+                if let Ok(config_local) = std::fs::read_to_string(config_dir.join("config.json")) {
+                    if let Ok(config_local) = serde_json::from_str::<model::Config>(&config_local) {
+                        info!("Loaded config from file");
+                        config = config_local;
+                    }
+                }
+            }
+            let config_state = Arc::new(Mutex::new(config));
+
+            let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
+
             app.manage(zju_assist);
             app.manage(config_state);
             app.manage(download_states);
 
             let version = app.config().version.clone();
             info!("Current version: {:?}", version);
-            if let Ok(os) = sys_info::os_type() {
-                info!("Operating System: {}", os);
-            }
-            if let Ok(version) = sys_info::os_release() {
-                info!("OS Version: {}", version);
-            }
-            info!("Rust version: {}", rustc_version_runtime::version());
-            if let Ok(mem) = sys_info::mem_info() {
-                info!("Total Memory: {} KB", mem.total);
-            }
+            let platform = tauri_plugin_os::platform();
+            info!("Platform: {}", platform);
+            let os_type = tauri_plugin_os::type_();
+            info!("OS Type: {}", os_type);
+            let os_version = tauri_plugin_os::version();
+            info!("OS Version: {}", os_version);
+            let arch = tauri_plugin_os::arch();
+            info!("Arch: {}", arch);
+            let locale = tauri_plugin_os::locale();
+            info!("Locale: {:?}", locale);
+            let hostname = tauri_plugin_os::hostname();
+            info!("Hostname: {}", hostname);
+            let family = tauri_plugin_os::family();
+            info!("Family: {}", family);
             if let Ok(path) = std::env::current_dir() {
                 info!("Current path: {}", path.display());
             }
+            info!("{:?}", app.path().app_config_dir());
 
+            #[cfg(desktop)]
             let menu = Menu::with_items(
                 app,
                 &[
@@ -155,11 +159,12 @@ pub fn run() {
                     )?,
                 ],
             )?;
-
+            #[cfg(desktop)]
             app.tray_by_id("main")
                 .unwrap()
                 .set_menu(Some(menu))
                 .unwrap();
+            #[cfg(desktop)]
             app.tray_by_id("main").unwrap().on_menu_event(|app, event| {
                 let id = event.id.as_ref();
                 if id == "quit" {
