@@ -95,11 +95,12 @@ impl ZjuRequestBuilder {
         // total 6 retries, 3 with proxy, 3 without proxy
         let mut res = self.request_builder_first.try_clone().unwrap().send().await;
         let mut retries = 5;
+        let mut delay_time = 100;
 
         while res.is_err() && retries > 0 {
             retries -= 1;
             // wait for 200ms before retry
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            tokio::time::sleep(Duration::from_millis(delay_time)).await;
             if retries % 2 == 0 {
                 res = self
                     .request_builder_second
@@ -110,6 +111,7 @@ impl ZjuRequestBuilder {
             } else {
                 res = self.request_builder_first.try_clone().unwrap().send().await;
             }
+            delay_time *= 2;
         }
 
         res
@@ -399,27 +401,39 @@ impl ZjuAssist {
     }
 
     pub async fn get_uploads_response(&self, reference_id: i64) -> Result<Response> {
-        let res = self
-            .get(format!(
-                "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
-                reference_id
-            ))
-            .send()
-            .await?;
-        // if the upload is not allowed to download, then get the preview url
-        let res = match res.status().is_success() {
-            true => res,
-            false => {
-                let res = self.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
+        const MAX_RETRIES: usize = 5;
+        let mut retries = 0;
+        let mut delay_time = 100;
+
+        while retries < MAX_RETRIES {
+            let res = self
+                .get(format!(
+                    "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
+                    reference_id
+                ))
+                .send()
+                .await?;
+            // if the upload is not allowed to download, then get the preview url
+            let res = match res.status().is_success() {
+                true => res,
+                false => {
+                    let res = self.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
                     .send()
                     .await?;
-                let json: Value = res.json().await?;
-                let url = json["url"].as_str().unwrap();
-                self.get(url).send().await?
+                    let json: Value = res.json().await?;
+                    let url = json["url"].as_str().unwrap();
+                    self.get(url).send().await?
+                }
+            };
+            if res.status().is_success() {
+                return Ok(res);
             }
-        };
+            tokio::time::sleep(Duration::from_millis(delay_time)).await;
+            retries += 1;
+            delay_time *= 2;
 
-        Ok(res)
+        }
+        Err(anyhow!("Failed to get upload response"))
     }
 
     pub async fn get_academic_year_list(&self) -> Result<Vec<Value>> {
@@ -825,6 +839,7 @@ impl ZjuAssist {
     pub async fn download_ppt_image(&self, url: &str, path: &str) -> Result<()> {
         const MAX_RETRIES: usize = 5;
         let mut retries = 0;
+        let mut delay_time = 100;
 
         let file_path = match Path::new(path).extension() {
             Some(_) => Path::new(path).to_path_buf(),
@@ -849,8 +864,9 @@ impl ZjuAssist {
             if metadata.len() > 0 {
                 return Ok(());
             } else {
-                tokio::time::sleep(Duration::from_millis(200)).await;
+                tokio::time::sleep(Duration::from_millis(delay_time)).await;
                 retries += 1;
+                delay_time *= 2;
             }
         }
 
