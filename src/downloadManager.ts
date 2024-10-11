@@ -198,20 +198,32 @@ export class ClassroomTask extends Task {
 }
 
 export class DownloadManager {
-    MAX_CONCURRENT_DOWNLOADS: number
+    _maxConcurrentTasks: number
     queue: Task[]
     downloading: Task[]
     tasks: Task[]
 
     constructor() {
-        this.MAX_CONCURRENT_DOWNLOADS = 3
+        this._maxConcurrentTasks = 3
         this.queue = []
         this.downloading = []
         this.tasks = []
     }
 
+    get maxConcurrentTasks(): number {
+        return this._maxConcurrentTasks
+    }
+
+    set maxConcurrentTasks(value: number) {
+        if (value <= 0) {
+            throw new Error('maxConcurrentTasks must be greater than 0')
+        }
+        this._maxConcurrentTasks = value
+        this._adjustQueue()
+    }
+
     _adjustQueue(): void {
-        while (this.downloading.length < this.MAX_CONCURRENT_DOWNLOADS) {
+        while (this.downloading.length < this._maxConcurrentTasks) {
             let next = this.queue.shift()
             if (!next) {
                 break

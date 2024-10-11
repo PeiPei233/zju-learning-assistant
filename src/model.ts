@@ -31,26 +31,13 @@ export class Config {
     ding_url: string
     auto_open_download_list: boolean
     tray: boolean
+    max_concurrent_tasks: number
 
-    constructor(config?: Config) {
-        if (config) {
-            this.save_path = config.save_path
-            this.to_pdf = config.to_pdf
-            this.auto_download = config.auto_download
-            this.ding_url = config.ding_url
-            this.auto_open_download_list = config.auto_open_download_list
-            this.tray = config.tray
-        }
+    constructor(config?: Partial<Config>) {
+        Object.assign(this, config);
     }
 
     clone(): Config {
-        let config = new Config()
-        config.save_path = this.save_path
-        config.to_pdf = this.to_pdf
-        config.auto_download = this.auto_download
-        config.ding_url = this.ding_url
-        config.auto_open_download_list = this.auto_open_download_list
-        config.tray = this.tray
-        return config
+        return new Config({ ...this });
     }
 }

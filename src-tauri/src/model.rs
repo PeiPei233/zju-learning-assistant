@@ -8,6 +8,7 @@ pub struct Config {
     pub ding_url: String,
     pub auto_open_download_list: bool,
     pub tray: bool,
+    pub max_concurrent_tasks: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

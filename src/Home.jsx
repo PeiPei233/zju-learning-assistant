@@ -9,9 +9,7 @@ import Score from './Score'
 import { DownloadManager } from './downloadManager';
 import { LearningTask } from './downloadManager';
 import { listen } from '@tauri-apps/api/event';
-import {  } from '@tauri-apps/api';
 import { exit } from '@tauri-apps/plugin-process';
-import {  } from '@tauri-apps/api';
 import { Config } from './model';
 import dayjs from 'dayjs'
 import LearningIcon from './assets/images/learning.ico'
@@ -52,7 +50,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
 
   const syncScoreTimer = useRef(null)
   const syncUploadTimer = useRef(null)
-  const downloadManager = useRef(null)
+  const downloadManager = useRef(new DownloadManager())
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
   const notifiedTodo = useRef({})
@@ -257,14 +255,13 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       console.log(res)
       setConfig(new Config(res))
       setDingUrlInput(res.ding_url)
+      downloadManager.current.maxConcurrentTasks = res.max_concurrent_tasks
     }).catch((err) => {
       notification.error({
         message: '获取设置失败',
         description: err
       })
     })
-
-    downloadManager.current = new DownloadManager()
 
     const updateDownloadList = setInterval(() => {
       setTaskList([...downloadManager.current.getTasks()].reverse())
@@ -290,10 +287,12 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       invoke('export_todo', { todoList: todoList.current, location: res.payload })
     })
 
+    const downloadManagerCurrent = downloadManager.current
+
     return () => {
       stopSyncScore()
       stopSyncUpload()
-      downloadManager.current.cleanUp()
+      downloadManagerCurrent.cleanUp()
       clearInterval(updateDownloadList)
       clearInterval(syncTodo)
       unlisten.then((fn) => fn())
@@ -757,23 +756,6 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               title={<Text
                 style={{
                   fontWeight: 'normal',
-                }}>下载开始时显示下载列表</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>关闭此设置会使人更难知道文件何时开始下载</Text>
-              </div>}
-            />
-            <Switch checked={config.auto_open_download_list} onChange={(checked) => {
-              updateConfigField('auto_open_download_list', checked)
-            }} />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
                 }}>钉钉机器人 Webhook</Text>}
               description={
                 <div>
@@ -792,6 +774,46 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                   </Space.Compact>
                 </div>
               }
+            />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
+                }}>下载开始时显示下载列表</Text>}
+              description={<div>
+                <Text type="secondary" style={{
+                  fontWeight: 'normal',
+                  fontSize: 12
+                }}>关闭此设置会使人更难知道文件何时开始下载</Text>
+              </div>}
+            />
+            <Switch checked={config.auto_open_download_list} onChange={(checked) => {
+              updateConfigField('auto_open_download_list', checked)
+            }} />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
+                }}>最大并行下载任务数</Text>}
+              description={<div>
+                <Text type="secondary" style={{
+                  fontWeight: 'normal',
+                  fontSize: 12
+                }}>同时进行下载的最大任务数量</Text>
+              </div>}
+            />
+            <InputNumber min={1} value={config.max_concurrent_tasks} changeOnWheel
+              onChange={(value) => {
+                if (!value || value < 1) {
+                  value = 1
+                }
+                updateConfigField('max_concurrent_tasks', value)
+                downloadManager.current.maxConcurrentTasks = value
+              }}
             />
           </List.Item>
           <List.Item>
