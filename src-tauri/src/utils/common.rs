@@ -1,7 +1,7 @@
 use image::{ColorType, GenericImageView, ImageFormat};
 use log::info;
 use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
-use num_bigint::BigUint;
+use num::BigUint;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
 use reqwest::Client;
 use serde_json::Value;
