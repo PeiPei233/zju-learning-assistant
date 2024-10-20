@@ -129,7 +129,7 @@ pub fn add_event(
                                     end_date.timestamp_millis() as f64 / 1000.,
                                 ),
                             ) {
-                                result.success = false;
+                                result.success = true;
                                 result.message = "Event already exists".to_string();
                             } else {
                                 event.setStartDate(Some(&NSDate::dateWithTimeIntervalSince1970(
