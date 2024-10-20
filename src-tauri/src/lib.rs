@@ -135,7 +135,6 @@ pub fn run() {
             if let Ok(path) = std::env::current_dir() {
                 info!("Current path: {}", path.display());
             }
-            info!("{:?}", app.path().app_config_dir());
 
             #[cfg(desktop)]
             let menu = Menu::with_items(

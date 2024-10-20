@@ -45,7 +45,6 @@
 		D8F57162F5CC7AEDD55F173D /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		DA5C691BD077E7BFAF13C9B8 /* zju_assist.rs */ = {isa = PBXFileReference; path = zju_assist.rs; sourceTree = "<group>"; };
 		F3673D372C5ABDD1AD6E7067 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
-		F7A6536BF9C0D8A01BF6A274 /* util.rs */ = {isa = PBXFileReference; path = util.rs; sourceTree = "<group>"; };
 		FBC720DFA1D01F55B0A32344 /* app_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = app_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -125,7 +124,6 @@
 				17B52554D60D361AFE791C3E /* lib.rs */,
 				1631E4CFBB715FFDBF919C8C /* main.rs */,
 				09C5CB067EC97AEA975CC0F4 /* model.rs */,
-				F7A6536BF9C0D8A01BF6A274 /* util.rs */,
 				DA5C691BD077E7BFAF13C9B8 /* zju_assist.rs */,
 				3EC30DBD36E8483F9ABC6BC5 /* utils */,
 			);
