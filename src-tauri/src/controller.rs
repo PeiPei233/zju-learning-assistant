@@ -394,8 +394,10 @@ pub fn export_todo(
         )
         .map_err(|err| err.to_string());
         if let Err(err) = res {
-            notify_rust::Notification::new()
-                .summary("打开帮助页面失败")
+            handle
+                .notification()
+                .builder()
+                .title("打开帮助页面失败")
                 .body(&err)
                 .show()
                 .unwrap();
@@ -412,7 +414,7 @@ pub fn export_todo(
             .add_filter("iCalendar", &[&"ics"])
             .set_file_name("Todo")
             .set_parent(&window)
-            .save_file(|ics_path| {
+            .save_file(move |ics_path| {
                 let ics_path = match ics_path {
                     Some(ics_path) => ics_path,
                     None => return,
@@ -421,15 +423,19 @@ pub fn export_todo(
                     .map_err(|err| err.to_string());
                 match res {
                     Ok(_) => {
-                        notify_rust::Notification::new()
-                            .summary("导出待办事项成功")
+                        handle
+                            .notification()
+                            .builder()
+                            .title("导出待办事项成功")
                             .body(&format!("文件已保存至：{}", ics_path.to_string()))
                             .show()
                             .unwrap();
                     }
                     Err(err) => {
-                        notify_rust::Notification::new()
-                            .summary("导出待办事项失败")
+                        handle
+                            .notification()
+                            .builder()
+                            .title("导出待办事项失败")
                             .body(&err)
                             .show()
                             .unwrap();
@@ -515,8 +521,10 @@ pub fn export_todo(
                     .map_err(|err| err.to_string());
                 if let Err(err) = res {
                     println!("export_todo: {}", err);
-                    notify_rust::Notification::new()
-                        .summary(&format!("添加待办事项到{}失败", app_name))
+                    handle
+                        .notification()
+                        .builder()
+                        .title(&format!("添加待办事项到{}失败", app_name))
                         .body(&err)
                         .show()
                         .unwrap();
@@ -547,8 +555,10 @@ pub fn export_todo(
                         .map_err(|err| err.to_string());
                     if let Err(err) = res {
                         println!("export_todo: {}", err);
-                        notify_rust::Notification::new()
-                            .summary(&format!("添加待办事项到{}失败", app_name))
+                        handle
+                            .notification()
+                            .builder()
+                            .title(&format!("添加待办事项到{}失败", app_name))
                             .body(&err)
                             .show()
                             .unwrap();
@@ -558,8 +568,10 @@ pub fn export_todo(
             }
         }
 
-        notify_rust::Notification::new()
-            .summary(&format!("添加待办事项到{}", app_name))
+        handle
+            .notification()
+            .builder()
+            .title(&format!("添加待办事项到{}", app_name))
             .body("添加成功")
             .show()
             .unwrap();
@@ -1741,6 +1753,7 @@ pub async fn get_course_all_sub_ppts(
 #[tauri::command]
 pub async fn check_evaluation_done(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    handle: AppHandle,
     window: Window,
 ) -> Result<bool, String> {
     info!("check_evaluation_done");
@@ -1754,8 +1767,10 @@ pub async fn check_evaluation_done(
 
     // if need evaluation, and the window is hide, send notification
     if !res && !window.is_visible().unwrap_or(false) {
-        notify_rust::Notification::new()
-            .summary("教学评价未完成")
+        handle
+            .notification()
+            .builder()
+            .title("教学评价未完成")
             .body("本学期尚未完成评价，无法查询最新成绩！")
             .show()
             .map_err(|err| err.to_string())?;
