@@ -406,41 +406,36 @@ pub fn export_todo(
         #[cfg(desktop)]
         window.set_focus().unwrap();
         #[cfg(desktop)]
-        let file_path = handle
+        handle
             .dialog()
             .file()
             .add_filter("iCalendar", &[&"ics"])
             .set_file_name("Todo")
             .set_parent(&window)
-            .blocking_save_file();
-        #[cfg(not(desktop))]
-        let file_path = handle
-            .dialog()
-            .file()
-            .add_filter("iCalendar", &[&"ics"])
-            .set_file_name("Todo")
-            .blocking_save_file();
-        let ics_path = match file_path {
-            Some(ics_path) => ics_path,
-            None => return Ok(()),
-        };
-        let res = export_todo_ics(todo_list, &ics_path.to_string()).map_err(|err| err.to_string());
-        match res {
-            Ok(_) => {
-                notify_rust::Notification::new()
-                    .summary("导出待办事项成功")
-                    .body(&format!("文件已保存至：{}", ics_path.to_string()))
-                    .show()
-                    .unwrap();
-            }
-            Err(err) => {
-                notify_rust::Notification::new()
-                    .summary("导出待办事项失败")
-                    .body(&err)
-                    .show()
-                    .unwrap();
-            }
-        }
+            .save_file(|ics_path| {
+                let ics_path = match ics_path {
+                    Some(ics_path) => ics_path,
+                    None => return,
+                };
+                let res = export_todo_ics(todo_list, &ics_path.to_string())
+                    .map_err(|err| err.to_string());
+                match res {
+                    Ok(_) => {
+                        notify_rust::Notification::new()
+                            .summary("导出待办事项成功")
+                            .body(&format!("文件已保存至：{}", ics_path.to_string()))
+                            .show()
+                            .unwrap();
+                    }
+                    Err(err) => {
+                        notify_rust::Notification::new()
+                            .summary("导出待办事项失败")
+                            .body(&err)
+                            .show()
+                            .unwrap();
+                    }
+                }
+            });
         return Ok(());
     }
 
@@ -749,7 +744,10 @@ pub async fn start_download_upload(
     if !res.status().is_success() {
         debug!(
             "download_upload: fail {} {} {} {}",
-            upload.reference_id, upload.file_name, upload.path, res.status()
+            upload.reference_id,
+            upload.file_name,
+            upload.path,
+            res.status()
         );
         state.remove(&id);
         return Err("下载失败".to_string());
@@ -1001,7 +999,7 @@ pub fn open_file(handle: AppHandle, path: String, folder: bool) -> Result<(), St
             #[cfg(not(desktop))]
             handle
                 .shell()
-                .open(format!("file://{}", path), None)
+                .open(format!("content://{}", path), None)
                 .map_err(|err| err.to_string())?;
         }
 
