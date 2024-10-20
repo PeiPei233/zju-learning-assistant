@@ -490,19 +490,17 @@ pub fn export_todo(
                 todo["id"].as_i64().unwrap()
             );
 
+            let mut use_apple_script = true;
             if location == "calendar" {
                 let res = add_event(title, course_name, &url, end_time, end_time)
                     .map_err(|err| err.to_string());
                 if let Err(err) = res {
-                    println!("export_todo: {}", err);
-                    notify_rust::Notification::new()
-                        .summary(&format!("添加待办事项到{}失败", app_name))
-                        .body(&err)
-                        .show()
-                        .unwrap();
-                    return Err(err);
+                    println!("export_todo: add_event failed {}", err);
+                } else {
+                    use_apple_script = false; // skip apple script if add_event success
                 }
-            } else {
+            }
+            if use_apple_script {
                 let end_time = end_time
                     .with_timezone(&Local)
                     .format("%Y-%m-%d %H:%M:%S")
