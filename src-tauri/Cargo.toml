@@ -22,7 +22,7 @@ tauri-build = { version = "2", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2", features = ["tray-icon"] }
-reqwest = { version = "0.12.3", features = ["json", "cookies", "stream"] }
+reqwest = { version = "0.12.8", features = ["json", "cookies", "stream"] }
 regex = "1"
 num = "0.4.3"
 tokio = { version = "1.36.0", features = ["full"] }
@@ -46,8 +46,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-log = "2.0.0-rc"
-security-framework = "=2.10.0"
 tauri-plugin-os = "2"
+
+[target.'cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))'.dependencies]
+security-framework = "=2.10.0"
 openssl = { version = "0.10.66", features = ["vendored"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
