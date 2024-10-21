@@ -51,7 +51,7 @@
   },
   "productName": "zju-learning-assistant",
   "mainBinaryName": "zju-learning-assistant",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "identifier": "zju-learning-assistant",
   "plugins": {
     "cli": {
