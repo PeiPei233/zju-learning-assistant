@@ -158,12 +158,48 @@ impl ZjuAssist {
             .no_proxy()
             .build()
             .unwrap();
-        let (latency_default, latency_no_proxy) = tokio::join!(
-            measure_latency(client_default, "http://zdbk.zju.edu.cn/"),
-            measure_latency(client_no_proxy, "http://zdbk.zju.edu.cn/")
-        );
+
+        tokio::pin! {
+            let latency_default = measure_latency(client_default, "http://zdbk.zju.edu.cn/");
+            let latency_no_proxy = measure_latency(client_no_proxy, "http://zdbk.zju.edu.cn/");
+        }
+
+        let latency_default_result;
+        let latency_no_proxy_result;
+
+        tokio::select! {
+            res = &mut latency_default => {
+                if res.is_err() {
+                    // if latency_default fail, wait for latency_no_proxy
+                    latency_default_result = res;
+                    latency_no_proxy_result = latency_no_proxy.await;
+                } else {
+                    // if latency_default success, no need to wait latency_no_proxy
+                    info!("Latency default: {:?}", res);
+                    self.proxy_first = true;
+                    return Ok(());
+                }
+            },
+            res = &mut latency_no_proxy => {
+                if res.is_err() {
+                    // if latency_no_proxy fail, wait for latency_default
+                    latency_no_proxy_result = res;
+                    latency_default_result = latency_default.await;
+                } else {
+                    // if latency_no_proxy success, no need to wait latency_default
+                    info!("Latency no proxy: {:?}", res);
+                    self.proxy_first = false;
+                    return Ok(());
+                }
+            },
+        }
+
+        let latency_default = latency_default_result;
+        let latency_no_proxy = latency_no_proxy_result;
+
         info!("Latency default: {:?}", latency_default);
         info!("Latency no proxy: {:?}", latency_no_proxy);
+
         if latency_default.is_err() && latency_no_proxy.is_err() {
             return Err(anyhow!("Connection failed"));
         }
@@ -176,6 +212,7 @@ impl ZjuAssist {
         } else {
             self.proxy_first = false;
         }
+
         info!("Proxy first: {}", self.proxy_first);
         Ok(())
     }
@@ -431,7 +468,6 @@ impl ZjuAssist {
             tokio::time::sleep(Duration::from_millis(delay_time)).await;
             retries += 1;
             delay_time *= 2;
-
         }
         Err(anyhow!("Failed to get upload response"))
     }
