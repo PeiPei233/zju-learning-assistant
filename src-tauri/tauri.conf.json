@@ -12,6 +12,7 @@
     "copyright": "",
     "targets": "all",
     "externalBin": [],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -66,6 +67,15 @@
         }
       ],
       "subcommands": {}
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFBMzU1MjdDQzdERUZGMEYKUldRUC85N0hmRkkxR3UvNjlxeXNNQlNKMEVBSEFYOWE1c1lNOGlOOUdHUTdwdVdMWEluRWFDOEMK",
+      "endpoints": [
+        "https://github.com/PeiPei233/zju-learning-assistant/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   },
   "app": {

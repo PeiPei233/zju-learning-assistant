@@ -56,6 +56,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.TAURI_GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ""
         with:
           tagName: ${{ github.ref_name }} # This only works if your workflow triggers on new tags.
           releaseName: 'ZJU Learning Assistant v__VERSION__' # tauri-action replaces \_\_VERSION\_\_ with the app version.
