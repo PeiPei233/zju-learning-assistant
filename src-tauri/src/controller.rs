@@ -1708,7 +1708,7 @@ pub async fn search_courses(
             let ppt_image_urls = Vec::new();
             let sub_id = 0;
             let sub_name = course
-                .get("subject_title")
+                .get("term_name")
                 .map_or("", |v| v.as_str().unwrap_or(""))
                 .to_string();
             Subject {
@@ -1718,7 +1718,7 @@ pub async fn search_courses(
                 path,
                 ppt_image_urls,
                 sub_id,
-                sub_name: sub_name[..min(sub_name.len(), 7)].to_string(),
+                sub_name,
             }
         })
         .collect::<Vec<Subject>>();
