@@ -419,7 +419,14 @@ impl ZjuAssist {
                     .send()
                     .await?;
                 let json: Value = res.json().await?;
-                let url = json["url"].as_str().unwrap();
+                let url = json["url"].as_str();
+                if url.is_none() {
+                    let message = json["message"]
+                        .as_str()
+                        .unwrap_or("无法获取下载链接");
+                    return Err(anyhow!("{}", message));
+                }
+                let url = url.unwrap();
                 if let Some(start) = url.find("name=") {
                     let start = start + 5;
                     let end = url[start..].find("&").unwrap_or(url.len() - start);
@@ -457,8 +464,18 @@ impl ZjuAssist {
                     let res = self.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
                     .send()
                     .await?;
+                    debug!("{:?}", res);
                     let json: Value = res.json().await?;
-                    let url = json["url"].as_str().unwrap();
+                    debug!("{:?}", json);
+                    let url = json["url"].as_str();
+                    if url.is_none() {
+                        let message = json["message"]
+                            .as_str()
+                            .unwrap_or("无法获取下载链接");
+                        return Err(anyhow!("{}", message));
+                    }
+                    let url = url.unwrap();
+                    debug!("Downloading file from {}", url);
                     self.get(url).send().await?
                 }
             };

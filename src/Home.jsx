@@ -299,7 +299,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       unlistenClose.then((fn) => fn())
       unlistenExportTodo.then((fn) => fn())
     }
-  }, [])
+  }, [notification, setAutoLoginPassword, setAutoLoginUsername, setIsLogin])
 
   const logout = () => {
     if (downloadManager.current.getDownloadingCount() > 0 || syncingUpload || notifyScore) {
@@ -766,7 +766,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                   <Space.Compact style={{ marginTop: 10, width: '100%' }}>
                     <Input placeholder='输入完整的钉钉机器人 Webhook' value={dingUrlInput} onChange={(e) => setDingUrlInput(e.target.value)} />
                     <Button icon={<Tooltip title='发送测试消息'><SendOutlined /></Tooltip>} onClick={() => {
-                      notifyUpdate({ xkkh: '测试课程', kcmc: '测试课程', cj: '100', jd: '5.0', xf: '3.0' }, 5., 37., 5., 40., dingUrlInput)
+                      notifyUpdate({ xkkh: '测试课程', kcmc: '测试课程', cj: '100', jd: '5.0', xf: '3.0' }, 5, 37, 5, 40, dingUrlInput)
                     }} />
                     <Button icon={<Tooltip title='保存'><CheckOutlined /></Tooltip>} onClick={() => {
                       updateConfigField('ding_url', dingUrlInput)
@@ -831,6 +831,23 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
             />
             <Switch checked={config.tray} onChange={(checked) => {
               updateConfigField('tray', checked)
+            }} />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
+                }}>开机自启</Text>}
+              description={<div>
+                <Text type="secondary" style={{
+                  fontWeight: 'normal',
+                  fontSize: 12
+                }}>若开启，应用会在开机时自动启动。</Text>
+              </div>}
+            />
+            <Switch checked={config.auto_start} onChange={(checked) => {
+              updateConfigField('auto_start', checked)
             }} />
           </List.Item>
           <a onClick={() => setOpenVersionModal(true)}>

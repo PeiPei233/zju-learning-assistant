@@ -14,6 +14,7 @@ export class Task {
     startTime: number
     lastUpdateTime: number
     remainingTime: number
+    errorMessage: string
 
     constructor() {
         this.id = ''
@@ -27,6 +28,7 @@ export class Task {
         this.startTime = 0
         this.lastUpdateTime = 0
         this.remainingTime = 0
+        this.errorMessage = ''
     }
 
     public async start(): Promise<any> {
@@ -37,6 +39,7 @@ export class Task {
         this.speed = 0
         this.remainingTime = 0
         this.status = 'downloading'
+        this.errorMessage = ''
     }
 
     public updateProgress(progress: Progress): void {
@@ -74,7 +77,7 @@ export class Task {
         } else if (this.status === 'done') {
             return '下载完成'
         } else if (this.status === 'failed') {
-            return '下载失败'
+            return this.errorMessage || '下载失败'
         } else if (this.status === 'canceled') {
             return '已取消'
         } else {
@@ -165,21 +168,13 @@ export class ClassroomTask extends Task {
 
 
     public getDescription(): string {
-        if (this.status === 'pending') {
-            return '等待中'
-        } else if (this.status === 'downloading') {
+        if (this.status === 'downloading') {
             return 'PPTs: ' + this.downloadedSize + '/' + this.totalSize +
                 (this.remainingTime && !isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' | 预计剩余 ' + formatTime(this.remainingTime) : '')
-        } else if (this.status === 'done') {
-            return '下载完成'
-        } else if (this.status === 'failed') {
-            return '下载失败'
-        } else if (this.status === 'canceled') {
-            return '已取消'
         } else if (this.status === 'writing') {
             return '正在写入 PDF 文件'
         } else {
-            return '未知状态'
+            return super.getDescription()
         }
     }
 
@@ -233,6 +228,7 @@ export class DownloadManager {
             task.start().catch(err => {
                 console.log(err)
                 task.status = 'failed'
+                task.errorMessage = err.toString()
                 let index = this.downloading.findIndex(item => item.id === task.id)
                 if (index !== -1) {
                     this.downloading.splice(index, 1)
