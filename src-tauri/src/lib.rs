@@ -83,23 +83,47 @@ pub fn run() {
                 )?;
             }
 
-            let zju_assist = Arc::new(Mutex::new(ZjuAssist::new()));
-
-            // get user download path
-            let mut save_path = "Downloads".to_string();
-            if let Ok(download_dir) = app.path().download_dir() {
-                save_path = download_dir.to_str().unwrap().to_string();
-            }
-
             let mut config = model::Config {
-                save_path,
+                save_path: "Downloads".to_string(),
                 to_pdf: true,
                 auto_download: true,
                 ding_url: "".to_string(),
                 auto_open_download_list: true,
                 tray: true,
                 max_concurrent_tasks: 3,
+                auto_start: false,
             };
+
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_autostart::MacosLauncher;
+                use tauri_plugin_autostart::ManagerExt;
+
+                let _ = app.handle().plugin(tauri_plugin_autostart::init(
+                    MacosLauncher::LaunchAgent,
+                    Some(vec![]),
+                ));
+
+                // Get the autostart manager
+                let autostart_manager = app.autolaunch();
+                // Enable autostart
+                // let _ = autostart_manager.enable();
+                // Check enable state
+                // println!(
+                //     "registered for autostart? {}",
+                //     autostart_manager.is_enabled().unwrap()
+                // );
+                // Disable autostart
+                // let _ = autostart_manager.disable();
+                config.auto_start = autostart_manager.is_enabled().unwrap();
+            }
+
+            let zju_assist = Arc::new(Mutex::new(ZjuAssist::new()));
+
+            // get user download path
+            if let Ok(download_dir) = app.path().download_dir() {
+                config.save_path = download_dir.to_str().unwrap().to_string();
+            }
 
             if let Ok(config_dir) = app.path().app_config_dir() {
                 if let Ok(config_local) = std::fs::read_to_string(config_dir.join("config.json")) {

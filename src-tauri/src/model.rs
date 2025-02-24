@@ -9,6 +9,7 @@ pub struct Config {
     pub auto_open_download_list: bool,
     pub tray: bool,
     pub max_concurrent_tasks: u32,
+    pub auto_start: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

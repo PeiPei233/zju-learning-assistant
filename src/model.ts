@@ -32,6 +32,7 @@ export class Config {
     auto_open_download_list: boolean
     tray: boolean
     max_concurrent_tasks: number
+    auto_start: boolean
 
     constructor(config?: Partial<Config>) {
         Object.assign(this, config);

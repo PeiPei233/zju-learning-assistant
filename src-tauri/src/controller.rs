@@ -17,6 +17,7 @@ use std::{path::Path, process::Command, sync::Arc};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_shell::ShellExt;
@@ -1893,6 +1894,17 @@ pub async fn set_config(
 ) -> Result<(), String> {
     info!("set_config");
     let mut current_config = config_state.lock().await;
+    let origin_auto_start = current_config.auto_start;
+    let new_auto_start = config.auto_start;
+    if origin_auto_start != new_auto_start {
+        if new_auto_start {
+            let autostart_manager = handle.autolaunch();
+            autostart_manager.enable().map_err(|err| err.to_string())?;
+        } else {
+            let autostart_manager = handle.autolaunch();
+            autostart_manager.disable().map_err(|err| err.to_string())?;
+        }
+    }
     *current_config = config.clone();
     drop(current_config);
 
