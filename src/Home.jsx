@@ -427,11 +427,11 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           setSelectedUploadKeys([])
         } else {
           setUploadList(res)
-          setSelectedUploadKeys(res.map((item) => item.reference_id))
+          setSelectedUploadKeys(res.map((item) => item.id))
         }
       } else {
         setUploadList(res)
-        setSelectedUploadKeys(res.map((item) => item.reference_id))
+        setSelectedUploadKeys(res.map((item) => item.id))
       }
     }).catch((err) => {
       notification.error({
@@ -452,11 +452,11 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           uploads.forEach((item) => {
             downloadManager.current.addTask(new LearningTask(item, true), true)
           })
-          setUploadList(uploads.filter((item) => !selectedUploadKeys.includes(item.reference_id)))
+          setUploadList(uploads.filter((item) => !selectedUploadKeys.includes(item.id)))
           setSelectedUploadKeys([])
         } else {
           setUploadList(uploads)
-          setSelectedUploadKeys(uploads.map((item) => item.reference_id))
+          setSelectedUploadKeys(uploads.map((item) => item.id))
         }
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
       }).catch((err) => {

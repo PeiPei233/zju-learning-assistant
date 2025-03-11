@@ -643,14 +643,14 @@ pub async fn get_homework_uploads(
 #[tauri::command]
 pub async fn download_file(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    reference_id: i64,
+    id: i64,
     file_name: String,
     path: String,
 ) -> Result<(), String> {
-    info!("download_file: {}", reference_id);
+    info!("download_file: {}", id);
     let zju_assist = state.lock().await.clone();
     zju_assist
-        .download_file(reference_id, &file_name, &path)
+        .download_file(id, &file_name, &path)
         .await
         .map_err(|err| err.to_string())
 }
@@ -680,7 +680,7 @@ pub async fn get_uploads_list(
                 .await
                 .map_err(|err| err.to_string())?;
             for upload in activities_uploads {
-                let reference_id = upload["reference_id"].as_i64().unwrap();
+                let id = upload["id"].as_i64().unwrap();
                 let file_name = upload["name"].as_str().unwrap().to_string();
                 let path = Path::new(&save_path)
                     .join(&course_name)
@@ -690,10 +690,10 @@ pub async fn get_uploads_list(
                 let size = upload["size"].as_u64().unwrap_or(1000);
                 debug!(
                     "get_uploads_list: uploads - {} {} {} {}",
-                    reference_id, file_name, path, size
+                    id, file_name, path, size
                 );
                 uploads.push(Upload {
-                    reference_id,
+                    id,
                     file_name,
                     course_name: course_name.clone(),
                     path,
@@ -748,14 +748,14 @@ pub async fn start_download_upload(
     state.insert(id.clone(), download_state.clone());
 
     let res = zju_assist
-        .get_uploads_response(upload.reference_id)
+        .get_uploads_response(upload.id)
         .await
         .map_err(|err| err.to_string())?;
 
     if !res.status().is_success() {
         debug!(
             "download_upload: fail {} {} {} {}",
-            upload.reference_id,
+            upload.id,
             upload.file_name,
             upload.path,
             res.status()
@@ -785,7 +785,7 @@ pub async fn start_download_upload(
     if sync_upload && filepath.exists() && filepath.metadata().unwrap().len() == content_length {
         debug!(
             "download_upload: skip {} {} {}",
-            upload.reference_id, upload.file_name, upload.path
+            upload.id, upload.file_name, upload.path
         );
         window
             .emit(
@@ -801,13 +801,13 @@ pub async fn start_download_upload(
             .unwrap();
         info!(
             "download_upload: done {} {} {}",
-            upload.reference_id, upload.file_name, upload.path
+            upload.id, upload.file_name, upload.path
         );
         return Ok(());
     }
     debug!(
         "download_upload: stream {} {} {:?}",
-        upload.reference_id, upload.file_name, filepath
+        upload.id, upload.file_name, filepath
     );
     let mut file = tokio::fs::File::create(filepath.clone())
         .await
@@ -833,7 +833,7 @@ pub async fn start_download_upload(
                     .unwrap();
                 info!(
                     "download_upload: fail {} {} {} {}",
-                    upload.reference_id, upload.file_name, upload.path, err
+                    upload.id, upload.file_name, upload.path, err
                 );
                 // clean up
                 let res = tokio::fs::remove_file(&filepath.clone())
@@ -889,7 +889,7 @@ pub async fn start_download_upload(
                     .unwrap();
                 info!(
                     "download_upload: fail {} {} {} {}",
-                    upload.reference_id, upload.file_name, upload.path, err
+                    upload.id, upload.file_name, upload.path, err
                 );
                 // clean up
                 let res = tokio::fs::remove_file(&filepath.clone())
@@ -928,7 +928,7 @@ pub async fn start_download_upload(
             .unwrap();
         info!(
             "download_upload: done {} {} {}",
-            upload.reference_id, upload.file_name, upload.path
+            upload.id, upload.file_name, upload.path
         );
     });
 
