@@ -101,7 +101,7 @@ export class LearningTask extends Task {
 
     constructor(upload: Upload, syncUpload: boolean = false) {
         super()
-        this.id = `${upload.id}-${upload.path}`
+        this.id = `${upload.reference_id}-${upload.path}`
         this.name = upload.file_name
         this.path = upload.path
         this.upload = upload

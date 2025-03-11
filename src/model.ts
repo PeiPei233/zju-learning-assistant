@@ -1,5 +1,5 @@
 export class Upload {
-    id: number
+    reference_id: number
     file_name: string
     course_name: string
     path: string

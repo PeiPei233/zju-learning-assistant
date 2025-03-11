@@ -114,7 +114,7 @@ export default function Learning({
   }, [])
 
   const downloadUploads = () => {
-    let uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.id))
+    let uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id))
     if (uploads.length === 0) {
       notification.error({
         message: '请选择课件',
@@ -123,7 +123,7 @@ export default function Learning({
     }
     let tasks = uploads.map((item) => new LearningTask(item))
     addDownloadTasks(tasks)
-    setUploadList(uploadList.filter((item) => !selectedUploadKeys.includes(item.id)))
+    setUploadList(uploadList.filter((item) => !selectedUploadKeys.includes(item.reference_id)))
     setSelectedUploadKeys([])
   }
 
@@ -269,7 +269,7 @@ export default function Learning({
               selectedRowKeys: selectedUploadKeys,
               onChange: setSelectedUploadKeys,
             }}
-            rowKey='id'
+            rowKey='reference_id'
             columns={uploadColumns}
             dataSource={syncing && autoDownload ? [] : uploadList}
             loading={loadingUploadList}
@@ -282,7 +282,7 @@ export default function Learning({
               return (
                 <>
                   {uploadList && uploadList.length !== 0 && (syncing && autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : <Text ellipsis={{ rows: 1, expandable: false, tooltip: true }} style={{ width: 'calc(100% - 30px)' }}>
-                    课件列表：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.id)).reduce((total, item) => {
+                    课件列表：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => {
                       return total + item.size
                     }, 0))}
                   </Text>)}
