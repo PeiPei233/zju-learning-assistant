@@ -14,6 +14,7 @@ pub struct Config {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Upload {
+    pub id: i64,
     pub reference_id: i64,
     pub file_name: String,
     pub course_name: String,

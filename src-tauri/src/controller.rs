@@ -643,14 +643,15 @@ pub async fn get_homework_uploads(
 #[tauri::command]
 pub async fn download_file(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    id: i64,
     reference_id: i64,
     file_name: String,
     path: String,
 ) -> Result<(), String> {
-    info!("download_file: {}", reference_id);
+    info!("download_file: {} {}", id, reference_id);
     let zju_assist = state.lock().await.clone();
     zju_assist
-        .download_file(reference_id, &file_name, &path)
+        .download_file(id, reference_id, &file_name, &path)
         .await
         .map_err(|err| err.to_string())
 }
@@ -680,6 +681,7 @@ pub async fn get_uploads_list(
                 .await
                 .map_err(|err| err.to_string())?;
             for upload in activities_uploads {
+                let id = upload["id"].as_i64().unwrap();
                 let reference_id = upload["reference_id"].as_i64().unwrap();
                 let file_name = upload["name"].as_str().unwrap().to_string();
                 let path = Path::new(&save_path)
@@ -689,10 +691,11 @@ pub async fn get_uploads_list(
                     .to_string();
                 let size = upload["size"].as_u64().unwrap_or(1000);
                 debug!(
-                    "get_uploads_list: uploads - {} {} {} {}",
-                    reference_id, file_name, path, size
+                    "get_uploads_list: uploads - {} {} {} {} {}",
+                    id, reference_id, file_name, path, size
                 );
                 uploads.push(Upload {
+                    id,
                     reference_id,
                     file_name,
                     course_name: course_name.clone(),
@@ -748,13 +751,14 @@ pub async fn start_download_upload(
     state.insert(id.clone(), download_state.clone());
 
     let res = zju_assist
-        .get_uploads_response(upload.reference_id)
+        .get_uploads_response(upload.id, upload.reference_id)
         .await
         .map_err(|err| err.to_string())?;
 
     if !res.status().is_success() {
         debug!(
-            "download_upload: fail {} {} {} {}",
+            "download_upload: fail {} {} {} {} {}",
+            upload.id,
             upload.reference_id,
             upload.file_name,
             upload.path,
@@ -784,8 +788,8 @@ pub async fn start_download_upload(
     // if path exists, and size match, then skip
     if sync_upload && filepath.exists() && filepath.metadata().unwrap().len() == content_length {
         debug!(
-            "download_upload: skip {} {} {}",
-            upload.reference_id, upload.file_name, upload.path
+            "download_upload: skip {} {} {} {}",
+            upload.id, upload.reference_id, upload.file_name, upload.path
         );
         window
             .emit(
@@ -800,14 +804,14 @@ pub async fn start_download_upload(
             )
             .unwrap();
         info!(
-            "download_upload: done {} {} {}",
-            upload.reference_id, upload.file_name, upload.path
+            "download_upload: done {} {} {} {}",
+            upload.id, upload.reference_id, upload.file_name, upload.path
         );
         return Ok(());
     }
     debug!(
-        "download_upload: stream {} {} {:?}",
-        upload.reference_id, upload.file_name, filepath
+        "download_upload: stream {} {} {} {:?}",
+        upload.id, upload.reference_id, upload.file_name, filepath
     );
     let mut file = tokio::fs::File::create(filepath.clone())
         .await
@@ -833,7 +837,7 @@ pub async fn start_download_upload(
                     .unwrap();
                 info!(
                     "download_upload: fail {} {} {} {}",
-                    upload.reference_id, upload.file_name, upload.path, err
+                    upload.id, upload.reference_id, upload.file_name, upload.path
                 );
                 // clean up
                 let res = tokio::fs::remove_file(&filepath.clone())
@@ -888,8 +892,8 @@ pub async fn start_download_upload(
                     )
                     .unwrap();
                 info!(
-                    "download_upload: fail {} {} {} {}",
-                    upload.reference_id, upload.file_name, upload.path, err
+                    "download_upload: fail {} {} {} {} {}",
+                    upload.id, upload.reference_id, upload.file_name, upload.path, err
                 );
                 // clean up
                 let res = tokio::fs::remove_file(&filepath.clone())
@@ -927,8 +931,8 @@ pub async fn start_download_upload(
             )
             .unwrap();
         info!(
-            "download_upload: done {} {} {}",
-            upload.reference_id, upload.file_name, upload.path
+            "download_upload: done {} {} {} {}",
+            upload.id, upload.reference_id, upload.file_name, upload.path
         );
     });
 

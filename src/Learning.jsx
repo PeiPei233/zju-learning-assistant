@@ -111,7 +111,7 @@ export default function Learning({
       window.removeEventListener('resize', handleResize)
     }
 
-  }, [])
+  }, [notification, setCourseList])
 
   const downloadUploads = () => {
     let uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id))

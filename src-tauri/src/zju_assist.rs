@@ -402,7 +402,7 @@ impl ZjuAssist {
         Ok(uploads)
     }
 
-    pub async fn download_file(&self, reference_id: i64, name: &str, path: &str) -> Result<()> {
+    pub async fn download_file(&self, id: i64, reference_id: i64, name: &str, path: &str) -> Result<()> {
         let res = self
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
@@ -415,26 +415,7 @@ impl ZjuAssist {
         let res = match res.status().is_success() {
             true => res,
             false => {
-                let res = self.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
-                    .send()
-                    .await?;
-                let json: Value = res.json().await?;
-                let url = json["url"].as_str();
-                if url.is_none() {
-                    let message = json["message"]
-                        .as_str()
-                        .unwrap_or("无法获取下载链接");
-                    return Err(anyhow!("{}", message));
-                }
-                let url = url.unwrap();
-                if let Some(start) = url.find("name=") {
-                    let start = start + 5;
-                    let end = url[start..].find("&").unwrap_or(url.len() - start);
-                    filename = percent_decode_str(&url[start..start + end])
-                        .decode_utf8_lossy()
-                        .to_string();
-                }
-                self.get(url).send().await?
+                self.get(format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id)).send().await?
             }
         };
         std::fs::create_dir_all(Path::new(path))?;
@@ -444,7 +425,7 @@ impl ZjuAssist {
         Ok(())
     }
 
-    pub async fn get_uploads_response(&self, reference_id: i64) -> Result<Response> {
+    pub async fn get_uploads_response(&self, id: i64, reference_id: i64) -> Result<Response> {
         const MAX_RETRIES: usize = 5;
         let mut retries = 0;
         let mut delay_time = 100;
@@ -461,22 +442,7 @@ impl ZjuAssist {
             let res = match res.status().is_success() {
                 true => res,
                 false => {
-                    let res = self.get(format!("https://courses.zju.edu.cn/api/uploads/reference/document/{}/url?preview=true", reference_id))
-                    .send()
-                    .await?;
-                    debug!("{:?}", res);
-                    let json: Value = res.json().await?;
-                    debug!("{:?}", json);
-                    let url = json["url"].as_str();
-                    if url.is_none() {
-                        let message = json["message"]
-                            .as_str()
-                            .unwrap_or("无法获取下载链接");
-                        return Err(anyhow!("{}", message));
-                    }
-                    let url = url.unwrap();
-                    debug!("Downloading file from {}", url);
-                    self.get(url).send().await?
+                    self.get(format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id)).send().await?
                 }
             };
             if res.status().is_success() {
