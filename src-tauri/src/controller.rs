@@ -13,6 +13,7 @@ use std::cmp::min;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
+use std::os::windows::process::CommandExt;
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::path::BaseDirectory;
@@ -995,9 +996,10 @@ pub fn open_file(handle: AppHandle, path: String, folder: bool) -> Result<(), St
             Command::new("cmd")
                 .arg("/c")
                 .arg("start")
+                .raw_arg(r#""""#)
                 .arg(path)
                 .spawn()
-                .map_err(|err| err.to_string())?; // cmd /c start "path"
+                .map_err(|err| err.to_string())?; // cmd /c start "" "path"
 
             #[cfg(target_os = "macos")]
             Command::new("open")
