@@ -13,7 +13,6 @@ use std::cmp::min;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
-use std::os::windows::process::CommandExt;
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::path::BaseDirectory;
@@ -28,6 +27,9 @@ use tokio::task::JoinHandle;
 
 #[cfg(target_os = "macos")]
 use crate::utils::macos::add_event;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 #[tauri::command]
 pub async fn login(
