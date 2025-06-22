@@ -956,10 +956,10 @@ impl ZjuAssist {
             ("queryModel.currentPage", "1"),
             ("queryModel.sortName", "xkkh"),
             ("queryModel.sortOrder", "asc"),
-            ("time", "0"),
+            ("time", "1"),
         ];
 
-        let res = self.post(format!("http://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
+        let res = self.post(format!("https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N508301&su={}", self.username))
             .form(&data)
             .send()
             .await?;
