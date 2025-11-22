@@ -13,7 +13,8 @@ export default function Todo({
     lastSync,
     handleSync,
     syncing,
-    handleSwitch
+    handleSwitch,
+    config,
 }) {
 
     const { message, modal, notification } = App.useApp()
@@ -74,6 +75,11 @@ export default function Todo({
             label: '导出为 iCalendar 文件',
         },
         {
+            key: 'mail',
+            label: '发送至邮箱',
+            disabled: !config.mail_notifications,
+        },
+        {
             key: 'calendar',
             label: '添加至日历 App (macOS)',
             disabled: !window.navigator.userAgent.includes('Mac')
@@ -86,12 +92,31 @@ export default function Todo({
     ];
 
     const handleExport = ({ key }) => {
-        invoke('export_todo', { todoList: todos, location: key }).catch((err) => {
-            notification.error({
-                message: '导出失败',
-                description: err
-            })
-        })
+        switch (key) {
+            case 'ics' || 'calendar' || 'reminder':
+                invoke('export_todo', { todoList: todos, location: key }).catch((err) => {
+                    notification.error({
+                        message: '导出失败',
+                        description: err
+                    })
+                })
+                break;
+            case 'mail':
+                invoke('mail_todo', {
+                    todoList: todos,
+                    smtpHost: config.smtp_host,
+                    smtpPort: config.smtp_port,
+                    smtpUsername: config.smtp_username,
+                    smtpPassword: config.smtp_password,
+                    mailRecipient: config.mail_recipient,
+                }).catch((err) => {
+                    notification.error({
+                        message: '发送邮件失败',
+                        description: err
+                    })
+                })
+                break;
+        }
     }
 
     return (

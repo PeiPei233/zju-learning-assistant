@@ -92,6 +92,12 @@ pub fn run() {
                 tray: true,
                 max_concurrent_tasks: 3,
                 auto_start: false,
+                mail_notifications: false,
+                smtp_host: "".to_string(),
+                smtp_port: 465,
+                smtp_username: "".to_string(),
+                smtp_password: "".to_string(),
+                mail_recipient: "".to_string(),
             };
 
             #[cfg(desktop)]
@@ -253,6 +259,7 @@ pub fn run() {
             controller::logout,
             controller::sync_todo_once,
             controller::export_todo,
+            controller::mail_todo,
             controller::get_courses,
             controller::get_academic_year_list,
             controller::get_semester_list,
@@ -278,6 +285,7 @@ pub fn run() {
             controller::notify_score,
             controller::get_config,
             controller::set_config,
+            controller::test_email_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
