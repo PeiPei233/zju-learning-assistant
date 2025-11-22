@@ -46,6 +46,12 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
 
   const [dingUrlInput, setDingUrlInput] = useState('')
 
+  const [smtpHostInput, setSmtpHostInput] = useState('')
+  const [smtpPortInput, setSmtpPortInput] = useState(465)
+  const [smtpUsernameInput, setSmtpUsernameInput] = useState('')
+  const [smtpPasswordInput, setSmtpPasswordInput] = useState('')
+  const [mailRecipientInput, setMailRecipientInput] = useState('')
+
   const [courseList, setCourseList] = useState([])
   const [selectedCourseKeys, setSelectedCourseKeys] = useState([])
   const [loadingUploadList, setLoadingUploadList] = useState(false)
@@ -310,6 +316,11 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       console.log(res)
       setConfig(new Config(res))
       setDingUrlInput(res.ding_url)
+      setSmtpHostInput(res.smtp_host)
+      setSmtpPortInput(res.smtp_port)
+      setSmtpUsernameInput(res.smtp_username)
+      setSmtpPasswordInput(res.smtp_password)
+      setMailRecipientInput(res.mail_recipient)
       downloadManager.current.maxConcurrentTasks = res.max_concurrent_tasks
     }).catch((err) => {
       notification.error({
@@ -644,6 +655,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           handleSync={handleSyncTodo}
           syncing={syncingTodo}
           handleSwitch={handleSwitchSyncTodo}
+          config={config}
         />}
       </Content>
       <Drawer
@@ -839,6 +851,73 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                       updateConfigField('ding_url', dingUrlInput)
                     }} />
                   </Space.Compact>
+                </div>
+              }
+            />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
+                }}>邮件通知</Text>}
+              description={
+                <div>
+                  <Text type="secondary" style={{
+                    fontWeight: 'normal',
+                    fontSize: 12
+                  }}>检测到成绩更新后，将发送邮件通知。请配置 SMTP 服务器。</Text>
+                  <div style={{ marginTop: 10 }}>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Space.Compact style={{ width: '100%' }}>
+                        <Input placeholder='SMTP Host' value={smtpHostInput} onChange={(e) => setSmtpHostInput(e.target.value)} />
+                        <InputNumber placeholder='Port' value={smtpPortInput} onChange={(value) => setSmtpPortInput(value)} />
+                      </Space.Compact>
+                      <Input placeholder='SMTP Username' value={smtpUsernameInput} onChange={(e) => setSmtpUsernameInput(e.target.value)} />
+                      <Input.Password placeholder='SMTP Password' value={smtpPasswordInput} onChange={(e) => setSmtpPasswordInput(e.target.value)} />
+                      <Input placeholder='Receiver Email' value={mailRecipientInput} onChange={(e) => setMailRecipientInput(e.target.value)} />
+                      <Space>
+                        <Button onClick={() => {
+                          invoke('test_email_config', {
+                            smtpHost: smtpHostInput,
+                            smtpPort: smtpPortInput,
+                            smtpUsername: smtpUsernameInput,
+                            smtpPassword: smtpPasswordInput,
+                            mailRecipient: mailRecipientInput
+                          }).then(() => {
+                            notification.success({ message: '测试邮件发送成功' })
+                          }).catch((err) => {
+                            notification.error({ message: '测试邮件发送失败', description: err })
+                          })
+                        }}>测试</Button>
+                        <Button type="primary" onClick={() => {
+                          let new_config = config.clone()
+                          new_config.smtp_host = smtpHostInput
+                          new_config.smtp_port = smtpPortInput
+                          new_config.smtp_username = smtpUsernameInput
+                          new_config.smtp_password = smtpPasswordInput
+                          new_config.mail_recipient = mailRecipientInput
+                          new_config.mail_notifications = true
+                          invoke('set_config', { config: new_config }).then((res) => {
+                            setConfig(new_config)
+                            notification.success({ message: '保存成功' })
+                          }).catch((err) => {
+                            notification.error({ message: '保存失败', description: err })
+                          })
+                        }}>保存并开启</Button>
+                        <Button danger onClick={() => {
+                          let new_config = config.clone()
+                          new_config.mail_notifications = false
+                          invoke('set_config', { config: new_config }).then((res) => {
+                            setConfig(new_config)
+                            notification.success({ message: '已关闭邮件通知' })
+                          }).catch((err) => {
+                            notification.error({ message: '保存失败', description: err })
+                          })
+                        }}>关闭</Button>
+                      </Space>
+                    </Space>
+                  </div>
                 </div>
               }
             />

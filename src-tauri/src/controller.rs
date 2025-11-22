@@ -1,5 +1,5 @@
 use crate::model::{Config, Progress, Subject, Upload};
-use crate::utils::{export_todo_ics, images_to_pdf};
+use crate::utils::{export_todo_ics, images_to_pdf, send_email};
 use crate::zju_assist::ZjuAssist;
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
@@ -584,6 +584,88 @@ pub fn export_todo(
 }
 
 #[tauri::command]
+pub async fn mail_todo(
+    todo_list: Vec<Value>,
+    smtp_host: String,
+    smtp_port: u16,
+    smtp_username: String,
+    smtp_password: String,
+    mail_recipient: String,
+) -> Result<(), String> {
+    info!("mail_todo to {}", mail_recipient);
+
+    debug!("smtp_host: {}", smtp_host);
+    debug!("smtp_port: {}", smtp_port);
+    debug!("smtp_username: {}", smtp_username);
+    debug!("mail_recipient: {}", mail_recipient);
+
+    let subject = "ZJU Learning Assistant - 待办事项通知 - TODOs";
+    let mut body = String::from("");
+    for todo in todo_list.iter() {
+        let course_name = todo["course_name"].as_str().unwrap();
+        let title = todo["title"].as_str().unwrap();
+        let url = format!(
+            "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
+            todo["course_id"].as_i64().unwrap(),
+            todo["id"].as_i64().unwrap()
+        );
+        let end_time = if todo["end_time"].is_null() {
+            "无截止时间".to_string()
+        } else {
+            todo["end_time"].as_str().unwrap().to_string()
+        };
+        body.push_str(&format!(
+            "{} - {} - {} - {}\n",
+            course_name, title, end_time, url
+        ));
+    }
+    match send_email(
+        &mail_recipient,
+        subject,
+        &body,
+        &smtp_host,
+        smtp_port,
+        &smtp_username,
+        &smtp_password,
+    )
+    .await
+    {
+        Ok(_) => {
+            info!("mail_todo: email sent successfully");
+            return Ok(());
+        }
+        Err(err) => {
+            info!("mail_todo: failed to send email {}", err);
+            return Err(err.to_string());
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn test_email_config(
+    smtp_host: String,
+    smtp_port: u16,
+    smtp_username: String,
+    smtp_password: String,
+    mail_recipient: String,
+) -> Result<(), String> {
+    info!("test_email_config to {}", mail_recipient);
+    let subject = "ZJU Learning Assistant - 邮件测试";
+    let body = "这是一封测试邮件，用于验证 ZJU Learning Assistant 的邮件通知配置是否正确。";
+    send_email(
+        &mail_recipient,
+        subject,
+        body,
+        &smtp_host,
+        smtp_port,
+        &smtp_username,
+        &smtp_password,
+    )
+    .await
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub async fn get_courses(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
     info!("get_courses");
     let zju_assist = state.lock().await.clone();
@@ -839,8 +921,8 @@ pub async fn start_download_upload(
                     )
                     .unwrap();
                 info!(
-                    "download_upload: fail {} {} {} {}",
-                    upload.id, upload.reference_id, upload.file_name, upload.path
+                    "download_upload: fail {} {} {} {} {}",
+                    upload.id, upload.reference_id, upload.file_name, upload.path, err
                 );
                 // clean up
                 let res = tokio::fs::remove_file(&filepath.clone())
@@ -1802,6 +1884,7 @@ pub async fn get_score(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Va
 #[tauri::command]
 pub async fn notify_score(
     handle: AppHandle,
+    config: State<'_, Arc<Mutex<Config>>>,
     score: Value,
     old_total_gp: f64,
     old_total_credit: f64,
@@ -1829,6 +1912,34 @@ pub async fn notify_score(
     } else {
         total_gp / total_credit
     };
+
+    let config_lock = config.lock().await;
+    if config_lock.mail_notifications {
+        let subject = format!("考试成绩通知 - {}", kcmc);
+        let body = format!(
+            "课程名称: {}\n成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
+            kcmc,
+            cj,
+            xf,
+            jd,
+            new_gpa,
+            new_gpa - old_gpa,
+            total_credit,
+            total_credit - old_total_credit
+        );
+        let _ = send_email(
+            &config_lock.mail_recipient,
+            &subject,
+            &body,
+            &config_lock.smtp_host,
+            config_lock.smtp_port,
+            &config_lock.smtp_username,
+            &config_lock.smtp_password,
+        )
+        .await
+        .map_err(|e| info!("notify_score: failed to send email: {}", e));
+    }
+    drop(config_lock);
 
     if !ding_url.is_empty() {
         let markdown_text = format!(

@@ -10,6 +10,12 @@ pub struct Config {
     pub tray: bool,
     pub max_concurrent_tasks: u32,
     pub auto_start: bool,
+    pub mail_notifications: bool,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_username: String,
+    pub smtp_password: String,
+    pub mail_recipient: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
