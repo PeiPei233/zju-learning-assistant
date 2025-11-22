@@ -2,10 +2,11 @@ import { useEffect, useState, useRef } from 'react'
 import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Select } from 'antd';
 import { invoke } from '@tauri-apps/api/core'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
-import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined, SendOutlined } from '@ant-design/icons';
+import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined, SendOutlined, CarryOutOutlined } from '@ant-design/icons';
 import Learning from './Learning'
 import Classroom from './Classroom'
 import Score from './Score'
+import Todo from './Todo'
 import { DownloadManager } from './downloadManager';
 import { LearningTask } from './downloadManager';
 import { listen } from '@tauri-apps/api/event';
@@ -33,6 +34,11 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
   const [totalCredit, setTotalCredit] = useState(0)
   const [config, setConfig] = useState(new Config())
 
+  const [todos, setTodos] = useState([])
+  const [loadingTodo, setLoadingTodo] = useState(false)
+  const [lastSyncTodo, setLastSyncTodo] = useState(null)
+  const [syncingTodo, setSyncingTodo] = useState(true)
+
   const [taskList, setTaskList] = useState([])
   const [downloadingCount, setDownloadingCount] = useState(0)
   const [openDownloadDrawer, setOpenDownloadDrawer] = useState(false)
@@ -50,6 +56,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
 
   const syncScoreTimer = useRef(null)
   const syncUploadTimer = useRef(null)
+  const syncTodoTimer = useRef(null)
   const downloadManager = useRef(new DownloadManager())
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
@@ -211,10 +218,12 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }
   }
 
-  const syncTodoTask = () => {
-    invoke('sync_todo_once').then((res) => {
-      if (res && res.length !== 0) {
-        todoList.current = res
+  function updateTodo(res) {
+    if (res) {
+      todoList.current = res
+      setTodos(res)
+      setLastSyncTodo(dayjs().format('YYYY-MM-DD HH:mm:ss'))
+      if (res.length !== 0) {
         res.forEach(async (item) => {
           if (item.end_time) {
             const key = `${item.course_id}-${item.id}-${item.end_time}`
@@ -236,8 +245,54 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           }
         })
       }
+    }
+  }
+
+  const startSyncTodo = () => {
+    const task = () => {
+      invoke('sync_todo_once').then((res) => {
+        updateTodo(res)
+      }).catch((err) => {
+        notification.error({
+          message: '待办事项同步失败',
+          description: err
+        })
+      }).finally(() => {
+        const nextSync = 60000
+        console.log(`sync todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}, next time: ${dayjs().add(nextSync, 'ms').format('YYYY-MM-DD HH:mm:ss')}`)
+        syncTodoTimer.current = setTimeout(task, nextSync)
+      })
+    }
+    task()
+  }
+
+  const stopSyncTodo = () => {
+    clearTimeout(syncTodoTimer.current)
+    syncTodoTimer.current = null
+  }
+
+  const handleSwitchSyncTodo = (checked) => {
+    setSyncingTodo(checked)
+    if (checked) {
+      startSyncTodo()
+    } else {
+      stopSyncTodo()
+    }
+  }
+
+  const handleSyncTodo = () => {
+    setLoadingTodo(true)
+    invoke('sync_todo_once').then((res) => {
+      updateTodo(res)
+    }).catch((err) => {
+      notification.error({
+        message: '待办事项同步失败',
+        description: err
+      })
+    }).finally(() => {
+      setLoadingTodo(false)
+      console.log(`sync todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`)
     })
-    console.log(`sync todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`)
   }
 
   useEffect(() => {
@@ -269,8 +324,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }, 1000)
 
     // sync todo every minute
-    syncTodoTask()
-    const syncTodo = setInterval(syncTodoTask, 60000)
+    if (syncingTodo) {
+      startSyncTodo()
+    }
 
     const unlisten = listen('download-progress', (res) => {
       downloadManager.current.updateProgress(res.payload)
@@ -292,9 +348,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     return () => {
       stopSyncScore()
       stopSyncUpload()
+      stopSyncTodo()
       downloadManagerCurrent.cleanUp()
       clearInterval(updateDownloadList)
-      clearInterval(syncTodo)
       unlisten.then((fn) => fn())
       unlistenClose.then((fn) => fn())
       unlistenExportTodo.then((fn) => fn())
@@ -521,6 +577,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               </Badge>
             </Tooltip>
           </Menu.Item>
+          <Menu.Item key='todo' icon={<CarryOutOutlined />}>
+            待办事项
+          </Menu.Item>
         </Menu>
         <Menu
           onClick={onMenuClick}
@@ -577,6 +636,14 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           score={score}
           handleSwitch={handleSwitchSyncScore}
           handleSync={handleSyncScore}
+        />}
+        {current === 'todo' && <Todo
+          todos={todos}
+          loading={loadingTodo}
+          lastSync={lastSyncTodo}
+          handleSync={handleSyncTodo}
+          syncing={syncingTodo}
+          handleSwitch={handleSwitchSyncTodo}
         />}
       </Content>
       <Drawer
