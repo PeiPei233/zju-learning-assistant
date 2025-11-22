@@ -874,7 +874,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                         <InputNumber placeholder='Port' value={smtpPortInput} onChange={(value) => setSmtpPortInput(value)} />
                       </Space.Compact>
                       <Input placeholder='SMTP Username' value={smtpUsernameInput} onChange={(e) => setSmtpUsernameInput(e.target.value)} />
-                      <Input.Password placeholder='SMTP Password' value={smtpPasswordInput} onChange={(e) => setSmtpPasswordInput(e.target.value)} />
+                      <Tooltip title={<span>对于 Gmail、Outlook 等邮箱，请务必使用<b>应用专用密码 (App Password)</b>，而非登录密码。<br/>请在邮箱账号的安全设置中生成。</span>}>
+                        <Input.Password placeholder='SMTP Password (注意：Gmail/Outlook 请使用应用专用密码)' value={smtpPasswordInput} onChange={(e) => setSmtpPasswordInput(e.target.value)} />
+                      </Tooltip>
                       <Input placeholder='Receiver Email' value={mailRecipientInput} onChange={(e) => setMailRecipientInput(e.target.value)} />
                       <Space>
                         <Button onClick={() => {
