@@ -63,6 +63,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
   const syncScoreTimer = useRef(null)
   const syncUploadTimer = useRef(null)
   const syncTodoTimer = useRef(null)
+  const syncMailTodoTimer = useRef(null)
   const downloadManager = useRef(new DownloadManager())
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
@@ -277,12 +278,44 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     syncTodoTimer.current = null
   }
 
+  const startMailSyncTodo = () => {
+    const task = () => {
+      if (configRef.current.mail_notifications) {
+        invoke('sync_todo_once').then((res) => {
+          invoke('mail_todo', {
+            todoList: res,
+            smtpHost: configRef.current.smtp_host,
+            smtpPort: configRef.current.smtp_port,
+            smtpUsername: configRef.current.smtp_username,
+            smtpPassword: configRef.current.smtp_password,
+            mailRecipient: configRef.current.mail_recipient,
+          }).catch((err) => {
+            console.error('邮件同步待办事项失败', err)
+          })
+        }).catch((err) => {
+          console.error('获取待办事项失败', err)
+        })
+      }
+      const nextSync = 6 * 60 * 60 * 1000
+      console.log(`sync mail todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}, next time: ${dayjs().add(nextSync, 'ms').format('YYYY-MM-DD HH:mm:ss')}`)
+      syncMailTodoTimer.current = setTimeout(task, nextSync)
+    }
+    syncMailTodoTimer.current = setTimeout(task, 6 * 60 * 60 * 1000)
+  }
+
+  const stopMailSyncTodo = () => {
+    clearTimeout(syncMailTodoTimer.current)
+    syncMailTodoTimer.current = null
+  }
+
   const handleSwitchSyncTodo = (checked) => {
     setSyncingTodo(checked)
     if (checked) {
       startSyncTodo()
+      startMailSyncTodo()
     } else {
       stopSyncTodo()
+      stopMailSyncTodo()
     }
   }
 
@@ -337,6 +370,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     // sync todo every minute
     if (syncingTodo) {
       startSyncTodo()
+      startMailSyncTodo()
     }
 
     const unlisten = listen('download-progress', (res) => {
@@ -360,6 +394,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       stopSyncScore()
       stopSyncUpload()
       stopSyncTodo()
+      stopMailSyncTodo()
       downloadManagerCurrent.cleanUp()
       clearInterval(updateDownloadList)
       unlisten.then((fn) => fn())
