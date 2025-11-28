@@ -402,7 +402,13 @@ impl ZjuAssist {
         Ok(uploads)
     }
 
-    pub async fn download_file(&self, id: i64, reference_id: i64, name: &str, path: &str) -> Result<()> {
+    pub async fn download_file(
+        &self,
+        id: i64,
+        reference_id: i64,
+        name: &str,
+        path: &str,
+    ) -> Result<()> {
         let res = self
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
@@ -415,7 +421,12 @@ impl ZjuAssist {
         let res = match res.status().is_success() {
             true => res,
             false => {
-                self.get(format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id)).send().await?
+                self.get(format!(
+                    "https://courses.zju.edu.cn/api/uploads/{}/blob",
+                    id
+                ))
+                .send()
+                .await?
             }
         };
         std::fs::create_dir_all(Path::new(path))?;
@@ -442,7 +453,12 @@ impl ZjuAssist {
             let res = match res.status().is_success() {
                 true => res,
                 false => {
-                    self.get(format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id)).send().await?
+                    self.get(format!(
+                        "https://courses.zju.edu.cn/api/uploads/{}/blob",
+                        id
+                    ))
+                    .send()
+                    .await?
                 }
             };
             if res.status().is_success() {
@@ -895,6 +911,50 @@ impl ZjuAssist {
         }
 
         Err(anyhow!("Failed to download file after several attempts"))
+    }
+
+    pub async fn download_asr_text(&self, sub_id: i64, path: &Path) -> Result<()> {
+        let res = self.get(format!("https://yjapi.cmc.zju.edu.cn/courseapi/v3/web-socket/search-trans-result?sub_id={}&format=json", sub_id))
+            .send()
+            .await?;
+        let json: Value = res.json().await?;
+
+        match json["list"][0]["all_content"].as_array() {
+            Some(text_list) => {
+                std::fs::create_dir_all(path)?;
+                let mut file = File::create(Path::new(&path).join("asr_text.txt"))?;
+
+                for text in text_list {
+                    let content = text["Text"].as_str().unwrap();
+                    let begin_time = text["BeginSec"].as_i64().unwrap();
+                    let begin_time_formatted = format!(
+                        "{:02}:{:02}:{:02}",
+                        begin_time / 3600,
+                        (begin_time % 3600) / 60,
+                        begin_time % 60
+                    );
+                    let end_time = text["EndSec"].as_i64().unwrap();
+                    let end_time_formatted = format!(
+                        "{:02}:{:02}:{:02}",
+                        end_time / 3600,
+                        (end_time % 3600) / 60,
+                        end_time % 60
+                    );
+                    writeln!(
+                        file,
+                        "[{} - {}] {}",
+                        begin_time_formatted, end_time_formatted, content
+                    )?;
+                }
+                file.flush()?;
+                Ok(())
+            }
+            None => {
+                debug!("No ASR text found for sub_id: {}", sub_id);
+                debug!("Response: {}", json);
+                Err(anyhow!("No ASR text found"))
+            }
+        }
     }
 
     // zdbk

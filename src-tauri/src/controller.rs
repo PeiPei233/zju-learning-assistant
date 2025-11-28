@@ -1072,6 +1072,33 @@ pub fn open_file_ppts(handle: AppHandle, subject: Subject, folder: bool) -> Resu
 }
 
 #[tauri::command]
+pub fn open_file_asr_text(handle: AppHandle, subject: Subject, folder: bool) -> Result<(), String> {
+    info!(
+        "open_file_asr_text: {}-{} {}",
+        subject.course_name, subject.sub_name, folder
+    );
+    let path = Path::new(&subject.path)
+        .join(&subject.sub_name)
+        .to_str()
+        .unwrap()
+        .to_string();
+    if Path::new(&path).exists() {
+        let txt_path = Path::new(&path)
+            .join(format!("asr_text.txt"))
+            .to_str()
+            .unwrap()
+            .to_string();
+        if Path::new(&txt_path).exists() {
+            open_file(handle, txt_path, folder)
+        } else {
+            Err("转录文本文件已删除或未生成".to_string())
+        }
+    } else {
+        Err("下载已删除或未下载".to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn get_latest_version_info() -> Result<Value, String> {
     info!("get_latest_version_info");
 
@@ -1359,6 +1386,77 @@ pub async fn start_download_ppts(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn start_download_asr_text(
+    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
+    window: Window,
+    id: String,
+    subject: Subject,
+) -> Result<(), String> {
+    info!(
+        "start_download_asr_text: {} {} {}",
+        id, subject.course_name, subject.sub_name
+    );
+
+    let mut zju_assist_mut = zju_assist.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
+
+    let zju_assist = zju_assist.lock().await.clone();
+    let path = Path::new(&subject.path).join(&subject.sub_name);
+    debug!("start_download_asr_text - path: {:?}", path);
+
+    // state -> true: downloading, false: cancel
+    let download_state = Arc::new(AtomicBool::new(true));
+    state.insert(id.clone(), download_state.clone());
+    let res = zju_assist.download_asr_text(subject.sub_id, &path).await;
+
+    match res {
+        Ok(()) => {
+            info!(
+                "download_asr_text: done {} {} {}",
+                subject.course_name, subject.sub_name, subject.path
+            );
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        id: id.clone(),
+                        status: "done".to_string(),
+                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                        downloaded_size: 1,
+                        total_size: 1,
+                    },
+                )
+                .unwrap();
+            Ok(())
+        }
+        Err(err) => {
+            info!(
+                "download_asr_text: fail {} {} {} {}",
+                subject.course_name, subject.sub_name, subject.path, err
+            );
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        id: id.clone(),
+                        status: "fail".to_string(),
+                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                        downloaded_size: 0,
+                        total_size: 1,
+                    },
+                )
+                .unwrap();
+            Err(err.to_string())
+        }
+    }
 }
 
 #[tauri::command]
