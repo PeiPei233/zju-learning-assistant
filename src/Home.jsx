@@ -2,10 +2,11 @@ import { useEffect, useState, useRef } from 'react'
 import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Select } from 'antd';
 import { invoke } from '@tauri-apps/api/core'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
-import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined, SendOutlined } from '@ant-design/icons';
+import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined, SendOutlined, CarryOutOutlined } from '@ant-design/icons';
 import Learning from './Learning'
 import Classroom from './Classroom'
 import Score from './Score'
+import Todo from './Todo'
 import { DownloadManager } from './downloadManager';
 import { LearningTask } from './downloadManager';
 import { listen } from '@tauri-apps/api/event';
@@ -33,12 +34,23 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
   const [totalCredit, setTotalCredit] = useState(0)
   const [config, setConfig] = useState(new Config())
 
+  const [todos, setTodos] = useState([])
+  const [loadingTodo, setLoadingTodo] = useState(false)
+  const [lastSyncTodo, setLastSyncTodo] = useState(null)
+  const [syncingTodo, setSyncingTodo] = useState(true)
+
   const [taskList, setTaskList] = useState([])
   const [downloadingCount, setDownloadingCount] = useState(0)
   const [openDownloadDrawer, setOpenDownloadDrawer] = useState(false)
   const [openSettingDrawer, setOpenSettingDrawer] = useState(false)
 
   const [dingUrlInput, setDingUrlInput] = useState('')
+
+  const [smtpHostInput, setSmtpHostInput] = useState('')
+  const [smtpPortInput, setSmtpPortInput] = useState(465)
+  const [smtpUsernameInput, setSmtpUsernameInput] = useState('')
+  const [smtpPasswordInput, setSmtpPasswordInput] = useState('')
+  const [mailRecipientInput, setMailRecipientInput] = useState('')
 
   const [courseList, setCourseList] = useState([])
   const [selectedCourseKeys, setSelectedCourseKeys] = useState([])
@@ -50,6 +62,8 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
 
   const syncScoreTimer = useRef(null)
   const syncUploadTimer = useRef(null)
+  const syncTodoTimer = useRef(null)
+  const syncMailTodoTimer = useRef(null)
   const downloadManager = useRef(new DownloadManager())
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
@@ -211,10 +225,12 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }
   }
 
-  const syncTodoTask = () => {
-    invoke('sync_todo_once').then((res) => {
-      if (res && res.length !== 0) {
-        todoList.current = res
+  function updateTodo(res) {
+    if (res) {
+      todoList.current = res
+      setTodos(res)
+      setLastSyncTodo(dayjs().format('YYYY-MM-DD HH:mm:ss'))
+      if (res.length !== 0) {
         res.forEach(async (item) => {
           if (item.end_time) {
             const key = `${item.course_id}-${item.id}-${item.end_time}`
@@ -236,8 +252,86 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           }
         })
       }
+    }
+  }
+
+  const startSyncTodo = () => {
+    const task = () => {
+      invoke('sync_todo_once').then((res) => {
+        updateTodo(res)
+      }).catch((err) => {
+        notification.error({
+          message: '待办事项同步失败',
+          description: err
+        })
+      }).finally(() => {
+        const nextSync = 60000
+        console.log(`sync todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}, next time: ${dayjs().add(nextSync, 'ms').format('YYYY-MM-DD HH:mm:ss')}`)
+        syncTodoTimer.current = setTimeout(task, nextSync)
+      })
+    }
+    task()
+  }
+
+  const stopSyncTodo = () => {
+    clearTimeout(syncTodoTimer.current)
+    syncTodoTimer.current = null
+  }
+
+  const startMailSyncTodo = () => {
+    const task = () => {
+      if (configRef.current.mail_notifications) {
+        invoke('sync_todo_once').then((res) => {
+          invoke('mail_todo', {
+            todoList: res,
+            smtpHost: configRef.current.smtp_host,
+            smtpPort: configRef.current.smtp_port,
+            smtpUsername: configRef.current.smtp_username,
+            smtpPassword: configRef.current.smtp_password,
+            mailRecipient: configRef.current.mail_recipient,
+          }).catch((err) => {
+            console.error('邮件同步待办事项失败', err)
+          })
+        }).catch((err) => {
+          console.error('获取待办事项失败', err)
+        })
+      }
+      const nextSync = 6 * 60 * 60 * 1000
+      console.log(`sync mail todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}, next time: ${dayjs().add(nextSync, 'ms').format('YYYY-MM-DD HH:mm:ss')}`)
+      syncMailTodoTimer.current = setTimeout(task, nextSync)
+    }
+    syncMailTodoTimer.current = setTimeout(task, 6 * 60 * 60 * 1000)
+  }
+
+  const stopMailSyncTodo = () => {
+    clearTimeout(syncMailTodoTimer.current)
+    syncMailTodoTimer.current = null
+  }
+
+  const handleSwitchSyncTodo = (checked) => {
+    setSyncingTodo(checked)
+    if (checked) {
+      startSyncTodo()
+      startMailSyncTodo()
+    } else {
+      stopSyncTodo()
+      stopMailSyncTodo()
+    }
+  }
+
+  const handleSyncTodo = () => {
+    setLoadingTodo(true)
+    invoke('sync_todo_once').then((res) => {
+      updateTodo(res)
+    }).catch((err) => {
+      notification.error({
+        message: '待办事项同步失败',
+        description: err
+      })
+    }).finally(() => {
+      setLoadingTodo(false)
+      console.log(`sync todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`)
     })
-    console.log(`sync todo: current time: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`)
   }
 
   useEffect(() => {
@@ -255,6 +349,11 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
       console.log(res)
       setConfig(new Config(res))
       setDingUrlInput(res.ding_url)
+      setSmtpHostInput(res.smtp_host)
+      setSmtpPortInput(res.smtp_port)
+      setSmtpUsernameInput(res.smtp_username)
+      setSmtpPasswordInput(res.smtp_password)
+      setMailRecipientInput(res.mail_recipient)
       downloadManager.current.maxConcurrentTasks = res.max_concurrent_tasks
     }).catch((err) => {
       notification.error({
@@ -269,8 +368,10 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }, 1000)
 
     // sync todo every minute
-    syncTodoTask()
-    const syncTodo = setInterval(syncTodoTask, 60000)
+    if (syncingTodo) {
+      startSyncTodo()
+      startMailSyncTodo()
+    }
 
     const unlisten = listen('download-progress', (res) => {
       downloadManager.current.updateProgress(res.payload)
@@ -292,9 +393,10 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     return () => {
       stopSyncScore()
       stopSyncUpload()
+      stopSyncTodo()
+      stopMailSyncTodo()
       downloadManagerCurrent.cleanUp()
       clearInterval(updateDownloadList)
-      clearInterval(syncTodo)
       unlisten.then((fn) => fn())
       unlistenClose.then((fn) => fn())
       unlistenExportTodo.then((fn) => fn())
@@ -521,6 +623,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               </Badge>
             </Tooltip>
           </Menu.Item>
+          <Menu.Item key='todo' icon={<CarryOutOutlined />}>
+            待办事项
+          </Menu.Item>
         </Menu>
         <Menu
           onClick={onMenuClick}
@@ -577,6 +682,15 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           score={score}
           handleSwitch={handleSwitchSyncScore}
           handleSync={handleSyncScore}
+        />}
+        {current === 'todo' && <Todo
+          todos={todos}
+          loading={loadingTodo}
+          lastSync={lastSyncTodo}
+          handleSync={handleSyncTodo}
+          syncing={syncingTodo}
+          handleSwitch={handleSwitchSyncTodo}
+          config={config}
         />}
       </Content>
       <Drawer
@@ -772,6 +886,75 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
                       updateConfigField('ding_url', dingUrlInput)
                     }} />
                   </Space.Compact>
+                </div>
+              }
+            />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
+                }}>邮件通知</Text>}
+              description={
+                <div>
+                  <Text type="secondary" style={{
+                    fontWeight: 'normal',
+                    fontSize: 12
+                  }}>检测到成绩更新后，将发送邮件通知。请配置 SMTP 服务器。</Text>
+                  <div style={{ marginTop: 10 }}>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Space.Compact style={{ width: '100%' }}>
+                        <Input placeholder='SMTP Host' value={smtpHostInput} onChange={(e) => setSmtpHostInput(e.target.value)} />
+                        <InputNumber placeholder='Port' value={smtpPortInput} onChange={(value) => setSmtpPortInput(value)} />
+                      </Space.Compact>
+                      <Input placeholder='SMTP Username' value={smtpUsernameInput} onChange={(e) => setSmtpUsernameInput(e.target.value)} />
+                      <Tooltip title={<span>对于 Gmail、Outlook 等邮箱，请务必使用<b>应用专用密码 (App Password)</b>，而非登录密码。<br/>请在邮箱账号的安全设置中生成。</span>}>
+                        <Input.Password placeholder='SMTP Password (注意：Gmail/Outlook 请使用应用专用密码)' value={smtpPasswordInput} onChange={(e) => setSmtpPasswordInput(e.target.value)} />
+                      </Tooltip>
+                      <Input placeholder='Receiver Email' value={mailRecipientInput} onChange={(e) => setMailRecipientInput(e.target.value)} />
+                      <Space>
+                        <Button onClick={() => {
+                          invoke('test_email_config', {
+                            smtpHost: smtpHostInput,
+                            smtpPort: smtpPortInput,
+                            smtpUsername: smtpUsernameInput,
+                            smtpPassword: smtpPasswordInput,
+                            mailRecipient: mailRecipientInput
+                          }).then(() => {
+                            notification.success({ message: '测试邮件发送成功' })
+                          }).catch((err) => {
+                            notification.error({ message: '测试邮件发送失败', description: err })
+                          })
+                        }}>测试</Button>
+                        <Button type="primary" onClick={() => {
+                          let new_config = config.clone()
+                          new_config.smtp_host = smtpHostInput
+                          new_config.smtp_port = smtpPortInput
+                          new_config.smtp_username = smtpUsernameInput
+                          new_config.smtp_password = smtpPasswordInput
+                          new_config.mail_recipient = mailRecipientInput
+                          new_config.mail_notifications = true
+                          invoke('set_config', { config: new_config }).then((res) => {
+                            setConfig(new_config)
+                            notification.success({ message: '保存成功' })
+                          }).catch((err) => {
+                            notification.error({ message: '保存失败', description: err })
+                          })
+                        }}>保存并开启</Button>
+                        <Button danger onClick={() => {
+                          let new_config = config.clone()
+                          new_config.mail_notifications = false
+                          invoke('set_config', { config: new_config }).then((res) => {
+                            setConfig(new_config)
+                            notification.success({ message: '已关闭邮件通知' })
+                          }).catch((err) => {
+                            notification.error({ message: '保存失败', description: err })
+                          })
+                        }}>关闭</Button>
+                      </Space>
+                    </Space>
+                  </div>
                 </div>
               }
             />
