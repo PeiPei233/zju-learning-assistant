@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
 use url::Url;
+use serde::Deserialize;
 
 use crate::model::Subject;
 use crate::utils::{measure_latency, rsa_no_padding};
@@ -29,6 +30,29 @@ pub struct ZjuAssist {
 pub struct ZjuRequestBuilder {
     request_builder_first: RequestBuilder,
     request_builder_second: RequestBuilder,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubtitleContent {
+    #[serde(rename = "BeginSec")]
+    pub begin_sec: u64,
+    #[serde(rename = "EndSec")]
+    pub end_sec: u64,
+    #[serde(rename = "Text")]
+    pub text: String,
+    #[serde(rename = "TransText")]
+    pub trans_text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SubtitleItem {
+    all_content: Vec<SubtitleContent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SubtitleResponse {
+    code: i64,
+    list: Vec<SubtitleItem>,
 }
 
 impl ZjuRequestBuilder {
@@ -985,5 +1009,29 @@ impl ZjuAssist {
         let json: Value = json.unwrap();
         let score = json["items"].as_array().unwrap();
         return Ok(score.iter().cloned().collect());
+    }
+
+    pub async fn get_subtitle(&self, sub_id: i64) -> Result<Vec<SubtitleContent>> {
+        let url = format!(
+            "https://yjapi.cmc.zju.edu.cn/courseapi/v3/web-socket/search-trans-result?sub_id={}&format=json",
+            sub_id
+        );
+        let res = self.get(&url).send().await?;
+        let json: SubtitleResponse = res.json().await?;
+
+        if json.code != 0 {
+            return Err(anyhow!("获取字幕失败，错误代码: {}", json.code));
+        }
+
+        if let Some(item) = json.list.first() {
+            Ok(item.all_content.iter().map(|c| SubtitleContent {
+                begin_sec: c.begin_sec,
+                end_sec: c.end_sec,
+                text: c.text.clone(),
+                trans_text: c.trans_text.clone(),
+            }).collect())
+        } else {
+            Ok(Vec::new())
+        }
     }
 }

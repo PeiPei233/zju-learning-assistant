@@ -15,6 +15,7 @@ export class Task {
     lastUpdateTime: number
     remainingTime: number
     errorMessage: string
+    msg: string
 
     constructor() {
         this.id = ''
@@ -29,6 +30,7 @@ export class Task {
         this.lastUpdateTime = 0
         this.remainingTime = 0
         this.errorMessage = ''
+        this.msg = ''
     }
 
     public async start(): Promise<any> {
@@ -46,6 +48,7 @@ export class Task {
         this.status = progress.status
         this.totalSize = progress.total_size
         this.name = progress.file_name
+        this.msg = progress.msg || ''
         let currentTime = Date.now()
         if (this.status === 'done') {
             this.progress = 1
@@ -69,6 +72,9 @@ export class Task {
     }
 
     public getDescription(): string {
+        if (this.msg) {
+            return this.msg
+        }
         if (this.status === 'pending') {
             return '等待中'
         } else if (this.status === 'downloading') {
@@ -168,6 +174,9 @@ export class ClassroomTask extends Task {
 
 
     public getDescription(): string {
+        if (this.msg) {
+            return this.msg
+        }
         if (this.status === 'downloading') {
             return 'PPTs: ' + this.downloadedSize + '/' + this.totalSize +
                 (this.remainingTime && !isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' | 预计剩余 ' + formatTime(this.remainingTime) : '')

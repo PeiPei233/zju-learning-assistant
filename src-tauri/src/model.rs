@@ -10,6 +10,23 @@ pub struct Config {
     pub tray: bool,
     pub max_concurrent_tasks: u32,
     pub auto_start: bool,
+
+    #[serde(default)]
+    pub auto_download_subtitle: bool,
+    #[serde(default = "default_subtitle_language")]
+    pub subtitle_language: Vec<String>,
+    #[serde(default = "default_subtitle_format")]
+    pub subtitle_format: String,
+    #[serde(default)]
+    pub subtitle_with_timestamps: bool,
+}
+
+fn default_subtitle_language() -> Vec<String> {
+    vec!["zh".to_string()]
+}
+
+fn default_subtitle_format() -> String {
+    "srt".to_string()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -29,6 +46,8 @@ pub struct Progress {
     pub file_name: String,
     pub downloaded_size: u64,
     pub total_size: u64,
+    #[serde(default)]
+    pub msg: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

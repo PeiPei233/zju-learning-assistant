@@ -13,6 +13,7 @@ export class Progress {
     file_name: string
     downloaded_size: number
     total_size: number
+    msg: string
 }
 
 export class Subject {
@@ -34,6 +35,10 @@ export class Config {
     tray: boolean
     max_concurrent_tasks: number
     auto_start: boolean
+    auto_download_subtitle: boolean
+    pub_subtitle_language: string[]
+    subtitle_format: string
+    subtitle_with_timestamps: boolean
 
     constructor(config?: Partial<Config>) {
         Object.assign(this, config);

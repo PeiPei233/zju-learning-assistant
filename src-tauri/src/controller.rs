@@ -1,6 +1,7 @@
 use crate::model::{Config, Progress, Subject, Upload};
 use crate::utils::{export_todo_ics, images_to_pdf};
-use crate::zju_assist::ZjuAssist;
+use crate::zju_assist::{ZjuAssist, SubtitleContent};
+use crate::utils::format_srt_timestamp;
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use dashmap::DashMap;
@@ -803,6 +804,7 @@ pub async fn start_download_upload(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
+                    msg: "下载完成".to_string()
                 },
             )
             .unwrap();
@@ -835,6 +837,7 @@ pub async fn start_download_upload(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "下载失败".to_string(),
                         },
                     )
                     .unwrap();
@@ -862,6 +865,7 @@ pub async fn start_download_upload(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "已取消".to_string(),
                         },
                     )
                     .unwrap();
@@ -891,6 +895,7 @@ pub async fn start_download_upload(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "写入文件失败".to_string(),
                         },
                     )
                     .unwrap();
@@ -917,6 +922,7 @@ pub async fn start_download_upload(
                         file_name: file_name.clone(),
                         downloaded_size: current_size,
                         total_size: content_length,
+                        msg: "下载中".to_string(),
                     },
                 )
                 .unwrap();
@@ -930,6 +936,7 @@ pub async fn start_download_upload(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
+                    msg: "下载完成".to_string(),
                 },
             )
             .unwrap();
@@ -1093,6 +1100,7 @@ pub async fn get_latest_version_info() -> Result<Value, String> {
 #[tauri::command]
 pub async fn start_download_ppts(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    config_state: State<'_, Arc<Mutex<Config>>>,
     state: State<'_, DashMap<String, Arc<AtomicBool>>>,
     window: Window,
     id: String,
@@ -1115,6 +1123,135 @@ pub async fn start_download_ppts(
     let download_state = Arc::new(AtomicBool::new(true));
     let zju_assist = zju_assist.lock().await.clone();
     state.insert(id.clone(), download_state.clone());
+
+    // 获取当前配置的副本
+    let config = config_state.lock().await.clone();
+    info!("Config check: auto_download_subtitle={}, languages={:?}", config.auto_download_subtitle, config.subtitle_language);
+    if config.auto_download_subtitle {
+        info!(
+            "start_download_playback: auto download subtitle for {} {}",
+            subject.course_name, subject.sub_name
+        );
+        let sub_task_id = format!("{}-sub", id);
+        let sub_file_name = format!("{}-{}-字幕", subject.course_name, subject.sub_name);
+        
+        // 注册取消状态
+        let sub_download_state = Arc::new(AtomicBool::new(true));
+        state.insert(sub_task_id.clone(), sub_download_state.clone());
+        
+        let zju_clone = zju_assist.clone();
+        let subject_clone = subject.clone();
+        let config_clone = config.clone();
+        let window_clone = window.clone();
+        let id_clone = sub_task_id.clone();
+        let file_name_clone = sub_file_name.clone();
+
+        tokio::spawn(async move {
+            // 发送 Pending 状态
+             window_clone.emit("download-progress", Progress {
+                id: id_clone.clone(),
+                status: "pending".to_string(),
+                file_name: file_name_clone.clone(),
+                downloaded_size: 0,
+                total_size: 100, // 假定大小，文本很小
+                msg: "正在准备下载字幕".to_string()
+            }).unwrap();
+
+            // 检查是否取消
+            if !sub_download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                 window_clone.emit("download-progress", Progress {
+                    id: id_clone.clone(),
+                    status: "canceled".to_string(),
+                    file_name: file_name_clone.clone(),
+                    downloaded_size: 0,
+                    total_size: 100,
+                    msg: "已取消".to_string()
+                }).unwrap();
+                return;
+            }
+
+            // 发送 Downloading 状态
+             window_clone.emit("download-progress", Progress {
+                id: id_clone.clone(),
+                status: "downloading".to_string(),
+                file_name: file_name_clone.clone(),
+                downloaded_size: 10,
+                total_size: 100,
+                msg: "正在获取字幕数据".to_string()
+            }).unwrap();
+
+            // 获取字幕数据
+            match zju_clone.get_subtitle(subject_clone.sub_id).await {
+                Ok(contents) => {
+                    let contents: Vec<SubtitleContent> = contents;
+                    if contents.is_empty() {
+                        info!("该课程无字幕数据");
+                        // 如果没有字幕，发送 done 或者 failed 都可以，这里选择 done 但大小为 0
+                         window_clone.emit("download-progress", Progress {
+                            id: id_clone.clone(),
+                            status: "done".to_string(),
+                            file_name: file_name_clone.clone(),
+                            downloaded_size: 100,
+                            total_size: 100,
+                            msg: "该课程无字幕数据".to_string()
+                        }).unwrap();
+                    } else {
+                         window_clone.emit("download-progress", Progress {
+                            id: id_clone.clone(),
+                            status: "downloading".to_string(),
+                            file_name: file_name_clone.clone(),
+                            downloaded_size: 50,
+                            total_size: 100,
+                            msg: "正在保存字幕".to_string()
+                        }).unwrap();
+                        
+                        // 创建目录
+                        let sub_dir = Path::new(&subject_clone.path).join(&subject_clone.sub_name);
+                        // 创建这个子文件夹
+                        let _ = std::fs::create_dir_all(&sub_dir);
+                        
+                        let file_stem = format!("{}-{}", subject_clone.course_name, subject_clone.sub_name);
+                        
+                        // 保存文件
+                        match save_subtitle(&contents, &sub_dir, &file_stem, &config_clone).await {
+                            Ok(_) => {
+                                 window_clone.emit("download-progress", Progress {
+                                    id: id_clone.clone(),
+                                    status: "done".to_string(),
+                                    file_name: file_name_clone.clone(),
+                                    downloaded_size: 100,
+                                    total_size: 100,
+                                    msg: "字幕下载完成".to_string()
+                                }).unwrap();
+                            },
+                            Err(e) => {
+                                info!("保存字幕失败: {}", e);
+                                 window_clone.emit("download-progress", Progress {
+                                    id: id_clone.clone(),
+                                    status: "failed".to_string(),
+                                    file_name: file_name_clone.clone(),
+                                    downloaded_size: 50,
+                                    total_size: 100,
+                                    msg: "保存字幕失败".to_string()
+                                }).unwrap();
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    info!("获取字幕数据失败: {}", e);
+                     window_clone.emit("download-progress", Progress {
+                        id: id_clone.clone(),
+                        status: "failed".to_string(),
+                        file_name: file_name_clone.clone(),
+                        downloaded_size: 0,
+                        total_size: 100,
+                        msg: "获取字幕数据失败".to_string()
+                    }).unwrap();
+                }
+            }
+        });
+    }
 
     tokio::task::spawn(async move {
         let mut count = 0;
@@ -1173,6 +1310,7 @@ pub async fn start_download_ppts(
                             file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                             downloaded_size: count,
                             total_size: total_size as u64,
+                            msg: "已取消".to_string()
                         },
                     )
                     .unwrap();
@@ -1196,6 +1334,7 @@ pub async fn start_download_ppts(
                         file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                         downloaded_size: count,
                         total_size: total_size as u64,
+                        msg: "下载中".to_string()
                     },
                 )
                 .unwrap();
@@ -1210,6 +1349,7 @@ pub async fn start_download_ppts(
                             file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                             downloaded_size: count,
                             total_size: total_size as u64,
+                            msg: "下载失败".to_string()
                         },
                     )
                     .unwrap();
@@ -1235,6 +1375,7 @@ pub async fn start_download_ppts(
                             file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                             downloaded_size: count,
                             total_size: total_size as u64,
+                            msg: "写入 PDF 文件失败".to_string()
                         },
                     )
                     .unwrap();
@@ -1262,6 +1403,7 @@ pub async fn start_download_ppts(
                         file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                         downloaded_size: count,
                         total_size: total_size as u64,
+                        msg: "已取消".to_string()
                     },
                 )
                 .unwrap();
@@ -1289,6 +1431,7 @@ pub async fn start_download_ppts(
                         file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                         downloaded_size: count,
                         total_size: total_size as u64,
+                        msg: "正在写入 PDF 文件".to_string()
                     },
                 )
                 .unwrap();
@@ -1303,6 +1446,7 @@ pub async fn start_download_ppts(
                             file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                             downloaded_size: count,
                             total_size: total_size as u64,
+                            msg: "写入 PDF 文件失败".to_string()
                         },
                     )
                     .unwrap();
@@ -1329,6 +1473,7 @@ pub async fn start_download_ppts(
                         file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                         downloaded_size: count,
                         total_size: total_size as u64,
+                        msg: "已取消".to_string()
                     },
                 )
                 .unwrap();
@@ -1349,6 +1494,7 @@ pub async fn start_download_ppts(
                     file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                     downloaded_size: count,
                     total_size: total_size as u64,
+                    msg: "下载完成".to_string()
                 },
             )
             .unwrap();
@@ -1425,6 +1571,7 @@ pub async fn start_download_playback(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
+                    msg: "下载完成".to_string()
                 },
             )
             .unwrap();
@@ -1457,6 +1604,7 @@ pub async fn start_download_playback(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "".to_string()
                         },
                     )
                     .unwrap();
@@ -1484,6 +1632,7 @@ pub async fn start_download_playback(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "".to_string()
                         },
                     )
                     .unwrap();
@@ -1513,6 +1662,7 @@ pub async fn start_download_playback(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "".to_string()
                         },
                     )
                     .unwrap();
@@ -1539,6 +1689,7 @@ pub async fn start_download_playback(
                         file_name: file_name.clone(),
                         downloaded_size: current_size,
                         total_size: content_length,
+                        msg: "".to_string()
                     },
                 )
                 .unwrap();
@@ -1552,6 +1703,7 @@ pub async fn start_download_playback(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
+                    msg: "".to_string()
                 },
             )
             .unwrap();
@@ -1927,5 +2079,111 @@ pub async fn set_config(
             .map_err(|err| err.to_string())?;
     }
 
+    Ok(())
+}
+
+async fn save_subtitle(
+    contents: &Vec<SubtitleContent>,
+    base_path: &Path,
+    file_stem: &str,
+    config: &Config,
+) -> Result<(), String> {
+    info!("save_subtitle: 开始保存字幕, 语言配置: {:?}", config.subtitle_language);
+
+    for lang in &config.subtitle_language {
+        // 根据选项确定文件后缀和是否为双语模式
+        let (suffix, is_mixed, is_en) = match lang.as_str() {
+            "zh" => ("zh", false, false),
+            "en" => ("en", false, true),
+            "mixed" => ("zh-en", true, false), // 中英穿插
+            _ => continue, // 未知选项跳过
+        };
+        
+        let ext = match config.subtitle_format.as_str() {
+            "srt" => "srt",
+            "md" => "md",
+            "txt" => "txt",
+            _ => "srt",
+        };
+
+        // 文件名类似：课程名-子课程名.zh-en.srt
+        let file_name = format!("{}.{}.{}", file_stem, suffix, ext);
+        let file_path = base_path.join(&file_name);
+        
+        info!("save_subtitle: 正在处理语言 {}, 目标路径: {:?}", lang, file_path);
+        
+        let mut file_content = String::new();
+
+        for (index, content) in contents.iter().enumerate() {
+            // 获取文本内容
+            let text_content = if is_mixed {
+                // 双语穿插：中文在上，英文在下（如果都有的话）
+                let zh = &content.text;
+                let en = &content.trans_text;
+                if en.trim().is_empty() {
+                    zh.clone()
+                } else if zh.trim().is_empty() {
+                    en.clone()
+                } else {
+                    format!("{}\n{}", zh, en)
+                }
+            } else if is_en {
+                content.trans_text.clone()
+            } else {
+                content.text.clone()
+            };
+
+            if text_content.trim().is_empty() {
+                continue;
+            }
+
+            match config.subtitle_format.as_str() {
+                "srt" => {
+                    file_content.push_str(&format!("{}\n", index + 1));
+                    file_content.push_str(&format!(
+                        "{} --> {}\n",
+                        format_srt_timestamp(content.begin_sec),
+                        format_srt_timestamp(content.end_sec)
+                    ));
+                    file_content.push_str(&text_content);
+                    file_content.push_str("\n\n");
+                }
+                "md" => {
+                    if config.subtitle_with_timestamps {
+                        file_content.push_str(&format!(
+                            "**[{}]**\n{}\n\n",
+                            format_srt_timestamp(content.begin_sec),
+                            text_content
+                        ));
+                    } else {
+                        file_content.push_str(&text_content);
+                        file_content.push_str("\n\n");
+                    }
+                }
+                "txt" => {
+                    if config.subtitle_with_timestamps {
+                        file_content.push_str(&format!(
+                            "[{}]\n{}\n\n",
+                            format_srt_timestamp(content.begin_sec),
+                            text_content
+                        ));
+                    } else {
+                        file_content.push_str(&text_content);
+                        file_content.push_str("\n");
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !file_content.is_empty() {
+            tokio::fs::write(&file_path, file_content)
+                .await
+                .map_err(|e| format!("保存字幕失败: {}", e))?;
+            info!("Saved subtitle success: {:?}", file_path);
+        } else {
+            info!("Skipped saving {:?}: Content is empty", file_name);
+        }
+    }
     Ok(())
 }
