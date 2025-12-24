@@ -27,6 +27,20 @@ export default function Settings({
   const [showApiKey, setShowApiKey] = useState(false);
   const [llmForm] = Form.useForm();
 
+  // 监听 Modal 打开状态，将 config 数据回填到 Form 中
+  useEffect(() => {
+    if (llmModalOpen && config) {
+      llmForm.setFieldsValue({
+        llm_api_base: config.llm_api_base,
+        llm_api_key: config.llm_api_key,
+        llm_model: config.llm_model,
+        llm_temperature: config.llm_temperature,
+        llm_hide_think_tag: config.llm_hide_think_tag,
+        llm_prompt: config.llm_prompt,
+      });
+    }
+  }, [llmModalOpen, config, llmForm]);
+
   // 当 Drawer 打开或配置更新时，同步钉钉 URL 到输入框
   useEffect(() => {
     if (open && config) {
@@ -281,7 +295,7 @@ export default function Settings({
       </Drawer>
 
       <Modal
-        title="字幕与 AI 总结设置"
+        title="字幕高级设置"
         open={subtitleModalOpen}
         onOk={() => setSubtitleModalOpen(false)}
         onCancel={() => setSubtitleModalOpen(false)}
