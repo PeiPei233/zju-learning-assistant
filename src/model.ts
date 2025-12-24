@@ -40,6 +40,14 @@ export class Config {
     subtitle_format: string
     subtitle_with_timestamps: boolean
 
+    llm_enabled: boolean
+    llm_api_base: string
+    llm_api_key: string
+    llm_model: string
+    llm_temperature: number
+    llm_prompt: string
+    llm_hide_think_tag: boolean
+
     constructor(config?: Partial<Config>) {
         Object.assign(this, config);
     }

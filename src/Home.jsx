@@ -7,8 +7,7 @@ import Settings from './Settings'
 import Learning from './Learning'
 import Classroom from './Classroom'
 import Score from './Score'
-import { DownloadManager } from './downloadManager';
-import { LearningTask } from './downloadManager';
+import { DownloadManager, LearningTask } from './downloadManager';
 import { listen } from '@tauri-apps/api/event';
 import { exit } from '@tauri-apps/plugin-process';
 import { Config } from './model';
@@ -350,20 +349,17 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
         break
       }
     }
+    const doAdd = (reDownload) => {
+        allTasks.forEach((task) => {
+            downloadManager.current.addTask(task, reDownload)
+        })
+    }
     if (exists) {
       modal.confirm({
         title: '下载确认',
         content: '部分课件已在下载列表中，是否重新下载？',
-        onOk: () => {
-          tasks.forEach((task) => {
-            downloadManager.current.addTask(task, true)
-          })
-        },
-        onCancel: () => {
-          tasks.forEach((task) => {
-            downloadManager.current.addTask(task, false)
-          })
-        }
+        onOk: doAdd(true),
+        onCancel: doAdd(false)
       })
     } else {
       tasks.forEach((task) => {
@@ -386,6 +382,25 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     }).catch((err) => {
       notification.error({
         message: '设置失败',
+        description: err
+      })
+    })
+  }
+
+  const updateConfigBatch = (updates) => {
+    let new_config = config.clone()
+    // 将 updates 对象中的所有属性合并到 new_config
+    Object.assign(new_config, updates);
+    
+    invoke('set_config', { config: new_config }).then((res) => {
+      setConfig(new_config)
+      // 如果包含并发数设置，也同步更新
+      if (updates.max_concurrent_tasks) {
+        downloadManager.current.maxConcurrentTasks = updates.max_concurrent_tasks
+      }
+    }).catch((err) => {
+      notification.error({
+        message: '批量设置失败',
         description: err
       })
     })
@@ -677,6 +692,7 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
         onClose={() => setOpenSettingDrawer(false)}
         config={config}
         updateConfigField={updateConfigField}
+        updateConfigBatch={updateConfigBatch}
         currentVersion={currentVersion}
         latestVersionData={latestVersionData}
         setOpenVersionModal={setOpenVersionModal}

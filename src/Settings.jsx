@@ -1,24 +1,31 @@
 import { useState, useEffect } from 'react';
-import { App, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Radio, Tooltip, Modal, Checkbox } from 'antd';
-import { EditOutlined, CheckOutlined, SendOutlined, ArrowLeftOutlined, SettingOutlined } from '@ant-design/icons';
+import { App, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Radio, Tooltip, Modal, Checkbox, Divider, Form, Row, Col, Slider } from 'antd';
+import { EditOutlined, CheckOutlined, SendOutlined, ArrowLeftOutlined, SettingOutlined, ApiOutlined, InfoCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
 import * as dialog from "@tauri-apps/plugin-dialog";
 
 const { Text } = Typography;
+const { TextArea } = Input;
+const defaultPrompt = "你是一个专业的课程助教。请根据提供的课程字幕内容，总结课程的核心知识点、重点和难点。输出格式要求清晰、结构化，使用 Markdown 格式。";
 
-export default function Settings({ 
-  open, 
-  onClose, 
-  config, 
-  updateConfigField, 
-  currentVersion, 
-  latestVersionData, 
-  setOpenVersionModal 
+export default function Settings({
+  open,
+  onClose,
+  config,
+  updateConfigField,
+  updateConfigBatch,
+  currentVersion,
+  latestVersionData,
+  setOpenVersionModal
 }) {
-  const { notification } = App.useApp();
+  const { notification, message } = App.useApp();
   const [dingUrlInput, setDingUrlInput] = useState('');
   const [subtitleModalOpen, setSubtitleModalOpen] = useState(false);
+  const [llmModalOpen, setLlmModalOpen] = useState(false);
+  const [isEnablingLlm, setIsEnablingLlm] = useState(false);
   const subtitleLanguages = Array.isArray(config.subtitle_language) ? config.subtitle_language : ['zh'];
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [llmForm] = Form.useForm();
 
   // 当 Drawer 打开或配置更新时，同步钉钉 URL 到输入框
   useEffect(() => {
@@ -31,7 +38,7 @@ export default function Settings({
     dialog.open({
       directory: true,
       multiple: false,
-      title: '选择下载路径' // 修正：plugin-dialog v2 使用 title 而不是 message
+      title: '选择下载路径'
     }).then((res) => {
       if (res) {
         // v2 plugin 可能返回 string 或 null (单选模式)
@@ -66,6 +73,45 @@ export default function Settings({
     notification.success({ message: '钉钉 Webhook 已保存' });
   }
 
+  const handleLlmSwitchChange = (checked) => {
+    if (checked) {
+      // 开启时，标记为正在开启，并弹出设置窗强制确认
+      setIsEnablingLlm(true);
+      setLlmModalOpen(true);
+    } else {
+      updateConfigField('llm_enabled', false);
+    }
+  };
+
+  const handleLlmModalOk = () => {
+    llmForm.validateFields().then(values => {
+      // 验证通过
+      const newEnabledState = isEnablingLlm ? true : config.llm_enabled;
+      
+      // 批量更新配置
+      updateConfigBatch({
+        ...values,
+        llm_enabled: newEnabledState
+      });
+
+      setIsEnablingLlm(false);
+      setLlmModalOpen(false);
+      message.success(isEnablingLlm ? "AI 总结功能已启用" : "配置已保存");
+    }).catch(info => {
+      console.log('Validate Failed:', info);
+      message.error('请填写所有必填项');
+    });
+  };
+
+  const handleLlmModalCancel = () => {
+    setLlmModalOpen(false);
+    // 如果是在开启过程中取消，则回滚开关状态
+    if (isEnablingLlm) {
+      updateConfigField('llm_enabled', false);
+      setIsEnablingLlm(false);
+    }
+  };
+
   return (
     <>
       <Drawer
@@ -98,28 +144,51 @@ export default function Settings({
           </List.Item>
 
           <List.Item>
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>自动下载字幕</Text>}
-                description={
-                  <div>
-                    <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>
-                      下载智云课堂课件时，自动下载语音识别文本。
-                    </Text>
-                    {config.auto_download_subtitle && (
-                      <div style={{ marginTop: 5 }}>
-                        <a onClick={() => setSubtitleModalOpen(true)} style={{ fontSize: 12 }}>
-                          <SettingOutlined style={{ marginRight: 4 }} />
-                          高级选项
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                }
-              />
-              <Switch
-                checked={config.auto_download_subtitle}
-                onChange={(checked) => updateConfigField('auto_download_subtitle', checked)}
-              />
+            <List.Item.Meta
+              title={<Text style={{ fontWeight: 'normal' }}>自动下载字幕</Text>}
+              description={
+                <div>
+                  <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>
+                    下载智云课堂课件时，自动下载语音识别文本。
+                  </Text>
+                  {config.auto_download_subtitle && (
+                    <div style={{ marginTop: 5 }}>
+                      <a onClick={() => setSubtitleModalOpen(true)} style={{ fontSize: 12 }}>
+                        <SettingOutlined style={{ marginRight: 4 }} />
+                        高级选项
+                      </a>
+                    </div>
+                  )}
+                </div>
+              }
+            />
+            <Switch
+              checked={config.auto_download_subtitle}
+              onChange={(checked) => updateConfigField('auto_download_subtitle', checked)}
+            />
+          </List.Item>
+
+          <List.Item>
+            <List.Item.Meta
+              title={<Text style={{ fontWeight: 'normal' }}>AI 课程总结</Text>}
+              description={
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>调用大模型自动生成课程纪要</Text>
+                  {config.llm_enabled && (
+                    <div style={{ marginTop: 5 }}>
+                      <a onClick={() => setLlmModalOpen(true)} style={{ fontSize: 12 }}>
+                        <SettingOutlined style={{ marginRight: 4 }} />
+                        模型参数配置
+                      </a>
+                    </div>
+                  )}
+                </div>
+              }
+            />
+            <Switch
+              checked={config.llm_enabled}
+              onChange={handleLlmSwitchChange}
+            />
           </List.Item>
 
           <List.Item>
@@ -169,7 +238,6 @@ export default function Settings({
               onChange={(value) => {
                 if (!value || value < 1) value = 1;
                 updateConfigField('max_concurrent_tasks', value);
-                // 注意：这里我们只更新 config，DownloadManager 的同步需要在父组件处理，或者通过监听 config 变化处理
               }}
             />
           </List.Item>
@@ -205,7 +273,7 @@ export default function Settings({
             </List.Item>
           </a>
         </List>
-        
+
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', marginTop: 20 }}>
           <Text type='secondary' style={{ fontSize: 12 }}>Made by PeiPei</Text>
           <Text type='secondary' style={{ fontSize: 12 }}>此软件仅供学习交流使用，严禁用于商业用途</Text>
@@ -213,14 +281,15 @@ export default function Settings({
       </Drawer>
 
       <Modal
-        title="字幕下载高级选项"
+        title="字幕与 AI 总结设置"
         open={subtitleModalOpen}
         onOk={() => setSubtitleModalOpen(false)}
         onCancel={() => setSubtitleModalOpen(false)}
+        width={600}
         footer={[
-          <Button key="ok" type="primary" onClick={() => setSubtitleModalOpen(false)}>
+          <Button key="confirm" type="primary" onClick={() => setSubtitleModalOpen(false)}>
             确定
-          </Button>,
+          </Button>
         ]}
       >
         <List>
@@ -269,6 +338,95 @@ export default function Settings({
           </List.Item>
         </List>
       </Modal>
+
+      <Modal
+        title="AI 课程总结配置"
+        open={llmModalOpen}
+        onOk={handleLlmModalOk}
+        onCancel={handleLlmModalCancel}
+        maskClosable={!isEnablingLlm}
+        keyboard={!isEnablingLlm}
+        width={600}
+      >
+        <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: 10 }}>
+          <Form layout="vertical" form={llmForm}>
+            <Form.Item 
+              label="API 请求地址 (Base URL)" 
+              name="llm_api_base"
+              tooltip="OpenAI 格式接口地址，例如 https://api.deepseek.com"
+              rules={[{ required: true, whitespace: true, message: '请输入 API 请求地址' }]}
+            >
+              <Input prefix={<ApiOutlined style={{ color: 'rgba(0,0,0,.25)' }} />} placeholder="例如 https://api.deepseek.com" />
+            </Form.Item>
+
+            <Form.Item 
+              label="API Key" 
+              name="llm_api_key"
+              rules={[{ required: true, whitespace: true, message: '请输入 API Key' }]}
+            >
+              <Input.Password
+                placeholder="sk-..."
+                visibilityToggle={{ visible: showApiKey, onVisibleChange: setShowApiKey }}
+              />
+            </Form.Item>
+
+            <Form.Item 
+              label="模型名称" 
+              name="llm_model"
+              rules={[{ required: true, whitespace: true, message: '请输入模型名称' }]}
+            >
+              <Input prefix={<ThunderboltOutlined style={{ color: 'rgba(0,0,0,.25)' }} />} placeholder="例如 deepseek-chat" />
+            </Form.Item>
+
+            <Form.Item label="温度 (Temperature)" name="llm_temperature">
+               {/* 使用 Render Props 或者简单的受控组件写法来同步 Form 内部状态 */}
+               <TemperatureInput form={llmForm} />
+            </Form.Item>
+
+            <Form.Item 
+              label={<span>隐藏 &lt;think&gt; 标签内容<Tooltip title="针对深度思考模型(如DeepSeek-R1)，过滤掉思维链内容"><InfoCircleOutlined style={{ marginLeft: 4 }} /></Tooltip></span>} 
+              name="llm_hide_think_tag" 
+              valuePropName="checked"
+            >
+              <Switch size="small" />
+            </Form.Item>
+
+            <Form.Item label="自定义提示词 (System Prompt)" name="llm_prompt">
+              <TextArea rows={3} placeholder={defaultPrompt} style={{ resize: 'none', fontSize: 12 }} />
+            </Form.Item>
+
+            <div style={{ textAlign: 'right', marginTop: -20 }}>
+              <a onClick={() => llmForm.setFieldsValue({ llm_prompt: defaultPrompt })} style={{ fontSize: 12 }}>恢复默认</a>
+            </div>
+          </Form>
+        </div>
+      </Modal>
     </>
   )
 }
+
+const TemperatureInput = ({ value, onChange }) => {
+  return (
+    <Row gutter={16}>
+      <Col span={16}>
+        <Slider 
+          min={0} 
+          max={2} 
+          step={0.1} 
+          value={typeof value === 'number' ? value : 0.3} 
+          onChange={onChange} 
+        />
+      </Col>
+      <Col span={8}>
+        <InputNumber 
+          min={0} 
+          max={2} 
+          step={0.1} 
+          style={{ width: '100%' }} 
+          value={typeof value === 'number' ? value : 0.3} 
+          onChange={onChange} 
+        />
+      </Col>
+    </Row>
+  );
+};

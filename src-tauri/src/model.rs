@@ -19,6 +19,18 @@ pub struct Config {
     pub subtitle_format: String,
     #[serde(default)]
     pub subtitle_with_timestamps: bool,
+
+    #[serde(default)]
+    pub llm_enabled: bool,
+    pub llm_api_base: String,
+    pub llm_api_key: String,
+    pub llm_model: String,
+    #[serde(default = "default_llm_temperature")]
+    pub llm_temperature: f64,
+    #[serde(default = "default_llm_prompt")]
+    pub llm_prompt: String,
+    #[serde(default)]
+    pub llm_hide_think_tag: bool,
 }
 
 fn default_subtitle_language() -> Vec<String> {
@@ -27,6 +39,13 @@ fn default_subtitle_language() -> Vec<String> {
 
 fn default_subtitle_format() -> String {
     "srt".to_string()
+}
+
+fn default_llm_temperature() -> f64 {
+    0.2
+}
+fn default_llm_prompt() -> String {
+    "你是一个专业的课程助教。请根据提供的课程字幕内容，总结课程的核心知识点、重点和难点。输出格式要求清晰、结构化，使用 Markdown 格式。".to_string()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
