@@ -26,6 +26,7 @@ export default function Settings({
   const subtitleLanguages = Array.isArray(config.subtitle_language) ? config.subtitle_language : ['zh'];
   const [showApiKey, setShowApiKey] = useState(false);
   const [llmForm] = Form.useForm();
+  const [testingLlm, setTestingLlm] = useState(false);
 
   // 监听 Modal 打开状态，将 config 数据回填到 Form 中
   useEffect(() => {
@@ -125,6 +126,31 @@ export default function Settings({
       setIsEnablingLlm(false);
     }
   };
+
+  const handleTestLlm = () => {
+  // 获取当前表单中的值（即使未保存）
+  llmForm.validateFields(['llm_api_base', 'llm_api_key', 'llm_model'])
+    .then(values => {
+      setTestingLlm(true);
+      invoke('test_llm_connection', {
+        apiBase: values.llm_api_base,
+        apiKey: values.llm_api_key,
+        model: values.llm_model
+      })
+      .then(() => {
+        message.success('连接成功！配置有效。');
+      })
+      .catch(err => {
+        message.error(`连接失败: ${err}`);
+      })
+      .finally(() => {
+        setTestingLlm(false);
+      });
+    })
+    .catch(errorInfo => {
+      message.warning('请先填写完整的 API 地址、Key 和模型名称');
+    });
+};
 
   return (
     <>
@@ -391,6 +417,18 @@ export default function Settings({
             >
               <Input prefix={<ThunderboltOutlined style={{ color: 'rgba(0,0,0,.25)' }} />} placeholder="例如 deepseek-chat" />
             </Form.Item>
+
+            <div style={{ marginBottom: 24, marginLeft: 0 }}>
+              <Button 
+                type="dashed" 
+                icon={<ApiOutlined />} 
+                loading={testingLlm} 
+                onClick={handleTestLlm}
+                block
+              >
+                测试 LLM 连接
+              </Button>
+            </div>
 
             <Form.Item label="温度 (Temperature)" name="llm_temperature">
                {/* 使用 Render Props 或者简单的受控组件写法来同步 Form 内部状态 */}

@@ -2104,3 +2104,49 @@ async fn summarize_subtitle(
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn test_llm_connection(
+    api_base: String,
+    api_key: String,
+    model: String,
+) -> Result<(), String> {
+    info!("test_llm_connection: base={} model={}", api_base, model);
+
+    let client = reqwest::Client::new();
+    
+    // 保持与 summarize_subtitle 一致的 URL 处理逻辑
+    let base_url = api_base.trim_end_matches('/');
+    let api_url = if base_url.ends_with("/v1") {
+        format!("{}/chat/completions", base_url)
+    } else if base_url.contains("chat/completions") {
+        base_url.to_string()
+    } else {
+        format!("{}/chat/completions", base_url)
+    };
+
+    // 发送一个极简请求
+    let payload = json!({
+        "model": model,
+        "messages": [
+            { "role": "user", "content": "Hi" }
+        ],
+        "max_tokens": 1 // 节省 token
+    });
+
+    let res = client.post(&api_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("网络请求失败: {}", e))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("API 报错 ({}): {}", status, text));
+    }
+
+    Ok(())
+}

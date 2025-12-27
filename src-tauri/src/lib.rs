@@ -291,6 +291,7 @@ pub fn run() {
             controller::notify_score,
             controller::get_config,
             controller::set_config,
+            controller::test_llm_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
