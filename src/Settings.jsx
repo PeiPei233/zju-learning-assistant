@@ -405,6 +405,7 @@ export default function Settings({
               rules={[{ required: true, whitespace: true, message: '请输入 API Key' }]}
             >
               <Input.Password
+                className="spaced-password-input"
                 placeholder="sk-..."
                 visibilityToggle={{ visible: showApiKey, onVisibleChange: setShowApiKey }}
               />
