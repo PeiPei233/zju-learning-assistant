@@ -1849,6 +1849,10 @@ pub async fn set_config(
     config: Config,
 ) -> Result<(), String> {
     info!("set_config");
+    // 检查 llm_temperature 范围
+    if config.llm_temperature < 0.0 || config.llm_temperature > 2.0 {
+        return Err("LLM 温度值必须在 0.0 到 2.0 之间".to_string());
+    }
     let mut current_config = config_state.lock().await;
     let origin_auto_start = current_config.auto_start;
     let new_auto_start = config.auto_start;
@@ -2030,17 +2034,8 @@ async fn summarize_subtitle(
 
     // 3. 构建请求
     let client = reqwest::Client::new();
-    
-    // 处理 Base URL，确保以 /chat/completions 结尾
-    let base_url = config.llm_api_base.trim_end_matches('/');
-    let api_url = if base_url.ends_with("/v1") {
-        format!("{}/chat/completions", base_url)
-    } else if base_url.contains("chat/completions") {
-        base_url.to_string()
-    } else {
-        // 常见默认情况，补全 /chat/completions
-        format!("{}/chat/completions", base_url)
-    };
+
+    let api_url = normalize_llm_api_url(&config.llm_api_base);
 
     let payload = json!({
         "model": config.llm_model,
@@ -2079,7 +2074,7 @@ async fn summarize_subtitle(
     // 5. 过滤 <think> 标签 (针对 DeepSeek R1 等推理模型)
     if config.llm_hide_think_tag {
         // 使用 (?s) 开启 dot matches newline 模式
-        if let std::result::Result::Ok(re) = Regex::new(r"(?s)<think>.*?</think>") {
+        if let Ok(re) = Regex::new(r"(?s)<think>.*?</think>") {
             summary_text = re.replace_all(&summary_text, "").to_string();
             summary_text = summary_text.trim().to_string();
         }
@@ -2116,14 +2111,7 @@ pub async fn test_llm_connection(
     let client = reqwest::Client::new();
     
     // 保持与 summarize_subtitle 一致的 URL 处理逻辑
-    let base_url = api_base.trim_end_matches('/');
-    let api_url = if base_url.ends_with("/v1") {
-        format!("{}/chat/completions", base_url)
-    } else if base_url.contains("chat/completions") {
-        base_url.to_string()
-    } else {
-        format!("{}/chat/completions", base_url)
-    };
+    let api_url = normalize_llm_api_url(&api_base);
 
     // 发送一个极简请求
     let payload = json!({
@@ -2149,4 +2137,17 @@ pub async fn test_llm_connection(
     }
 
     Ok(())
+}
+
+
+// Helper: 规范化 LLM API URL，确保以 /chat/completions 结尾
+fn normalize_llm_api_url(base: &str) -> String {
+    let base_trimmed = base.trim_end_matches('/');
+    if base_trimmed.ends_with("/v1") {
+        format!("{}/chat/completions", base_trimmed)
+    } else if base_trimmed.contains("chat/completions") {
+        base_trimmed.to_string()
+    } else {
+        format!("{}/chat/completions", base_trimmed)
+    }
 }
