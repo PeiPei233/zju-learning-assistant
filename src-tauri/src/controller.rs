@@ -1,7 +1,9 @@
 use crate::model::{Config, Progress, Subject, Upload};
 use crate::utils::{export_todo_ics, images_to_pdf};
-use crate::zju_assist::ZjuAssist;
+use crate::zju_assist::{ZjuAssist, SubtitleContent};
+use crate::utils::format_srt_timestamp;
 
+use regex::Regex;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use dashmap::DashMap;
 use futures::TryStreamExt;
@@ -803,6 +805,7 @@ pub async fn start_download_upload(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
+                    msg: "下载完成".to_string()
                 },
             )
             .unwrap();
@@ -835,6 +838,7 @@ pub async fn start_download_upload(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "下载失败".to_string(),
                         },
                     )
                     .unwrap();
@@ -862,6 +866,7 @@ pub async fn start_download_upload(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "已取消".to_string(),
                         },
                     )
                     .unwrap();
@@ -891,6 +896,7 @@ pub async fn start_download_upload(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "写入文件失败".to_string(),
                         },
                     )
                     .unwrap();
@@ -917,6 +923,7 @@ pub async fn start_download_upload(
                         file_name: file_name.clone(),
                         downloaded_size: current_size,
                         total_size: content_length,
+                        msg: "下载中".to_string(),
                     },
                 )
                 .unwrap();
@@ -930,6 +937,7 @@ pub async fn start_download_upload(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
+                    msg: "下载完成".to_string(),
                 },
             )
             .unwrap();
@@ -1093,6 +1101,7 @@ pub async fn get_latest_version_info() -> Result<Value, String> {
 #[tauri::command]
 pub async fn start_download_ppts(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    config_state: State<'_, Arc<Mutex<Config>>>,
     state: State<'_, DashMap<String, Arc<AtomicBool>>>,
     window: Window,
     id: String,
@@ -1113,254 +1122,187 @@ pub async fn start_download_ppts(
 
     // state -> true: downloading, false: cancel
     let download_state = Arc::new(AtomicBool::new(true));
-    let zju_assist = zju_assist.lock().await.clone();
     state.insert(id.clone(), download_state.clone());
 
-    tokio::task::spawn(async move {
+    let zju_assist = zju_assist.lock().await.clone();
+    let config = config_state.lock().await.clone();
+
+    let ai_task_handle = if config.auto_download_subtitle || config.llm_enabled {
+        let zju_clone = zju_assist.clone();
+        let subject_clone = subject.clone();
+        let config_clone = config.clone();
+        let window_clone = window.clone();
+        let bg_id = format!("{}-bg", id); 
+        let state_clone = download_state.clone();
+
+        Some(tokio::spawn(async move {
+            // 检查取消状态
+            if !state_clone.load(std::sync::atomic::Ordering::SeqCst) { return Ok(()); }
+
+            // 1. 获取字幕
+            match zju_clone.get_subtitle(subject_clone.sub_id).await {
+                Ok(contents) => {
+                    let contents: Vec<SubtitleContent> = contents;
+                    if !contents.is_empty() {
+                        let sub_dir = Path::new(&subject_clone.path).join(&subject_clone.sub_name);
+                        let _ = std::fs::create_dir_all(&sub_dir);
+                        let file_stem = format!("{}-{}", subject_clone.course_name, subject_clone.sub_name);
+
+                        // 2. 保存字幕
+                        if config_clone.auto_download_subtitle {
+                            if let Err(e) = save_subtitle(&contents, &sub_dir, &file_stem, &config_clone).await {
+                                info!("后台保存字幕失败: {}", e);
+                            }
+                        }
+
+                        // 3. AI 总结
+                        if config_clone.llm_enabled {
+                            if !state_clone.load(std::sync::atomic::Ordering::SeqCst) { return Ok(()); }
+                            if let Err(e) = summarize_subtitle(&contents, &sub_dir, &file_stem, &config_clone, &window_clone, &bg_id).await {
+                                info!("后台 AI 总结失败: {}", e);
+                                return Err(format!("AI总结失败: {}", e));
+                            }
+                        }
+                    }
+                    Ok(())
+                },
+                Err(e) => Err(format!("获取字幕失败: {}", e))
+            }
+        }))
+    } else {
+        None
+    };
+
+    let ppt_task_result = async {
         let mut count = 0;
         let total_size = subject.ppt_image_urls.len();
         let path = Path::new(&subject.path).join(&subject.sub_name);
         let urls = subject.ppt_image_urls.clone();
 
-        let image_paths = urls
-            .clone()
-            .into_iter()
-            .zip(1..=urls.len())
-            .map(|(url, i)| {
-                path.join("ppt_images")
-                    .join(format!("{}.{}", i, url.split('.').last().unwrap()))
-                    .to_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .collect::<Vec<_>>();
+        let image_paths = urls.clone().into_iter().zip(1..=urls.len()).map(|(url, i)| {
+            path.join("ppt_images").join(format!("{}.{}", i, url.split('.').last().unwrap())).to_str().unwrap().to_string()
+        }).collect::<Vec<_>>();
 
         let mut tasks: Vec<JoinHandle<Result<(), String>>> = Vec::new();
-        for (url, path) in urls
-            .clone()
-            .into_iter()
-            .zip(image_paths.clone().into_iter())
-        {
+        for (url, path) in urls.clone().into_iter().zip(image_paths.clone().into_iter()) {
             let zju_assist = zju_assist.clone();
-            let task = tokio::task::spawn(async move {
-                let res = zju_assist
-                    .download_ppt_image(&url, &path)
-                    .await
-                    .map_err(|err| err.to_string());
-                // if download fail, retry once
+            tasks.push(tokio::task::spawn(async move {
+                let res = zju_assist.download_ppt_image(&url, &path).await.map_err(|err| err.to_string());
                 if let Err(_) = res {
                     tokio::time::sleep(Duration::from_secs(1)).await;
-                    return zju_assist
-                        .download_ppt_image(&url, &path)
-                        .await
-                        .map_err(|err| err.to_string());
+                    return zju_assist.download_ppt_image(&url, &path).await.map_err(|err| err.to_string());
                 }
                 Ok(())
-            });
-            tasks.push(task);
-            // delay 50ms to avoid too many requests
+            }));
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
         for task in &mut tasks {
             if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "canceled".to_string(),
-                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                            downloaded_size: count,
-                            total_size: total_size as u64,
-                        },
-                    )
-                    .unwrap();
-                // stop all tasks
-                for task in tasks {
-                    task.abort();
-                }
-                // clean up
-                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_ppts: clean up fail: {}", err);
-                }
-                return;
+                for task in tasks { task.abort(); }
+                let _ = std::fs::remove_dir_all(&path);
+                return Err("已取消".to_string());
             }
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "downloading".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                    },
-                )
-                .unwrap();
-            let res = task.await.map_err(|err| err.to_string());
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                            downloaded_size: count,
-                            total_size: total_size as u64,
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_ppts: fail {} {} {} {}",
-                    subject.course_name, subject.sub_name, subject.path, err
-                );
-                // clean up
-                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_ppts: clean up fail: {}", err);
-                }
-                return;
-            }
-            let res = res.unwrap();
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                            downloaded_size: count,
-                            total_size: total_size as u64,
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_ppts: fail {} {} {} {}",
-                    subject.course_name, subject.sub_name, subject.path, err
-                );
-                // clean up
-                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_ppts: clean up fail: {}", err);
-                }
-                return;
+
+            window.emit("download-progress", Progress {
+                id: id.clone(), status: "downloading".to_string(),
+                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                downloaded_size: count, total_size: total_size as u64, msg: "下载 PPT 中".to_string()
+            }).unwrap();
+
+            let res = task.await.map_err(|e| e.to_string())?;
+            if let Err(e) = res {
+                let _ = std::fs::remove_dir_all(&path);
+                return Err(format!("下载图片失败: {}", e));
             }
             count += 1;
         }
 
-        if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "canceled".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                    },
-                )
-                .unwrap();
-            // clean up
-            let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-            if let Err(err) = res {
-                debug!("download_upload: clean up fail: {}", err);
-            }
-            return;
-        }
-
         if urls.len() > 0 && to_pdf {
-            let pdf_path = path
-                .join(format!("{}-{}.pdf", subject.course_name, subject.sub_name))
-                .to_str()
-                .unwrap()
-                .to_string();
+            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = std::fs::remove_dir_all(&path);
+                return Err("已取消".to_string());
+            }
 
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "writing".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                    },
-                )
-                .unwrap();
-            let res = images_to_pdf(image_paths, &pdf_path).map_err(|err| err.to_string());
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                            downloaded_size: count,
-                            total_size: total_size as u64,
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_ppts: fail {} {} {} {}",
-                    subject.course_name, subject.sub_name, subject.path, err
-                );
-                // clean up
-                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_upload: clean up fail: {}", err);
+            let pdf_path = path.join(format!("{}-{}.pdf", subject.course_name, subject.sub_name)).to_str().unwrap().to_string();
+            
+            window.emit("download-progress", Progress {
+                id: id.clone(), status: "writing".to_string(),
+                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                downloaded_size: count, total_size: total_size as u64, msg: "正在合成 PDF".to_string()
+            }).unwrap();
+
+            if let Err(e) = images_to_pdf(image_paths, &pdf_path) {
+                let _ = std::fs::remove_dir_all(&path);
+                return Err(format!("PDF 合成失败: {}", e));
+            }
+        }
+        
+        Ok::<(), String>(())
+    }.await; // 等待 PPT 流程结束
+
+    // 处理 PPT 任务结果（失败或取消）
+    if let Err(e) = ppt_task_result {
+        if e != "已取消" {
+            window.emit("download-progress", Progress {
+                id: id.clone(), status: "failed".to_string(),
+                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                downloaded_size: 0, total_size: 100, msg: e
+            }).unwrap();
+        } else {
+             window.emit("download-progress", Progress {
+                id: id.clone(), status: "canceled".to_string(),
+                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                downloaded_size: 0, total_size: 100, msg: "已取消".to_string()
+            }).unwrap();
+        }
+        // 如果主任务失败，也要等待/取消后台 AI 任务
+        if let Some(handle) = ai_task_handle { handle.abort(); }
+        return Ok(());
+    }
+
+    if let Some(handle) = ai_task_handle {
+        // 此时 PPT 已完成，如果 AI 还没完，更新 UI 提示
+        if !handle.is_finished() {
+            window.emit("download-progress", Progress {
+                id: id.clone(), status: "downloading".to_string(),
+                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                // 进度条设为 99% 或循环状态，提示用户正在等待 AI
+                downloaded_size: 99, total_size: 100, msg: "PPT 完成，等待 AI 总结...".to_string()
+            }).unwrap();
+        }
+
+        // 真正的回收点
+        match handle.await {
+            Ok(res) => {
+                if let Err(e) = res {
+                    info!("AI 任务报错: {}", e);
                 }
-                return;
+            },
+            Err(_) => {
+                info!("AI 任务被取消或 Panic");
             }
         }
+    }
 
-        if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "canceled".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                    },
-                )
-                .unwrap();
-            // clean up
-            let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-            if let Err(err) = res {
-                debug!("download_upload: clean up fail: {}", err);
-            }
-            return;
-        }
+    if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+         window.emit("download-progress", Progress {
+            id: id.clone(), status: "canceled".to_string(), file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+            downloaded_size: 0, total_size: 100, msg: "已取消".to_string()
+        }).unwrap();
+        return Ok(());
+    }
 
-        window
-            .emit(
-                "download-progress",
-                Progress {
-                    id: id.clone(),
-                    status: "done".to_string(),
-                    file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                    downloaded_size: count,
-                    total_size: total_size as u64,
-                },
-            )
-            .unwrap();
-        info!(
-            "download_ppts: done {} {}",
-            subject.course_name, subject.sub_name
-        );
-    });
+    window.emit("download-progress", Progress {
+        id: id.clone(), status: "done".to_string(),
+        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+        downloaded_size: 100, total_size: 100, msg: "全部完成".to_string()
+    }).unwrap();
+    
+    info!("download_ppts: done {} {}", subject.course_name, subject.sub_name);
 
     Ok(())
 }
-
 #[tauri::command]
 pub async fn start_download_playback(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
@@ -1425,6 +1367,7 @@ pub async fn start_download_playback(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
+                    msg: "下载完成".to_string()
                 },
             )
             .unwrap();
@@ -1457,6 +1400,7 @@ pub async fn start_download_playback(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "".to_string()
                         },
                     )
                     .unwrap();
@@ -1484,6 +1428,7 @@ pub async fn start_download_playback(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "".to_string()
                         },
                     )
                     .unwrap();
@@ -1513,6 +1458,7 @@ pub async fn start_download_playback(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
+                            msg: "".to_string()
                         },
                     )
                     .unwrap();
@@ -1539,6 +1485,7 @@ pub async fn start_download_playback(
                         file_name: file_name.clone(),
                         downloaded_size: current_size,
                         total_size: content_length,
+                        msg: "".to_string()
                     },
                 )
                 .unwrap();
@@ -1552,6 +1499,7 @@ pub async fn start_download_playback(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
+                    msg: "".to_string()
                 },
             )
             .unwrap();
@@ -1901,6 +1849,10 @@ pub async fn set_config(
     config: Config,
 ) -> Result<(), String> {
     info!("set_config");
+    // 检查 llm_temperature 范围
+    if config.llm_temperature < 0.0 || config.llm_temperature > 2.0 {
+        return Err("LLM 温度值必须在 0.0 到 2.0 之间".to_string());
+    }
     let mut current_config = config_state.lock().await;
     let origin_auto_start = current_config.auto_start;
     let new_auto_start = config.auto_start;
@@ -1928,4 +1880,274 @@ pub async fn set_config(
     }
 
     Ok(())
+}
+
+async fn save_subtitle(
+    contents: &Vec<SubtitleContent>,
+    base_path: &Path,
+    file_stem: &str,
+    config: &Config,
+) -> Result<(), String> {
+    info!("save_subtitle: 开始保存字幕, 语言配置: {:?}", config.subtitle_language);
+
+    for lang in &config.subtitle_language {
+        // 根据选项确定文件后缀和是否为双语模式
+        let (suffix, is_mixed, is_en) = match lang.as_str() {
+            "zh" => ("zh", false, false),
+            "en" => ("en", false, true),
+            "mixed" => ("zh-en", true, false), // 中英穿插
+            _ => continue, // 未知选项跳过
+        };
+        
+        let ext = match config.subtitle_format.as_str() {
+            "srt" => "srt",
+            "md" => "md",
+            "txt" => "txt",
+            _ => "srt",
+        };
+
+        // 文件名类似：课程名-子课程名.zh-en.srt
+        let file_name = format!("{}.{}.{}", file_stem, suffix, ext);
+        let file_path = base_path.join(&file_name);
+        
+        info!("save_subtitle: 正在处理语言 {}, 目标路径: {:?}", lang, file_path);
+        
+        let mut file_content = String::new();
+
+        for (index, content) in contents.iter().enumerate() {
+            // 获取文本内容
+            let text_content = if is_mixed {
+                // 双语穿插：中文在上，英文在下（如果都有的话）
+                let zh = &content.text;
+                let en = &content.trans_text;
+                if en.trim().is_empty() {
+                    zh.clone()
+                } else if zh.trim().is_empty() {
+                    en.clone()
+                } else {
+                    format!("{}\n{}", zh, en)
+                }
+            } else if is_en {
+                content.trans_text.clone()
+            } else {
+                content.text.clone()
+            };
+
+            if text_content.trim().is_empty() {
+                continue;
+            }
+
+            match config.subtitle_format.as_str() {
+                "srt" => {
+                    file_content.push_str(&format!("{}\n", index + 1));
+                    file_content.push_str(&format!(
+                        "{} --> {}\n",
+                        format_srt_timestamp(content.begin_sec),
+                        format_srt_timestamp(content.end_sec)
+                    ));
+                    file_content.push_str(&text_content);
+                    file_content.push_str("\n\n");
+                }
+                "md" => {
+                    if config.subtitle_with_timestamps {
+                        file_content.push_str(&format!(
+                            "**[{}]**\n{}\n\n",
+                            format_srt_timestamp(content.begin_sec),
+                            text_content
+                        ));
+                    } else {
+                        file_content.push_str(&text_content);
+                        file_content.push_str("\n\n");
+                    }
+                }
+                "txt" => {
+                    if config.subtitle_with_timestamps {
+                        file_content.push_str(&format!(
+                            "[{}]\n{}\n\n",
+                            format_srt_timestamp(content.begin_sec),
+                            text_content
+                        ));
+                    } else {
+                        file_content.push_str(&text_content);
+                        file_content.push_str("\n");
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !file_content.is_empty() {
+            tokio::fs::write(&file_path, file_content)
+                .await
+                .map_err(|e| format!("保存字幕失败: {}", e))?;
+            info!("Saved subtitle success: {:?}", file_path);
+        } else {
+            info!("Skipped saving {:?}: Content is empty", file_name);
+        }
+    }
+    Ok(())
+}
+
+async fn summarize_subtitle(
+    contents: &Vec<SubtitleContent>,
+    base_path: &Path,
+    file_stem: &str,
+    config: &Config,
+    window: &Window,
+    id: &str,
+) -> Result<(), String> {
+    // 1. 检查开关和 API Key
+    if !config.llm_enabled {
+        return Ok(());
+    }
+    if config.llm_api_key.is_empty() {
+        info!("LLM enabled but no API Key provided, skipping summary.");
+        // 可以选择在这里给前端发个提示，或者静默跳过
+        return Ok(());
+    }
+
+    info!("summarize_subtitle: 开始 AI 总结 - {}", file_stem);
+
+    // 发送进度提示：正在总结
+    let _ = window.emit("download-progress", Progress {
+        id: id.to_string(),
+        status: "downloading".to_string(),
+        file_name: format!("{}-AI总结", file_stem),
+        downloaded_size: 60, 
+        total_size: 100,
+        msg: "正在进行 AI 总结...".to_string(),
+    });
+
+    // 2. 准备 Prompt 和 上下文
+    let system_prompt = if config.llm_prompt.trim().is_empty() {
+        "你是一个专业的课程助教。请根据提供的课程字幕内容，总结课程的核心知识点、重点和难点。输出格式要求清晰、结构化，使用 Markdown 格式。"
+    } else {
+        &config.llm_prompt
+    };
+
+    // 拼接所有字幕文本（使用原文字幕 text，通常比 trans_text 更准确）
+    // 如果需要更精细的控制（比如只总结英文），可以根据 subtitle_language 判断
+    let full_text = contents.iter()
+        .map(|c| c.text.clone())
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    // 3. 构建请求
+    let client = reqwest::Client::new();
+
+    let api_url = normalize_llm_api_url(&config.llm_api_base);
+
+    let payload = json!({
+        "model": config.llm_model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": full_text }
+        ],
+        "temperature": config.llm_temperature,
+        "stream": false 
+    });
+
+    // 4. 调用 API
+    let res = client.post(&api_url)
+        .header("Authorization", format!("Bearer {}", config.llm_api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("LLM 请求失败: {}", e))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("LLM API 返回错误 {}: {}", status, text));
+    }
+
+    let json: Value = res.json().await.map_err(|e| format!("解析响应失败: {}", e))?;
+    
+    // 提取内容
+    let content = json["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or("响应中未找到 content 字段")?;
+    
+    let mut summary_text = content.to_string();
+
+    // 5. 过滤 <think> 标签 (针对 DeepSeek R1 等推理模型)
+    if config.llm_hide_think_tag {
+        // 使用 (?s) 开启 dot matches newline 模式
+        if let Ok(re) = Regex::new(r"(?s)<think>.*?</think>") {
+            summary_text = re.replace_all(&summary_text, "").to_string();
+            summary_text = summary_text.trim().to_string();
+        }
+    }
+
+    // 6. 保存为 Markdown 文件
+    let file_name = format!("{}-AI总结.md", file_stem);
+    let file_path = base_path.join(&file_name);
+    
+    tokio::fs::write(&file_path, summary_text).await.map_err(|e| format!("写入总结文件失败: {}", e))?;
+    info!("AI 总结已保存: {:?}", file_path);
+
+    // 发送进度提示：完成
+    let _ = window.emit("download-progress", Progress {
+        id: id.to_string(),
+        status: "downloading".to_string(), // 保持 downloading，直到整个任务结束
+        file_name: file_name,
+        downloaded_size: 100,
+        total_size: 100,
+        msg: "AI 总结完成".to_string(),
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn test_llm_connection(
+    api_base: String,
+    api_key: String,
+    model: String,
+) -> Result<(), String> {
+    info!("test_llm_connection: base={} model={}", api_base, model);
+
+    let client = reqwest::Client::new();
+    
+    // 保持与 summarize_subtitle 一致的 URL 处理逻辑
+    let api_url = normalize_llm_api_url(&api_base);
+
+    // 发送一个极简请求
+    let payload = json!({
+        "model": model,
+        "messages": [
+            { "role": "user", "content": "Hi" }
+        ],
+        "max_tokens": 1 // 节省 token
+    });
+
+    let res = client.post(&api_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("网络请求失败: {}", e))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("API 报错 ({}): {}", status, text));
+    }
+
+    Ok(())
+}
+
+
+// Helper: 规范化 LLM API URL，确保以 /chat/completions 结尾
+fn normalize_llm_api_url(base: &str) -> String {
+    let base_trimmed = base.trim_end_matches('/');
+    if base_trimmed.ends_with("/v1") {
+        format!("{}/chat/completions", base_trimmed)
+    } else if base_trimmed.contains("chat/completions") {
+        base_trimmed.to_string()
+    } else {
+        format!("{}/chat/completions", base_trimmed)
+    }
 }

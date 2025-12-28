@@ -185,3 +185,10 @@ pub fn export_todo_ics(
 
     Ok(())
 }
+
+pub fn format_srt_timestamp(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+    format!("{:02}:{:02}:{:02},000", hours, minutes, secs)
+}

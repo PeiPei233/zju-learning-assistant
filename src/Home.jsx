@@ -1,13 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
-import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Select } from 'antd';
+import { App, Menu, Layout, Tooltip, Progress, Drawer, List, Typography, Button, Badge } from 'antd';
 import { invoke } from '@tauri-apps/api/core'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { LogoutOutlined, DownloadOutlined, EditOutlined, CloseOutlined, FolderOutlined, ReloadOutlined, SettingOutlined, CheckOutlined, FileSearchOutlined, ArrowLeftOutlined, DeleteOutlined, SendOutlined } from '@ant-design/icons';
+import Settings from './Settings'
 import Learning from './Learning'
 import Classroom from './Classroom'
 import Score from './Score'
-import { DownloadManager } from './downloadManager';
-import { LearningTask } from './downloadManager';
+import { DownloadManager, LearningTask } from './downloadManager';
 import { listen } from '@tauri-apps/api/event';
 import { exit } from '@tauri-apps/plugin-process';
 import { Config } from './model';
@@ -37,8 +37,6 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
   const [downloadingCount, setDownloadingCount] = useState(0)
   const [openDownloadDrawer, setOpenDownloadDrawer] = useState(false)
   const [openSettingDrawer, setOpenSettingDrawer] = useState(false)
-
-  const [dingUrlInput, setDingUrlInput] = useState('')
 
   const [courseList, setCourseList] = useState([])
   const [selectedCourseKeys, setSelectedCourseKeys] = useState([])
@@ -254,7 +252,6 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     invoke('get_config').then((res) => {
       console.log(res)
       setConfig(new Config(res))
-      setDingUrlInput(res.ding_url)
       downloadManager.current.maxConcurrentTasks = res.max_concurrent_tasks
     }).catch((err) => {
       notification.error({
@@ -352,20 +349,17 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
         break
       }
     }
+    const doAdd = (reDownload) => {
+        allTasks.forEach((task) => {
+            downloadManager.current.addTask(task, reDownload)
+        })
+    }
     if (exists) {
       modal.confirm({
         title: '下载确认',
         content: '部分课件已在下载列表中，是否重新下载？',
-        onOk: () => {
-          tasks.forEach((task) => {
-            downloadManager.current.addTask(task, true)
-          })
-        },
-        onCancel: () => {
-          tasks.forEach((task) => {
-            downloadManager.current.addTask(task, false)
-          })
-        }
+        onOk: doAdd(true),
+        onCancel: doAdd(false)
       })
     } else {
       tasks.forEach((task) => {
@@ -382,6 +376,9 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     new_config[field] = value
     invoke('set_config', { config: new_config }).then((res) => {
       setConfig(new_config)
+      if (field === 'max_concurrent_tasks') {
+        downloadManager.current.maxConcurrentTasks = value
+      }
     }).catch((err) => {
       notification.error({
         message: '设置失败',
@@ -390,18 +387,20 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
     })
   }
 
-  const updatePath = () => {
-    dialog.open({
-      directory: true,
-      multiple: false,
-      message: '选择下载路径'
-    }).then((res) => {
-      if (res && res.length !== 0) {
-        updateConfigField('save_path', res)
+  const updateConfigBatch = (updates) => {
+    let new_config = config.clone()
+    // 将 updates 对象中的所有属性合并到 new_config
+    Object.assign(new_config, updates);
+    
+    invoke('set_config', { config: new_config }).then((res) => {
+      setConfig(new_config)
+      // 如果包含并发数设置，也同步更新
+      if (updates.max_concurrent_tasks) {
+        downloadManager.current.maxConcurrentTasks = updates.max_concurrent_tasks
       }
     }).catch((err) => {
       notification.error({
-        message: '下载路径修改失败',
+        message: '批量设置失败',
         description: err
       })
     })
@@ -688,187 +687,16 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
           )}
         />
       </Drawer>
-      <Drawer
+      <Settings 
         open={openSettingDrawer}
-        closeIcon={<ArrowLeftOutlined />}
-        onClose={() => {
-          setDingUrlInput(config.ding_url)
-          setOpenSettingDrawer(false)
-        }}
-        title='设置'
-      >
-        <List
-          itemLayout='horizontal'
-        >
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
-                }}>下载/同步位置</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>{config.save_path}</Text>
-              </div>}
-            />
-            <Tooltip title='修改下载/同步位置'>
-              <Button type='text' icon={<EditOutlined />} onClick={updatePath} />
-            </Tooltip>
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
-                }}>自动导出为 PDF</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>开启后，从智云课堂下载的课件将自动导出为 PDF</Text>
-              </div>}
-            />
-            <Switch checked={config.to_pdf} onChange={(checked) => {
-              updateConfigField('to_pdf', checked)
-            }} />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
-                }}>课件更新时自动下载</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>开启学在浙大课件自动同步后，若开启该选项，则检测到新课件时会自动下载。否则仅会加入课件列表。</Text>
-              </div>}
-            />
-            <Switch checked={config.auto_download} onChange={(checked) => {
-              updateConfigField('auto_download', checked)
-            }} />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
-                }}>钉钉机器人 Webhook</Text>}
-              description={
-                <div>
-                  <Text type="secondary" style={{
-                    fontWeight: 'normal',
-                    fontSize: 12
-                  }}>检测到成绩更新后，将使用以下钉钉机器人 Webhook 发送通知。若留空，则不使用钉钉机器人发送通知。</Text>
-                  <Space.Compact style={{ marginTop: 10, width: '100%' }}>
-                    <Input placeholder='输入完整的钉钉机器人 Webhook' value={dingUrlInput} onChange={(e) => setDingUrlInput(e.target.value)} />
-                    <Button icon={<Tooltip title='发送测试消息'><SendOutlined /></Tooltip>} onClick={() => {
-                      notifyUpdate({ xkkh: '测试课程', kcmc: '测试课程', cj: '100', jd: '5.0', xf: '3.0' }, 5, 37, 5, 40, dingUrlInput)
-                    }} />
-                    <Button icon={<Tooltip title='保存'><CheckOutlined /></Tooltip>} onClick={() => {
-                      updateConfigField('ding_url', dingUrlInput)
-                    }} />
-                  </Space.Compact>
-                </div>
-              }
-            />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
-                }}>下载开始时显示下载列表</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>关闭此设置会使人更难知道文件何时开始下载</Text>
-              </div>}
-            />
-            <Switch checked={config.auto_open_download_list} onChange={(checked) => {
-              updateConfigField('auto_open_download_list', checked)
-            }} />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
-                }}>最大并行下载任务数</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>同时进行下载的最大任务数量</Text>
-              </div>}
-            />
-            <InputNumber min={1} value={config.max_concurrent_tasks} changeOnWheel
-              onChange={(value) => {
-                if (!value || value < 1) {
-                  value = 1
-                }
-                updateConfigField('max_concurrent_tasks', value)
-                downloadManager.current.maxConcurrentTasks = value
-              }}
-            />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
-                }}>关闭应用后保持后台运行</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>若开启，关闭应用窗口后应用会保持后台运行，并保留托盘图标。</Text>
-              </div>}
-            />
-            <Switch checked={config.tray} onChange={(checked) => {
-              updateConfigField('tray', checked)
-            }} />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              title={<Text
-                style={{
-                  fontWeight: 'normal',
-                }}>开机自启</Text>}
-              description={<div>
-                <Text type="secondary" style={{
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>若开启，应用会在开机时自动启动。</Text>
-              </div>}
-            />
-            <Switch checked={config.auto_start} onChange={(checked) => {
-              updateConfigField('auto_start', checked)
-            }} />
-          </List.Item>
-          <a onClick={() => setOpenVersionModal(true)}>
-            <List.Item>
-              <List.Item.Meta
-                title={<Badge count={(!latestVersionData || (latestVersionData && latestVersionData.tag_name === currentVersion) ? 0 : 'New')} size='small'>
-                  <Text
-                    style={{
-                      fontWeight: 'normal',
-                    }}>应用版本</Text>
-                </Badge>}
-              />
-              <Text>{currentVersion}</Text>
-            </List.Item>
-          </a>
-        </List>
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-          <Text type='secondary' style={{ fontSize: 12 }}>Made by PeiPei</Text>
-          <Text type='secondary' style={{ fontSize: 12 }}>此软件仅供学习交流使用，严禁用于商业用途</Text>
-        </div>
-      </Drawer>
+        onClose={() => setOpenSettingDrawer(false)}
+        config={config}
+        updateConfigField={updateConfigField}
+        updateConfigBatch={updateConfigBatch}
+        currentVersion={currentVersion}
+        latestVersionData={latestVersionData}
+        setOpenVersionModal={setOpenVersionModal}
+      />
     </Layout>
   )
 }
