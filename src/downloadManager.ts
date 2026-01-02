@@ -200,6 +200,56 @@ export class ClassroomTask extends Task {
         }
     }
 }
+export class ClassroomASRTask extends Task {
+    subject: Subject
+
+    constructor(subject: Subject) {
+        super()
+        this.id = `${subject.course_id}-${subject.sub_id}-${subject.path}`
+        this.name = `${subject.course_name}-${subject.sub_name}`
+        this.path = subject.path
+        this.subject = subject
+        this.totalSize = subject.ppt_image_urls.length
+    }
+
+    async start(): Promise<any> {
+        super.start()
+        // start downloading
+        return invoke('start_download_asr_text', { id: this.id, subject: this.subject })
+    }
+
+    async cancel(): Promise<any> {
+        super.cancel()
+        // cancel downloading
+        return invoke('cancel_download', { id: this.id })
+    }
+
+
+    public getDescription(): string {
+        if (this.status === 'downloading') {
+            return 'ASR Text: ' + this.downloadedSize + '/' + this.totalSize +
+                (this.remainingTime && !isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' | 预计剩余 ' + formatTime(this.remainingTime) : '')
+        } else if (this.status === 'writing') {
+            return '正在写入文件'
+        } else {
+            return super.getDescription()
+        }
+    }
+
+    async openFile(folder: boolean): Promise<string> {
+        return invoke('open_file_asr_text', { subject: this.subject, folder })
+    }
+
+    public equals(task: Task): boolean {
+        if (task instanceof ClassroomASRTask) {
+            return this.id === task.id && this.name === task.name && this.path === task.path &&
+                this.subject.ppt_image_urls.length === task.subject.ppt_image_urls.length
+        } else {
+            return false
+        }
+    }
+}
+
 
 export class DownloadManager {
     _maxConcurrentTasks: number

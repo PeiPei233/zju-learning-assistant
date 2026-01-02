@@ -5,7 +5,7 @@ import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/ic
 import SearchTable from './SearchTable'
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
-import { ClassroomTask } from './downloadManager';
+import { ClassroomTask, ClassroomASRTask } from './downloadManager';
 
 dayjs.locale('zh-cn')
 
@@ -207,6 +207,20 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     setSelectedRightKeys([])
   }
 
+  const downloadASRText = () => {
+    let subs = rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id))
+    if (subs.length === 0) {
+      notification.error({
+        message: '请选择课程',
+      })
+      return
+    }
+    let tasks = subs.map((item) => new ClassroomASRTask(item, toPdf, true))
+    addDownloadTasks(tasks)
+    setRightSubList(rightSubList.filter((item) => !selectedRightKeys.includes(item.sub_id)))
+    setSelectedRightKeys([])
+  }
+
   const searchCourse = () => {
     if (searchCourseName === '' && searchTeacherName === '') {
       notification.error({
@@ -300,6 +314,13 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
             </div>
           }
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
+            <Button
+              type='primary'
+              icon={<DownloadOutlined />}
+              onClick={downloadASRText}
+              disabled={loadingRightSubList}
+              style={{ marginRight: 10 }}
+            >{'下载同传稿'}</Button>
             <Button
               type='primary'
               icon={<DownloadOutlined />}
