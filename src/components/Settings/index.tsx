@@ -1,46 +1,36 @@
-import { useState, useEffect } from 'react';
-import { App, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Radio, Tooltip, Modal, Checkbox, Form, Row, Col, Slider } from 'antd';
-import { EditOutlined, CheckOutlined, SendOutlined, ArrowLeftOutlined, SettingOutlined, ApiOutlined, InfoCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { App, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Tooltip } from 'antd';
+import { EditOutlined, CheckOutlined, SendOutlined, ArrowLeftOutlined, SettingOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
 import * as dialog from "@tauri-apps/plugin-dialog";
+import { useConfig } from '../../context/ConfigContext';
+import LlmSettingsModal from './LlmSettingsModal';
+import SubtitleSettingsModal from './SubtitleSettingsModal';
+import { Config } from '../../model';
 
 const { Text } = Typography;
-const { TextArea } = Input;
-const defaultPrompt = "你是一个专业的课程助教。请根据提供的课程字幕内容，总结课程的核心知识点、重点和难点。输出格式要求清晰、结构化，使用 Markdown 格式。";
+
+interface SettingsProps {
+  open: boolean;
+  onClose: () => void;
+  currentVersion: string;
+  latestVersionData: any;
+  setOpenVersionModal: (open: boolean) => void;
+}
 
 export default function Settings({
   open,
   onClose,
-  config,
-  updateConfigField,
-  updateConfigBatch,
   currentVersion,
   latestVersionData,
   setOpenVersionModal
-}) {
-  const { notification, message } = App.useApp();
+}: SettingsProps) {
+  const { config, updateConfigField, updateConfigBatch } = useConfig();
+  const { notification } = App.useApp();
   const [dingUrlInput, setDingUrlInput] = useState('');
   const [subtitleModalOpen, setSubtitleModalOpen] = useState(false);
   const [llmModalOpen, setLlmModalOpen] = useState(false);
   const [isEnablingLlm, setIsEnablingLlm] = useState(false);
-  const subtitleLanguages = Array.isArray(config.subtitle_language) ? config.subtitle_language : ['zh'];
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [llmForm] = Form.useForm();
-  const [testingLlm, setTestingLlm] = useState(false);
-
-  // 监听 Modal 打开状态，将 config 数据回填到 Form 中
-  useEffect(() => {
-    if (llmModalOpen && config) {
-      llmForm.setFieldsValue({
-        llm_api_base: config.llm_api_base,
-        llm_api_key: config.llm_api_key,
-        llm_model: config.llm_model,
-        llm_temperature: config.llm_temperature,
-        llm_hide_think_tag: config.llm_hide_think_tag,
-        llm_prompt: config.llm_prompt,
-      });
-    }
-  }, [llmModalOpen, config, llmForm]);
 
   // 当 Drawer 打开或配置更新时，同步钉钉 URL 到输入框
   useEffect(() => {
@@ -56,13 +46,12 @@ export default function Settings({
       title: '选择下载路径'
     }).then((res) => {
       if (res) {
-        // v2 plugin 可能返回 string 或 null (单选模式)
         updateConfigField('save_path', res);
       }
     }).catch((err) => {
       notification.error({
         message: '下载路径修改失败',
-        description: err.toString()
+        description: String(err)
       })
     })
   }
@@ -78,7 +67,7 @@ export default function Settings({
     }).catch((err) => {
       notification.error({
         message: '发送通知失败',
-        description: err.toString()
+        description: String(err)
       })
     })
   }
@@ -88,9 +77,8 @@ export default function Settings({
     notification.success({ message: '钉钉 Webhook 已保存' });
   }
 
-  const handleLlmSwitchChange = (checked) => {
+  const handleLlmSwitchChange = (checked: boolean) => {
     if (checked) {
-      // 开启时，标记为正在开启，并弹出设置窗强制确认
       setIsEnablingLlm(true);
       setLlmModalOpen(true);
     } else {
@@ -98,12 +86,9 @@ export default function Settings({
     }
   };
 
-  const handleLlmModalOk = () => {
-    llmForm.validateFields().then(values => {
-      // 验证通过
+  const handleLlmModalOk = (values: Partial<Config>) => {
       const newEnabledState = isEnablingLlm ? true : config.llm_enabled;
       
-      // 批量更新配置
       updateConfigBatch({
         ...values,
         llm_enabled: newEnabledState
@@ -111,46 +96,16 @@ export default function Settings({
 
       setIsEnablingLlm(false);
       setLlmModalOpen(false);
-      message.success(isEnablingLlm ? "AI 总结功能已启用" : "配置已保存");
-    }).catch(info => {
-      console.log('Validate Failed:', info);
-      message.error('请填写所有必填项');
-    });
+      notification.success({ message: isEnablingLlm ? "AI 总结功能已启用" : "配置已保存" });
   };
 
   const handleLlmModalCancel = () => {
     setLlmModalOpen(false);
-    // 如果是在开启过程中取消，则回滚开关状态
     if (isEnablingLlm) {
       updateConfigField('llm_enabled', false);
       setIsEnablingLlm(false);
     }
   };
-
-  const handleTestLlm = () => {
-  // 获取当前表单中的值（即使未保存）
-  llmForm.validateFields(['llm_api_base', 'llm_api_key', 'llm_model'])
-    .then(values => {
-      setTestingLlm(true);
-      invoke('test_llm_connection', {
-        apiBase: values.llm_api_base,
-        apiKey: values.llm_api_key,
-        model: values.llm_model
-      })
-      .then(() => {
-        message.success('连接成功！配置有效。');
-      })
-      .catch(err => {
-        message.error(`连接失败: ${err}`);
-      })
-      .finally(() => {
-        setTestingLlm(false);
-      });
-    })
-    .catch(errorInfo => {
-      message.warning('请先填写完整的 API 地址、Key 和模型名称');
-    });
-};
 
   return (
     <>
@@ -320,166 +275,14 @@ export default function Settings({
         </div>
       </Drawer>
 
-      <Modal
-        title="字幕高级设置"
-        open={subtitleModalOpen}
-        onOk={() => setSubtitleModalOpen(false)}
-        onCancel={() => setSubtitleModalOpen(false)}
-        width={600}
-        footer={[
-          <Button key="confirm" type="primary" onClick={() => setSubtitleModalOpen(false)}>
-            确定
-          </Button>
-        ]}
-      >
-        <List>
-          <List.Item>
-            <List.Item.Meta 
-              title="文件格式" 
-              description="选择保存的字幕文件格式"
-            />
-            <Radio.Group 
-              value={config.subtitle_format || 'srt'} 
-              onChange={(e) => updateConfigField('subtitle_format', e.target.value)}
-              buttonStyle="solid"
-            >
-              <Radio.Button value="srt">SRT</Radio.Button>
-              <Radio.Button value="md">Markdown</Radio.Button>
-              <Radio.Button value="txt">TXT</Radio.Button>
-            </Radio.Group>
-          </List.Item>
-
-          <List.Item>
-            <List.Item.Meta 
-              title="语言" 
-              description="选择下载的语音文本语言"
-            />
-            <Checkbox.Group 
-              options={[
-                { label: '中文', value: 'zh' },
-                { label: 'English', value: 'en' },
-                { label: '中英穿插', value: 'mixed' },
-              ]}
-              value={subtitleLanguages}
-              onChange={(checkedValues) => updateConfigField('subtitle_language', checkedValues)}
-            />
-          </List.Item>
-
-          <List.Item>
-            <List.Item.Meta 
-              title="包含时间戳" 
-              description={config.subtitle_format === 'srt' ? "SRT 格式必须包含时间戳" : "在文本/Markdown中保留时间信息"}
-            />
-            <Switch 
-              checked={config.subtitle_format === 'srt' ? true : config.subtitle_with_timestamps} 
-              disabled={config.subtitle_format === 'srt'}
-              onChange={(checked) => updateConfigField('subtitle_with_timestamps', checked)}
-            />
-          </List.Item>
-        </List>
-      </Modal>
-
-      <Modal
-        title="AI 课程总结配置"
-        open={llmModalOpen}
+      <SubtitleSettingsModal open={subtitleModalOpen} onCancel={() => setSubtitleModalOpen(false)} />
+      
+      <LlmSettingsModal 
+        open={llmModalOpen} 
+        onCancel={handleLlmModalCancel} 
         onOk={handleLlmModalOk}
-        onCancel={handleLlmModalCancel}
-        maskClosable={!isEnablingLlm}
-        keyboard={!isEnablingLlm}
-        width={600}
-      >
-        <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: 10 }}>
-          <Form layout="vertical" form={llmForm}>
-            <Form.Item 
-              label="API 请求地址 (Base URL)" 
-              name="llm_api_base"
-              tooltip="OpenAI 格式接口地址，例如 https://api.deepseek.com"
-              rules={[{ required: true, whitespace: true, message: '请输入 API 请求地址' }]}
-            >
-              <Input prefix={<ApiOutlined style={{ color: 'rgba(0,0,0,.25)' }} />} placeholder="例如 https://api.deepseek.com" />
-            </Form.Item>
-
-            <Form.Item 
-              label="API Key" 
-              name="llm_api_key"
-              rules={[{ required: true, whitespace: true, message: '请输入 API Key' }]}
-            >
-              <Input.Password
-                className="spaced-password-input"
-                placeholder="sk-..."
-                visibilityToggle={{ visible: showApiKey, onVisibleChange: setShowApiKey }}
-              />
-            </Form.Item>
-
-            <Form.Item 
-              label="模型名称" 
-              name="llm_model"
-              rules={[{ required: true, whitespace: true, message: '请输入模型名称' }]}
-            >
-              <Input prefix={<ThunderboltOutlined style={{ color: 'rgba(0,0,0,.25)' }} />} placeholder="例如 deepseek-chat" />
-            </Form.Item>
-
-            <div style={{ marginBottom: 24, marginLeft: 0 }}>
-              <Button 
-                type="dashed" 
-                icon={<ApiOutlined />} 
-                loading={testingLlm} 
-                onClick={handleTestLlm}
-                block
-              >
-                测试 LLM 连接
-              </Button>
-            </div>
-
-            <Form.Item label="温度 (Temperature)" name="llm_temperature">
-               {/* 使用 Render Props 或者简单的受控组件写法来同步 Form 内部状态 */}
-               <TemperatureInput form={llmForm} />
-            </Form.Item>
-
-            <Form.Item 
-              label={<span>隐藏 &lt;think&gt; 标签内容<Tooltip title="针对深度思考模型(如DeepSeek-R1)，过滤掉思维链内容"><InfoCircleOutlined style={{ marginLeft: 4 }} /></Tooltip></span>} 
-              name="llm_hide_think_tag" 
-              valuePropName="checked"
-            >
-              <Switch size="small" />
-            </Form.Item>
-
-            <Form.Item label="自定义提示词 (System Prompt)" name="llm_prompt">
-              <TextArea rows={3} placeholder={defaultPrompt} style={{ resize: 'none', fontSize: 12 }} />
-            </Form.Item>
-
-            <div style={{ textAlign: 'right', marginTop: -20 }}>
-              <a onClick={() => llmForm.setFieldsValue({ llm_prompt: defaultPrompt })} style={{ fontSize: 12 }}>恢复默认</a>
-            </div>
-          </Form>
-        </div>
-      </Modal>
+        isEnabling={isEnablingLlm}
+      />
     </>
   )
 }
-
-const TemperatureInput = ({ value, onChange }) => {
-  return (
-    <Row gutter={16}>
-      <Col span={16}>
-        <Slider 
-          min={0} 
-          max={2} 
-          step={0.1} 
-          value={typeof value === 'number' ? value : 0.3} 
-          onChange={onChange} 
-        />
-      </Col>
-      <Col span={8}>
-        <InputNumber 
-          min={0} 
-          max={2} 
-          step={0.1} 
-          style={{ width: '100%' }} 
-          value={typeof value === 'number' ? value : 0.3} 
-          onChange={onChange} 
-        />
-      </Col>
-    </Row>
-  );
-};

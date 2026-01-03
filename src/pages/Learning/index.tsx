@@ -1,48 +1,86 @@
-import { useEffect, useState } from 'react'
-import { Button, Card, App, Row, Col, Select, Tooltip, Typography, Switch } from 'antd';
+import React, { useEffect, useState } from 'react'
+import { App, Layout, Select, Button, Tooltip, Input, Row, Col, Switch, Card } from 'antd';
+import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core'
-import { ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
-import { bytesToSize } from './utils'
-import { LearningTask } from './downloadManager';
-import SearchTable from './SearchTable'
-import dayjs from 'dayjs';
-import 'dayjs/locale/zh-cn';
+import SearchTable from '../../components/SearchTable'
+import { Upload } from '../../model';
+import { bytesToSize } from '../../utils';
+import dayjs from 'dayjs'
+import { useConfig } from '../../context/ConfigContext';
+import { LearningTask, Task } from '../../downloadManager';
 
-dayjs.locale('zh-cn')
+const { Content } = Layout;
+const { Text } = Typography;
 
-const { Text } = Typography
+interface Semester {
+  id: number;
+  name: string;
+  sort: number;
+  academic_year_id: number;
+}
 
-export default function Learning({
-  addDownloadTasks,
-  syncing,
-  autoDownload,
-  lastSync,
-  loadingUploadList,
-  uploadList,
-  setUploadList,
-  handleSwitchSync,
-  updateUploadList,
-  selectedUploadKeys,
-  setSelectedUploadKeys,
-  selectedCourseKeys,
-  setSelectedCourseKeys,
-  courseList,
-  setCourseList,
-}) {
-  const { message, modal, notification } = App.useApp()
+interface AcademicYear {
+  id: number;
+  name: string;
+  sort: number;
+}
 
-  const [semesterList, setSemesterList] = useState([])
+interface Course {
+  id: number;
+  name: string;
+  semester_id: number;
+  academic_year_id: number;
+}
+
+interface LearningProps {
+  addDownloadTasks: (tasks: Task[]) => void;
+  syncing: boolean;
+  lastSync: string | null;
+  loadingUploadList: boolean;
+  uploadList: Upload[];
+  setUploadList: (uploads: Upload[]) => void;
+  handleSwitchSync: (checked: boolean) => void;
+  updateUploadList: () => void;
+  selectedUploadKeys: React.Key[];
+  setSelectedUploadKeys: (keys: React.Key[]) => void;
+  selectedCourseKeys: React.Key[];
+  setSelectedCourseKeys: (keys: React.Key[]) => void;
+  courseList: Course[];
+  setCourseList: (courses: Course[]) => void;
+}
+
+export default function Learning({ 
+  addDownloadTasks, 
+  syncing, 
+  lastSync, 
+  loadingUploadList, 
+  uploadList, 
+  setUploadList, 
+  handleSwitchSync, 
+  updateUploadList, 
+  selectedUploadKeys, 
+  setSelectedUploadKeys, 
+  selectedCourseKeys, 
+  setSelectedCourseKeys, 
+  courseList, 
+  setCourseList 
+}: LearningProps) {
+  const { notification } = App.useApp()
+  const { config } = useConfig();
+  const autoDownload = config.auto_download;
+
+  const [semesterList, setSemesterList] = useState<Semester[]>([])
   const [loadingSemesterList, setLoadingSemesterList] = useState(false)
-  const [academicYearList, setAcademicYearList] = useState([])
+  const [academicYearList, setAcademicYearList] = useState<AcademicYear[]>([])
   const [loadingAcademicYearList, setLoadingAcademicYearList] = useState(false)
   const [loadingCourseList, setLoadingCourseList] = useState(false)
-  const [selectedCourses, setSelectedCourses] = useState([])
-  const [selectedAcademicYear, setSelectedAcademicYear] = useState(null)
-  const [selectedSemester, setSelectedSemester] = useState(null)
+  const [selectedCourses, setSelectedCourses] = useState<{key: number, name: string}[]>([])
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState<number | null>(null)
+  const [selectedSemester, setSelectedSemester] = useState<number | null>(null)
 
   const [windowWidth, setWindowWidth] = useState(window.innerWidth)
 
-  const courseColumns = [
+  const courseColumns: ColumnType<{key: number, name: string}>[] = [
     {
       title: '课程名称',
       dataIndex: 'name',
@@ -51,74 +89,56 @@ export default function Learning({
 
   useEffect(() => {
     setLoadingSemesterList(true)
-    invoke('get_semester_list').then((res) => {
-      // console.log(res)
-      res.sort((a, b) => {
-        return b.sort - a.sort
-      })
+    invoke<Semester[]>('get_semester_list').then((res) => {
+      res.sort((a, b) => b.sort - a.sort)
       setSemesterList(res)
     }).catch((err) => {
       notification.error({
         message: '获取学期列表失败',
-        description: err
+        description: String(err)
       })
     }).finally(() => {
       setLoadingSemesterList(false)
     })
 
     setLoadingAcademicYearList(true)
-    invoke('get_academic_year_list').then((res) => {
-      // console.log(res)
-      res.sort((a, b) => {
-        return b.sort - a.sort
-      })
+    invoke<AcademicYear[]>('get_academic_year_list').then((res) => {
+      res.sort((a, b) => b.sort - a.sort)
       setAcademicYearList(res)
     }).catch((err) => {
       notification.error({
         message: '获取学年列表失败',
-        description: err
+        description: String(err)
       })
     }).finally(() => {
       setLoadingAcademicYearList(false)
     })
 
     setLoadingCourseList(true)
-    invoke('get_courses').then((res) => {
-      // console.log(res)
+    invoke<Course[]>('get_courses').then((res) => {
       setCourseList(res)
-      setSelectedCourses(res.map((item) => {
-        return {
-          key: item.id,
-          name: item.name
-        }
-      }))
+      setSelectedCourses(res.map((item) => ({
+        key: item.id,
+        name: item.name
+      })))
     }).catch((err) => {
       notification.error({
         message: '获取课程列表失败',
-        description: err
+        description: String(err)
       })
     }).finally(() => {
       setLoadingCourseList(false)
     })
 
-    const handleResize = () => {
-      setWindowWidth(window.innerWidth)
-    }
-
+    const handleResize = () => setWindowWidth(window.innerWidth)
     window.addEventListener('resize', handleResize)
-
-    return () => {
-      window.removeEventListener('resize', handleResize)
-    }
-
+    return () => window.removeEventListener('resize', handleResize)
   }, [notification, setCourseList])
 
   const downloadUploads = () => {
     let uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id))
     if (uploads.length === 0) {
-      notification.error({
-        message: '请选择课件',
-      })
+      notification.error({ message: '请选择课件' })
       return
     }
     let tasks = uploads.map((item) => new LearningTask(item))
@@ -127,53 +147,39 @@ export default function Learning({
     setSelectedUploadKeys([])
   }
 
-  const updateCourseList = (academicYearID, semesterID) => {
+  const filterCourseList = (academicYearID: number | null, semesterID: number | null) => {
     let semester = semesterList.find((item) => item.id === semesterID)
     setSelectedCourses(courseList.filter((item) => {
-      return (semesterID && (item.semester_id === semester.id || (item.semester_id === 0 && item.academic_year_id === semester.academic_year_id))) ||
+      return (semesterID && semester && (item.semester_id === semester.id || (item.semester_id === 0 && item.academic_year_id === semester.academic_year_id))) ||
         (!semesterID && academicYearID && item.academic_year_id === academicYearID) ||
         (!semesterID && !academicYearID)
-    }).map((item) => {
-      return {
-        key: item.id,
-        name: item.name
-      }
-    }))
+    }).map((item) => ({
+      key: item.id,
+      name: item.name
+    })))
   }
 
-  const onAcademicYearChange = (value) => {
-    // console.log(`selected academic year ${value}`);
+  const onAcademicYearChange = (value: number | null) => {
     setSelectedAcademicYear(value)
     setSelectedSemester(null)
-    updateCourseList(value)
+    filterCourseList(value, null)
     setSelectedCourseKeys([])
   };
 
-  const onSemesterChange = (value) => {
-    // console.log(`selected semester ${value}`);
+  const onSemesterChange = (value: number | null) => {
     setSelectedSemester(value)
-    updateCourseList(selectedAcademicYear, value)
+    filterCourseList(selectedAcademicYear, value)
     setSelectedCourseKeys([])
   };
 
-  const filterOption = (input, option) =>
-    (option?.label ?? '').toLowerCase().includes(input.toLowerCase());
-
-  const uploadColumns = [
-    {
-      title: '课程名称',
-      dataIndex: 'course_name',
-    },
-    {
-      title: '文件名',
-      dataIndex: 'file_name',
-    },
+  const uploadColumns: ColumnType<Upload>[] = [
+    { title: '课程名称', dataIndex: 'course_name' },
+    { title: '文件名', dataIndex: 'file_name' },
     {
       title: '大小',
       dataIndex: 'size',
-      render: (size) => {
-        return bytesToSize(size)
-      },
+      render: (size: number) => bytesToSize(size),
+      // @ts-ignore
       searchable: false,
       sorter: (a, b) => a.size - b.size
     },
@@ -182,11 +188,7 @@ export default function Learning({
   return (
     <div style={{ margin: 20 }}>
       <Card styles={{ body: { padding: 15 } }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }} >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} >
           <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
             <Text style={{ minWidth: 75 }}>自动同步：</Text>
             <Tooltip title={syncing ? (autoDownload ? '自动同步已开启，将自动下载已选课程的课件' : '自动同步已开启，将自动添加已选课程的未下载课件至课件列表') : '开启后，将自动检测学在浙大是否有课件更新'}>
@@ -199,16 +201,12 @@ export default function Learning({
               allowClear
               showSearch
               style={{ minWidth: 110 }}
-              optionFilterProp="children"
               value={selectedAcademicYear}
               onChange={onAcademicYearChange}
-              filterOption={filterOption}
-              options={academicYearList.map((item) => {
-                return {
-                  label: item.name,
-                  value: item.id
-                }
-              })}
+              options={academicYearList.map((item) => ({
+                label: item.name,
+                value: item.id
+              }))}
               loading={loadingAcademicYearList}
             />
             <Text style={{ minWidth: 50, marginLeft: 25 }}>学期：</Text>
@@ -216,20 +214,15 @@ export default function Learning({
               allowClear
               showSearch
               style={{ minWidth: 140 }}
-              optionFilterProp="children"
               value={selectedSemester}
               onChange={onSemesterChange}
-              filterOption={filterOption}
               options={semesterList.map((item) => {
                 if (selectedAcademicYear && selectedAcademicYear !== item.academic_year_id) {
                   return null
                 } else {
-                  return {
-                    label: item.name,
-                    value: item.id
-                  }
+                  return { label: item.name, value: item.id }
                 }
-              }).filter((item) => item !== null)}
+              }).filter((item): item is {label: string, value: number} => item !== null)}
               loading={loadingSemesterList}
             />
           </div>
@@ -247,7 +240,7 @@ export default function Learning({
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
         <Col xs={10} md={9} lg={8}>
-          <SearchTable
+          <SearchTable<{key: number, name: string}>
             rowSelection={{
               selectedRowKeys: selectedCourseKeys,
               onChange: setSelectedCourseKeys,
@@ -259,12 +252,11 @@ export default function Learning({
             scroll={{ y: 'calc(100vh - 270px)' }}
             size='small'
             bordered
-            footer={() => ''}
             title={() => `课程列表：已选择 ${selectedCourseKeys.length} 门课程`}
           />
         </Col>
         <Col xs={14} md={15} lg={16}>
-          <SearchTable
+          <SearchTable<Upload>
             rowSelection={{
               selectedRowKeys: selectedUploadKeys,
               onChange: setSelectedUploadKeys,
@@ -278,13 +270,10 @@ export default function Learning({
             size='small'
             bordered
             footer={() => syncing ? `最后同步时间：${lastSync ? lastSync : '未同步'}` : ''}
-            title={() => {
-              return (
+            title={() => (
                 <>
                   {uploadList && uploadList.length !== 0 && (syncing && autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : <Text ellipsis={{ rows: 1, expandable: false, tooltip: true }} style={{ width: 'calc(100% - 30px)' }}>
-                    课件列表：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => {
-                      return total + item.size
-                    }, 0))}
+                    课件列表：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => total + item.size, 0))}
                   </Text>)}
                   {(!uploadList || uploadList.length === 0) && (syncing ? (autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : '待下载更新课件列表为空  点击右侧立即同步👉') : '课件列表为空  点击右侧刷新👉')}
                   <div style={{ float: 'right' }}>
@@ -299,11 +288,13 @@ export default function Learning({
                     </Tooltip>
                   </div>
                 </>
-              )
-            }}
+            )}
           />
         </Col>
       </Row>
     </div>
   )
 }
+
+// Added Typography import which was missing in destructuring
+import { Typography } from 'antd';

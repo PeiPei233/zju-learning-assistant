@@ -1,26 +1,42 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Form, Input, Button, Card, App, Typography, Badge, Checkbox, theme } from 'antd';
 import { invoke } from '@tauri-apps/api/core'
 import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event';
 import { exit } from '@tauri-apps/plugin-process';
 
-const { Text, Paragraph } = Typography
+const { Text } = Typography
 
-export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword, currentVersion, latestVersionData, setOpenVersionModal }) {
+interface LoginProps {
+  setIsLogin: (isLogin: boolean) => void;
+  autoLoginUsername?: string;
+  autoLoginPassword?: string;
+  currentVersion: string;
+  latestVersionData: any;
+  setOpenVersionModal: (open: boolean) => void;
+}
+
+export default function Login({ 
+  setIsLogin, 
+  autoLoginUsername, 
+  autoLoginPassword, 
+  currentVersion, 
+  latestVersionData, 
+  setOpenVersionModal 
+}: LoginProps) {
 
   const { token } = theme.useToken()
-  const { message, modal, notification } = App.useApp()
+  const { notification } = App.useApp()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [autoLogin, setAutoLogin] = useState(false)
 
   useEffect(() => {
-    invoke('check_login').then((res) => {
+    invoke<boolean>('check_login').then((res) => {
       if (res) {
         setIsLogin(true)
       }
-    }).catch((err) => { })
+    }).catch(() => { })
 
     const unlistenClose = listen('close-requested', () => {
       exit(0)
@@ -29,34 +45,34 @@ export default function Login({ setIsLogin, autoLoginUsername, autoLoginPassword
     return () => {
       unlistenClose.then((fn) => fn())
     }
-  }, [])
+  }, [setIsLogin])
 
   useEffect(() => {
     if (autoLoginUsername && autoLoginPassword) {
       setAutoLogin(true)
       invoke('login', { username: autoLoginUsername, password: autoLoginPassword, autoLogin: true })
-        .then((res) => {
+        .then(() => {
           setIsLogin(true)
         }).catch((err) => {
           notification.error({
             message: '自动登录失败',
-            description: err
+            description: String(err)
           })
         }).finally(() => {
           setAutoLogin(false)
         })
     }
-  }, [autoLoginUsername, autoLoginPassword])
+  }, [autoLoginUsername, autoLoginPassword, setIsLogin, notification])
 
-  const onFinish = async (values) => {
+  const onFinish = async (values: any) => {
     setLoading(true)
     invoke('login', { username: values.username, password: values.password, autoLogin: values.remember })
-      .then((res) => {
+      .then(() => {
         setIsLogin(true)
       }).catch((err) => {
         notification.error({
           message: '登录失败',
-          description: err
+          description: String(err)
         })
       }).finally(() => {
         setLoading(false)

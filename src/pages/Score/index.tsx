@@ -1,14 +1,35 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useMediaQuery } from 'react-responsive';
-import { Button, Card, App, Typography, Input, Switch, Tooltip } from 'antd';
+import { Button, Card, App, Typography, Switch, Tooltip } from 'antd';
 import { SyncOutlined } from '@ant-design/icons';
-import SearchTable from './SearchTable'
+import SearchTable from '../../components/SearchTable'
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
+import { ColumnType } from 'antd/es/table';
 
 dayjs.locale('zh-cn')
 
 const { Text } = Typography
+
+interface ScoreItem {
+  xkkh: string;
+  kcmc: string;
+  cj: string;
+  xf: string;
+  jd: string;
+  bkcj: string;
+}
+
+interface ScoreProps {
+  notify: boolean;
+  lastSync: string | null;
+  totalGp: number;
+  totalCredit: number;
+  loading: boolean;
+  score: ScoreItem[];
+  handleSwitch: (checked: boolean) => void;
+  handleSync: () => void;
+}
 
 export default function Score({
   notify,
@@ -19,11 +40,11 @@ export default function Score({
   score,
   handleSwitch,
   handleSync
-}) {
+}: ScoreProps) {
 
-  const { message, modal, notification } = App.useApp()
+  const { notification } = App.useApp()
 
-  const [selectedXkkh, setSelectedXkkh] = useState([])
+  const [selectedXkkh, setSelectedXkkh] = useState<React.Key[]>([])
   const [selectedTotalGp, setSelectedTotalGp] = useState(0)
   const [selectedTotalCredit, setSelectedTotalCredit] = useState(0)
   const max770 = useMediaQuery({ query: '(max-width: 770px)' })
@@ -32,7 +53,7 @@ export default function Score({
     handleSync()
   }, [])
 
-  const columns = [
+  const columns: ColumnType<ScoreItem>[] = [
     {
       title: '选课课号',
       dataIndex: 'xkkh',
@@ -49,58 +70,68 @@ export default function Score({
       title: '成绩',
       dataIndex: 'cj',
       width: 65,
+      // @ts-ignore
       searchable: false,
       sorter: (a, b) => {
-        if (isNaN(parseInt(a.cj)) || isNaN(parseInt(b.cj))) {
+        const valA = parseInt(a.cj);
+        const valB = parseInt(b.cj);
+        if (isNaN(valA) || isNaN(valB)) {
           return a.cj.localeCompare(b.cj)
         }
-        return parseInt(a.cj) - parseInt(b.cj)
+        return valA - valB
       }
     },
     {
       title: '学分',
       dataIndex: 'xf',
       width: 65,
+      // @ts-ignore
       searchable: false,
       sorter: (a, b) => {
-        if (isNaN(parseFloat(a.xf)) || isNaN(parseFloat(b.xf))) {
+        const valA = parseFloat(a.xf);
+        const valB = parseFloat(b.xf);
+        if (isNaN(valA) || isNaN(valB)) {
           return a.xf.localeCompare(b.xf)
         }
-        return parseFloat(a.xf) - parseFloat(b.xf)
+        return valA - valB
       }
     },
     {
       title: '绩点',
       dataIndex: 'jd',
       width: 65,
+      // @ts-ignore
       searchable: false,
       sorter: (a, b) => {
-        if (isNaN(parseFloat(a.jd)) || isNaN(parseFloat(b.jd))) {
+        const valA = parseFloat(a.jd);
+        const valB = parseFloat(b.jd);
+        if (isNaN(valA) || isNaN(valB)) {
           return a.jd.localeCompare(b.jd)
         }
-        return parseFloat(a.jd) - parseFloat(b.jd)
+        return valA - valB
       }
     },
     {
       title: '补考成绩',
       dataIndex: 'bkcj',
       width: 80,
+      // @ts-ignore
       searchable: false
     },
   ]
 
-  const onSelectChange = (selectedRowKeys, selectedRows) => {
+  const onSelectChange = (selectedRowKeys: React.Key[], selectedRows: ScoreItem[]) => {
     setSelectedXkkh(selectedRowKeys)
-    let totalGp = 0
-    let totalCredit = 0
+    let gp = 0
+    let credit = 0
     selectedRows.forEach(row => {
       if (row.cj !== '合格' && row.cj !== '不合格' && row.cj !== '弃修') {
-        totalGp += parseFloat(row.jd) * parseFloat(row.xf)
-        totalCredit += parseFloat(row.xf)
+        gp += parseFloat(row.jd) * parseFloat(row.xf)
+        credit += parseFloat(row.xf)
       }
     })
-    setSelectedTotalGp(totalGp)
-    setSelectedTotalCredit(totalCredit)
+    setSelectedTotalGp(gp)
+    setSelectedTotalCredit(credit)
   }
 
   return (
@@ -122,7 +153,7 @@ export default function Score({
           </div>
         </div>
       </Card>
-      <SearchTable
+      <SearchTable<ScoreItem>
         rowSelection={{
           selectedRowKeys: selectedXkkh,
           onChange: onSelectChange,

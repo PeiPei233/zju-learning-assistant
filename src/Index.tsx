@@ -1,41 +1,41 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { FloatButton, Modal, App, Typography } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core'
-import Login from './Login'
-import Home from './Home'
+import Login from './pages/Login'
+import Home from './pages/Home'
 import Markdown from 'react-markdown';
 import { convertUrlsToMarkdown } from './utils';
 import * as shell from "@tauri-apps/plugin-shell"
 dayjs.locale('zh-cn')
 
+const { Paragraph, Text } = Typography
+
 function Index() {
 
-  const { message, modal, notification } = App.useApp()
-  const { Paragraph, Text } = Typography
+  const { notification } = App.useApp()
 
   const [isLogin, setIsLogin] = useState(false)
   const [autoLoginUsername, setAutoLoginUsername] = useState('')
   const [autoLoginPassword, setAutoLoginPassword] = useState('')
   const [currentVersion, setCurrentVersion] = useState('')
-  const [latestVersionData, setLatestVersionData] = useState(null)
+  const [latestVersionData, setLatestVersionData] = useState<any>(null)
   const [openVersionModal, setOpenVersionModal] = useState(false)
 
   useEffect(() => {
-    getVersion().then((current) => {
-      setCurrentVersion('v' + current)
-      invoke('get_latest_version_info').then((res) => {
-        // console.log(res)
+    getVersion().then((v) => {
+      setCurrentVersion('v' + v)
+      invoke<any>('get_latest_version_info').then((res) => {
         const data = res
         if (!data) throw new Error('获取最新版本信息失败')
         if (!data.tag_name) throw new Error(JSON.stringify(data))
-        if (data.tag_name !== 'v' + current) {
+        if (data.tag_name !== 'v' + v) {
           notification.info({
             message: '发现新版本',
-            description: `当前版本：${'v' + current}，最新版本：${data.tag_name}`
+            description: `当前版本：${'v' + v}，最新版本：${data.tag_name}`
           })
         }
         setLatestVersionData(data)
@@ -43,7 +43,7 @@ function Index() {
         console.log(err)
       })
     })
-    invoke('get_auto_login_info').then((res) => {
+    invoke<[string, string] | null>('get_auto_login_info').then((res) => {
       if (res) {
         setAutoLoginUsername(res[0])
         setAutoLoginPassword(res[1])
@@ -52,16 +52,30 @@ function Index() {
     invoke('test_connection').catch((err) => {
       notification.error({
         message: '连接失败',
-        description: err.message
+        description: String(err.message || err)
       })
     })
-  }, [])
+  }, [notification])
 
   return (
     <>
       {isLogin ?
-        <Home setIsLogin={setIsLogin} setAutoLoginUsername={setAutoLoginUsername} setAutoLoginPassword={setAutoLoginPassword} currentVersion={currentVersion} latestVersionData={latestVersionData} setOpenVersionModal={setOpenVersionModal} /> :
-        <Login setIsLogin={setIsLogin} autoLoginUsername={autoLoginUsername} autoLoginPassword={autoLoginPassword} currentVersion={currentVersion} latestVersionData={latestVersionData} setOpenVersionModal={setOpenVersionModal} />
+        <Home 
+          setIsLogin={setIsLogin} 
+          setAutoLoginUsername={setAutoLoginUsername} 
+          setAutoLoginPassword={setAutoLoginPassword} 
+          currentVersion={currentVersion} 
+          latestVersionData={latestVersionData} 
+          setOpenVersionModal={setOpenVersionModal} 
+        /> :
+        <Login 
+          setIsLogin={setIsLogin} 
+          autoLoginUsername={autoLoginUsername} 
+          autoLoginPassword={autoLoginPassword} 
+          currentVersion={currentVersion} 
+          latestVersionData={latestVersionData} 
+          setOpenVersionModal={setOpenVersionModal} 
+        />
       }
       <FloatButton
         icon={<QuestionCircleOutlined />}
@@ -69,7 +83,7 @@ function Index() {
           shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch((err) => {
             notification.error({
               message: '打开帮助失败',
-              description: err.message
+              description: String(err.message || err)
             })
           })
         }}
@@ -89,21 +103,26 @@ function Index() {
           a({ node, href, ...props }) {
             return <a
               {...props}
-              onClick={() => {
-                shell.open(href).catch((err) => {
-                  notification.error({
-                    message: '打开链接失败',
-                    description: err
-                  })
-                })
+              onClick={(e) => {
+                e.preventDefault();
+                if (href) {
+                    shell.open(href).catch((err) => {
+                        notification.error({
+                            message: '打开链接失败',
+                            description: String(err)
+                        })
+                    })
+                }
               }}
             />
           },
+          // @ts-ignore
           pre({ node, ...props }) {
             return <Paragraph>
               <pre {...props} />
             </Paragraph>
           },
+          // @ts-ignore
           code({ node, ...props }) {
             return <Text code {...props} />
           }

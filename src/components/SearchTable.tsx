@@ -1,22 +1,49 @@
-import { useState, useRef } from 'react'
-import { Button, Table, Input, Space } from 'antd';
+import React, { useState, useRef } from 'react'
+import { Button, Table, Input, Space, InputRef } from 'antd';
+import type { ColumnType, TableProps } from 'antd/es/table';
+import type { FilterConfirmProps } from 'antd/es/table/interface';
 import { SearchOutlined } from '@ant-design/icons';
+// @ts-ignore
 import Highlighter from 'react-highlight-words';
 
-const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, bordered, footer, title, rowSelection, rowKey, style }) => {
+interface SearchTableProps<T> extends TableProps<T> {
+    columns: (ColumnType<T> & { searchable?: boolean })[];
+}
+
+const SearchTable = <T extends object>({ 
+    columns, 
+    dataSource, 
+    loading, 
+    pagination, 
+    scroll, 
+    size, 
+    bordered, 
+    footer, 
+    title, 
+    rowSelection, 
+    rowKey, 
+    style 
+}: SearchTableProps<T>) => {
     const [searchText, setSearchText] = useState('')
     const [searchedColumn, setSearchedColumn] = useState('')
-    const searchInput = useRef(null)
-    const handleSearch = (selectedKeys, confirm, dataIndex) => {
+    const searchInput = useRef<InputRef>(null)
+
+    const handleSearch = (
+        selectedKeys: string[],
+        confirm: (param?: FilterConfirmProps) => void,
+        dataIndex: string,
+    ) => {
         confirm();
         setSearchText(selectedKeys[0]);
         setSearchedColumn(dataIndex);
     };
-    const handleReset = (clearFilters) => {
+
+    const handleReset = (clearFilters: () => void) => {
         clearFilters();
         setSearchText('');
     };
-    const getColumnSearchProps = (dataIndex, title) => ({
+
+    const getColumnSearchProps = (dataIndex: string, title: React.ReactNode): ColumnType<T> => ({
         filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters, close }) => (
             <div
                 style={{
@@ -29,7 +56,7 @@ const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, b
                     placeholder={`搜索 ${title}`}
                     value={selectedKeys[0]}
                     onChange={(e) => setSelectedKeys(e.target.value ? [e.target.value] : [])}
-                    onPressEnter={() => handleSearch(selectedKeys, confirm, dataIndex)}
+                    onPressEnter={() => handleSearch(selectedKeys as string[], confirm, dataIndex)}
                     style={{
                         marginBottom: 8,
                         display: 'block',
@@ -39,7 +66,7 @@ const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, b
                 <Space>
                     <Button
                         type="primary"
-                        onClick={() => handleSearch(selectedKeys, confirm, dataIndex)}
+                        onClick={() => handleSearch(selectedKeys as string[], confirm, dataIndex)}
                         icon={<SearchOutlined />}
                         size="small"
                         style={{
@@ -64,7 +91,7 @@ const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, b
                             confirm({
                                 closeDropdown: false,
                             });
-                            setSearchText(selectedKeys[0]);
+                            setSearchText((selectedKeys as string[])[0]);
                             setSearchedColumn(dataIndex);
                         }}
                     >
@@ -82,15 +109,17 @@ const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, b
                 </Space>
             </div>
         ),
-        filterIcon: (filtered) => (
+        filterIcon: (filtered: boolean) => (
             <SearchOutlined
                 style={{
                     color: filtered ? '#1677ff' : undefined,
                 }}
             />
         ),
-        onFilter: (value, record) =>
-            record[dataIndex].toString().toLowerCase().includes(value.toLowerCase()),
+        onFilter: (value, record) => {
+            const val = record[dataIndex as keyof T];
+            return val ? val.toString().toLowerCase().includes((value as string).toLowerCase()) : false;
+        },
         onFilterDropdownOpenChange: (visible) => {
             if (visible) {
                 setTimeout(() => searchInput.current?.select(), 100);
@@ -118,14 +147,15 @@ const SearchTable = ({ columns, dataSource, loading, pagination, scroll, size, b
         } else {
             return {
                 ...col,
-                ...getColumnSearchProps(col.dataIndex, col.title),
+                ...getColumnSearchProps(col.dataIndex as string, col.title),
             }
         }
     })
-    return <Table
+
+    return <Table<T>
         rowSelection={rowSelection}
         rowKey={rowKey}
-        columns={new_columns}
+        columns={new_columns as ColumnType<T>[]}
         dataSource={dataSource}
         loading={loading}
         pagination={pagination}

@@ -1,10 +1,11 @@
-import { useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { ConfigProvider, App, theme } from 'antd'
 import { createRoot } from 'react-dom/client'
 import { useMediaQuery } from 'react-responsive'
 import zhCN from 'antd/locale/zh_CN';
-import Index from './Index.jsx'
+import Index from './Index'
 import './global.css'
+import { ConfigProvider as AppConfigProvider } from './context/ConfigContext'
 
 export function Main() {
 
@@ -15,7 +16,7 @@ export function Main() {
   useEffect(() => {
     if (import.meta.env.PROD) {
       // disable context menu
-      const disableContextMenu = (e) => {
+      const disableContextMenu = (e: MouseEvent) => {
         e.preventDefault()
       }
 
@@ -43,12 +44,17 @@ export function Main() {
       }}
     >
       <App>
-        <Index />
+        <AppConfigProvider>
+          <Index />
+        </AppConfigProvider>
       </App>
     </ConfigProvider>
   )
 }
 
-createRoot(document.getElementById('root')).render(
-  <Main />
-)
+const container = document.getElementById('root');
+if (container) {
+    createRoot(container).render(
+      <Main />
+    )
+}

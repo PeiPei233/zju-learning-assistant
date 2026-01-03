@@ -36,7 +36,7 @@ export class Config {
     max_concurrent_tasks: number
     auto_start: boolean
     auto_download_subtitle: boolean
-    pub_subtitle_language: string[]
+    subtitle_language: string[]
     subtitle_format: string
     subtitle_with_timestamps: boolean
 

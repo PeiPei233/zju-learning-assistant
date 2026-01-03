@@ -1,64 +1,58 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Segmented, DatePicker } from 'antd';
 import { invoke } from '@tauri-apps/api/core'
 import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
-import SearchTable from './SearchTable'
-import dayjs from 'dayjs';
+import SearchTable from '../../components/SearchTable'
+import dayjs, { Dayjs } from 'dayjs';
 import 'dayjs/locale/zh-cn';
-import { ClassroomTask } from './downloadManager';
+import { ClassroomTask, Task } from '../../downloadManager';
+import { useConfig } from '../../context/ConfigContext';
+import { Subject } from '../../model';
+import { ColumnType } from 'antd/es/table';
 
 dayjs.locale('zh-cn')
 
 const { Text } = Typography
 const { RangePicker } = DatePicker;
 
-export default function Classroom({ addDownloadTasks, toPdf }) {
+interface ClassroomProps {
+  addDownloadTasks: (tasks: Task[]) => void;
+}
 
-  const { message, modal, notification } = App.useApp()
+export default function Classroom({ addDownloadTasks }: ClassroomProps) {
 
-  const [selectedDateMethod, setSelectedDateMethod] = useState('week')
-  const [selectedCourseRange, setSelectedCourseRange] = useState('my')
-  const [leftSubList, setLeftSubList] = useState([])
-  const [rightSubList, setRightSubList] = useState([])
-  const [selectedLeftKeys, setSelectedLeftKeys] = useState([])
-  const [selectedRightKeys, setSelectedRightKeys] = useState([])
+  const { message, notification } = App.useApp()
+  const { config } = useConfig();
+  const toPdf = config.to_pdf;
+
+  const [selectedDateMethod, setSelectedDateMethod] = useState<'day' | 'week' | 'month'>('week')
+  const [selectedCourseRange, setSelectedCourseRange] = useState<'my' | 'all'>('my')
+  const [leftSubList, setLeftSubList] = useState<Subject[]>([])
+  const [rightSubList, setRightSubList] = useState<Subject[]>([])
+  const [selectedLeftKeys, setSelectedLeftKeys] = useState<React.Key[]>([])
+  const [selectedRightKeys, setSelectedRightKeys] = useState<React.Key[]>([])
   const [loadingLeftSubList, setLoadingLeftSubList] = useState(false)
   const [loadingRightSubList, setLoadingRightSubList] = useState(false)
   const [searchCourseName, setSearchCourseName] = useState('')
   const [searchTeacherName, setSearchTeacherName] = useState('')
   const startAt = useRef(dayjs().startOf('week').format('YYYY-MM-DD'))
   const endAt = useRef(dayjs().endOf('week').format('YYYY-MM-DD'))
-  const [dayRange, setDayRange] = useState([dayjs(), dayjs()])
-  const [weekValue, setWeekValue] = useState(dayjs())
-  const [monthValue, setMonthValue] = useState(dayjs())
+  const [dayRange, setDayRange] = useState<[Dayjs, Dayjs]>([dayjs(), dayjs()])
+  const [weekValue, setWeekValue] = useState<Dayjs>(dayjs())
+  const [monthValue, setMonthValue] = useState<Dayjs>(dayjs())
 
   const selectDateMethodOptions = [
-    {
-      label: '日',
-      value: 'day'
-    },
-    {
-      label: '周',
-      value: 'week'
-    },
-    {
-      label: '月',
-      value: 'month'
-    },
+    { label: '日', value: 'day' },
+    { label: '周', value: 'week' },
+    { label: '月', value: 'month' },
   ]
 
   const selectCourseRangeOptions = [
-    {
-      label: '我的课程',
-      value: 'my'
-    },
-    {
-      label: '全部课程',
-      value: 'all'
-    }
+    { label: '我的课程', value: 'my' },
+    { label: '全部课程', value: 'all' }
   ]
 
-  const changeDateMethod = (value) => {
+  const changeDateMethod = (value: 'day' | 'week' | 'month') => {
     setSelectedDateMethod(value)
     if (value === 'day') {
       startAt.current = dayjs().format('YYYY-MM-DD')
@@ -73,7 +67,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     updateMySubList()
   }
 
-  const changeDateRange = (value) => {
+  const changeDateRange = (value: any) => {
     if (selectedDateMethod === 'day') {
       setDayRange(value)
       startAt.current = value[0].format('YYYY-MM-DD')
@@ -92,14 +86,13 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
 
   const updateMySubList = () => {
     setLoadingRightSubList(true)
-    invoke('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
-      // console.log(res)
+    invoke<Subject[]>('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
       setRightSubList(res)
       setSelectedRightKeys(res.map((item) => item.sub_id))
     }).catch((err) => {
       notification.error({
         message: '获取课程列表失败',
-        description: err
+        description: String(err)
       })
     }).finally(() => {
       setLoadingRightSubList(false)
@@ -116,8 +109,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     }
     let course_ids = subs.map((item) => item.course_id)
     setLoadingRightSubList(true)
-    invoke('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
-      // console.log(res)
+    invoke<Subject[]>('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
       const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
       if (subs.length === 0) {
         notification.error({
@@ -129,7 +121,7 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     }).catch((err) => {
       notification.error({
         message: '获取课件列表失败',
-        description: err
+        description: String(err)
       })
     }).finally(() => {
       setLoadingRightSubList(false)
@@ -140,23 +132,13 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     updateMySubList()
   }, [])
 
-  const leftColumns = [
-    {
-      dataIndex: 'course_name',
-      title: '课程名称',
-    },
-    {
-      dataIndex: 'sub_name',
-      title: '上课时间',
-    },
-    {
-      dataIndex: 'lecturer_name',
-      title: '教师',
-      responsive: ['lg'],
-    },
+  const leftColumns: ColumnType<Subject>[] = [
+    { dataIndex: 'course_name', title: '课程名称' },
+    { dataIndex: 'sub_name', title: '上课时间' },
+    { dataIndex: 'lecturer_name', title: '教师', responsive: ['lg'] },
   ];
 
-  const rightColumns = [
+  const rightColumns: ColumnType<Subject>[] = [
     {
       title: '课程名称',
       dataIndex: 'course_name',
@@ -175,9 +157,8 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     {
       dataIndex: 'ppt_image_urls',
       title: '页数',
-      render: (urls) => {
-        return urls.length
-      },
+      render: (urls: string[]) => urls.length,
+      // @ts-ignore
       searchable: false,
       sorter: (a, b) => a.ppt_image_urls.length - b.ppt_image_urls.length,
     }
@@ -185,13 +166,10 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
 
   let myRightColumns = rightColumns.map((item) => {
     if (item.dataIndex === 'lecturer_name') {
-      return {
-        ...item,
-        responsive: null
-      }
+      return { ...item, responsive: undefined }
     }
     return item
-  })
+  });
 
   const downloadSubsPPT = () => {
     let subs = rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id))
@@ -215,14 +193,13 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
       return
     }
     setLoadingLeftSubList(true)
-    invoke('search_courses', { courseName: searchCourseName, teacherName: searchTeacherName }).then((res) => {
-      // console.log(res)
+    invoke<Subject[]>('search_courses', { courseName: searchCourseName, teacherName: searchTeacherName }).then((res) => {
       setLeftSubList(res)
       setSelectedLeftKeys([])
     }).catch((err) => {
       notification.error({
         message: '搜索课程失败',
-        description: err
+        description: String(err)
       })
     }).finally(() => {
       setLoadingLeftSubList(false)
@@ -245,14 +222,12 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
                 setSelectedLeftKeys([])
                 setRightSubList([])
                 setSelectedRightKeys([])
-                setSelectedCourseRange(value)
+                setSelectedCourseRange(value as 'my' | 'all')
                 if (value === 'my') {
                   updateMySubList()
                 }
               }}
               value={selectedCourseRange}
-              optionType="button"
-              buttonStyle="solid"
               style={{ minWidth: 155 }}
             />
           </div>
@@ -260,10 +235,8 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
             <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
               <Segmented
                 options={selectDateMethodOptions}
-                onChange={changeDateMethod}
+                onChange={(v) => changeDateMethod(v as 'day' | 'week' | 'month')}
                 value={selectedDateMethod}
-                optionType="button"
-                buttonStyle="solid"
                 style={{ minWidth: 106, marginRight: 20 }}
               />
               {selectedDateMethod === 'day' && <RangePicker
@@ -311,12 +284,13 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
         {selectedCourseRange === 'all' && <Col xs={10}>
-          <SearchTable
+          <SearchTable<Subject>
             rowSelection={{
               selectedRowKeys: selectedLeftKeys,
               onChange: setSelectedLeftKeys,
             }}
             rowKey={selectedCourseRange === 'my' ? 'sub_id' : 'course_id'}
+            // @ts-ignore
             columns={leftColumns}
             dataSource={leftSubList}
             pagination={false}
@@ -329,12 +303,13 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
           />
         </Col>}
         <Col xs={selectedCourseRange === 'all' ? 14 : 24}>
-          <SearchTable
+          <SearchTable<Subject>
             rowSelection={{
               selectedRowKeys: selectedRightKeys,
               onChange: setSelectedRightKeys,
             }}
             rowKey='sub_id'
+            // @ts-ignore
             columns={selectedCourseRange === 'my' ? myRightColumns : rightColumns}
             dataSource={rightSubList}
             pagination={false}
