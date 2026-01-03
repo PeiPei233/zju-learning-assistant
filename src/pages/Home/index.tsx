@@ -54,13 +54,13 @@ interface TodoItem {
   end_time: string;
 }
 
-export default function Home({ 
-  setIsLogin, 
-  setAutoLoginUsername, 
-  setAutoLoginPassword, 
-  currentVersion, 
-  latestVersionData, 
-  setOpenVersionModal 
+export default function Home({
+  setIsLogin,
+  setAutoLoginUsername,
+  setAutoLoginPassword,
+  currentVersion,
+  latestVersionData,
+  setOpenVersionModal
 }: HomeProps) {
 
   const { modal, notification } = App.useApp()
@@ -319,7 +319,7 @@ export default function Home({
       }
     }
     const doAdd = (reDownload: boolean) => {
-        tasks.forEach((task) => downloadManager.current.addTask(task, reDownload))
+      tasks.forEach((task) => downloadManager.current.addTask(task, reDownload))
     }
     if (exists) {
       modal.confirm({
@@ -467,7 +467,7 @@ export default function Home({
         taskList={taskList}
         downloadManager={downloadManager.current}
       />
-      <Settings 
+      <Settings
         open={openSettingDrawer}
         onClose={() => setOpenSettingDrawer(false)}
         config={config}

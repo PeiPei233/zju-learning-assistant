@@ -87,16 +87,16 @@ export default function Settings({
   };
 
   const handleLlmModalOk = (values: Partial<Config>) => {
-      const newEnabledState = isEnablingLlm ? true : config.llm_enabled;
-      
-      updateConfigBatch({
-        ...values,
-        llm_enabled: newEnabledState
-      });
+    const newEnabledState = isEnablingLlm ? true : config.llm_enabled;
 
-      setIsEnablingLlm(false);
-      setLlmModalOpen(false);
-      notification.success({ message: isEnablingLlm ? "AI 总结功能已启用" : "配置已保存" });
+    updateConfigBatch({
+      ...values,
+      llm_enabled: newEnabledState
+    });
+
+    setIsEnablingLlm(false);
+    setLlmModalOpen(false);
+    notification.success({ message: isEnablingLlm ? "AI 总结功能已启用" : "配置已保存" });
   };
 
   const handleLlmModalCancel = () => {
@@ -276,10 +276,10 @@ export default function Settings({
       </Drawer>
 
       <SubtitleSettingsModal open={subtitleModalOpen} onCancel={() => setSubtitleModalOpen(false)} />
-      
-      <LlmSettingsModal 
-        open={llmModalOpen} 
-        onCancel={handleLlmModalCancel} 
+
+      <LlmSettingsModal
+        open={llmModalOpen}
+        onCancel={handleLlmModalCancel}
         onOk={handleLlmModalOk}
         isEnabling={isEnablingLlm}
       />

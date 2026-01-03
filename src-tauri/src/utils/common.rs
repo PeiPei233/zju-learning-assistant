@@ -1,3 +1,5 @@
+use crate::model::Config;
+use crate::zju_assist::SubtitleContent;
 use image::{ColorType, GenericImageView, ImageFormat};
 use log::info;
 use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
@@ -191,4 +193,112 @@ pub fn format_srt_timestamp(seconds: u64) -> String {
     let minutes = (seconds % 3600) / 60;
     let secs = seconds % 60;
     format!("{:02}:{:02}:{:02},000", hours, minutes, secs)
+}
+
+pub async fn save_subtitle(
+    contents: &Vec<SubtitleContent>,
+    base_path: &Path,
+    file_stem: &str,
+    config: &Config,
+) -> Result<(), String> {
+    info!(
+        "save_subtitle: 开始保存字幕, 语言配置: {:?}",
+        config.subtitle_language
+    );
+
+    for lang in &config.subtitle_language {
+        // 根据选项确定文件后缀和是否为双语模式
+        let (suffix, is_mixed, is_en) = match lang.as_str() {
+            "zh" => ("zh", false, false),
+            "en" => ("en", false, true),
+            "mixed" => ("zh-en", true, false), // 中英穿插
+            _ => continue,                     // 未知选项跳过
+        };
+
+        let ext = match config.subtitle_format.as_str() {
+            "srt" => "srt",
+            "md" => "md",
+            "txt" => "txt",
+            _ => "srt",
+        };
+
+        // 文件名类似：课程名-子课程名.zh-en.srt
+        let file_name = format!("{}.{}.{}", file_stem, suffix, ext);
+        let file_path = base_path.join(&file_name);
+
+        info!(
+            "save_subtitle: 正在处理语言 {}, 目标路径: {:?}",
+            lang, file_path
+        );
+
+        let mut file_content = String::new();
+
+        for (index, content) in contents.iter().enumerate() {
+            // 获取文本内容
+            let text_content = if is_mixed {
+                // 双语穿插：中文在上，英文在下（如果都有的话）
+                let zh = &content.text;
+                let en = &content.trans_text;
+                if en.trim().is_empty() {
+                    zh.clone()
+                } else if zh.trim().is_empty() {
+                    en.clone()
+                } else {
+                    format!("{}\n{}", zh, en)
+                }
+            } else if is_en {
+                content.trans_text.clone()
+            } else {
+                content.text.clone()
+            };
+
+            if text_content.trim().is_empty() {
+                continue;
+            }
+
+            match config.subtitle_format.as_str() {
+                "srt" => {
+                    file_content.push_str(&format!("{}\n", index + 1));
+                    file_content.push_str(&format!(
+                        "{} --> {}\n",
+                        format_srt_timestamp(content.begin_sec),
+                        format_srt_timestamp(content.end_sec)
+                    ));
+                    file_content.push_str(&text_content);
+                    file_content.push_str("\n\n");
+                }
+                "md" => {
+                    if config.subtitle_with_timestamps {
+                        file_content.push_str(&format!(
+                            "**[{}]**\n{}\n\n",
+                            format_srt_timestamp(content.begin_sec),
+                            text_content
+                        ));
+                    } else {
+                        file_content.push_str(&text_content);
+                        file_content.push_str("\n\n");
+                    }
+                }
+                "txt" => {
+                    if config.subtitle_with_timestamps {
+                        file_content.push_str(&format!(
+                            "[{}]\n{}\n\n",
+                            format_srt_timestamp(content.begin_sec),
+                            text_content
+                        ));
+                    } else {
+                        file_content.push_str(&text_content);
+                        file_content.push_str("\n");
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        tokio::fs::write(&file_path, file_content)
+            .await
+            .map_err(|e| format!("保存字幕失败: {}", e))?;
+        info!("Saved subtitle success: {:?}", file_path);
+    }
+    Ok(())
 }

@@ -16,13 +16,13 @@ interface LoginProps {
   setOpenVersionModal: (open: boolean) => void;
 }
 
-export default function Login({ 
-  setIsLogin, 
-  autoLoginUsername, 
-  autoLoginPassword, 
-  currentVersion, 
-  latestVersionData, 
-  setOpenVersionModal 
+export default function Login({
+  setIsLogin,
+  autoLoginUsername,
+  autoLoginPassword,
+  currentVersion,
+  latestVersionData,
+  setOpenVersionModal
 }: LoginProps) {
 
   const { token } = theme.useToken()

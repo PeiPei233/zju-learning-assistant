@@ -60,21 +60,21 @@ function Index() {
   return (
     <>
       {isLogin ?
-        <Home 
-          setIsLogin={setIsLogin} 
-          setAutoLoginUsername={setAutoLoginUsername} 
-          setAutoLoginPassword={setAutoLoginPassword} 
-          currentVersion={currentVersion} 
-          latestVersionData={latestVersionData} 
-          setOpenVersionModal={setOpenVersionModal} 
+        <Home
+          setIsLogin={setIsLogin}
+          setAutoLoginUsername={setAutoLoginUsername}
+          setAutoLoginPassword={setAutoLoginPassword}
+          currentVersion={currentVersion}
+          latestVersionData={latestVersionData}
+          setOpenVersionModal={setOpenVersionModal}
         /> :
-        <Login 
-          setIsLogin={setIsLogin} 
-          autoLoginUsername={autoLoginUsername} 
-          autoLoginPassword={autoLoginPassword} 
-          currentVersion={currentVersion} 
-          latestVersionData={latestVersionData} 
-          setOpenVersionModal={setOpenVersionModal} 
+        <Login
+          setIsLogin={setIsLogin}
+          autoLoginUsername={autoLoginUsername}
+          autoLoginPassword={autoLoginPassword}
+          currentVersion={currentVersion}
+          latestVersionData={latestVersionData}
+          setOpenVersionModal={setOpenVersionModal}
         />
       }
       <FloatButton
@@ -106,12 +106,12 @@ function Index() {
               onClick={(e) => {
                 e.preventDefault();
                 if (href) {
-                    shell.open(href).catch((err) => {
-                        notification.error({
-                            message: '打开链接失败',
-                            description: String(err)
-                        })
+                  shell.open(href).catch((err) => {
+                    notification.error({
+                      message: '打开链接失败',
+                      description: String(err)
                     })
+                  })
                 }
               }}
             />

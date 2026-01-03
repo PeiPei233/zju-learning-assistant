@@ -49,21 +49,21 @@ interface LearningProps {
   setCourseList: (courses: Course[]) => void;
 }
 
-export default function Learning({ 
-  addDownloadTasks, 
-  syncing, 
-  lastSync, 
-  loadingUploadList, 
-  uploadList, 
-  setUploadList, 
-  handleSwitchSync, 
-  updateUploadList, 
-  selectedUploadKeys, 
-  setSelectedUploadKeys, 
-  selectedCourseKeys, 
-  setSelectedCourseKeys, 
-  courseList, 
-  setCourseList 
+export default function Learning({
+  addDownloadTasks,
+  syncing,
+  lastSync,
+  loadingUploadList,
+  uploadList,
+  setUploadList,
+  handleSwitchSync,
+  updateUploadList,
+  selectedUploadKeys,
+  setSelectedUploadKeys,
+  selectedCourseKeys,
+  setSelectedCourseKeys,
+  courseList,
+  setCourseList
 }: LearningProps) {
   const { notification } = App.useApp()
   const { config } = useConfig();
@@ -74,13 +74,13 @@ export default function Learning({
   const [academicYearList, setAcademicYearList] = useState<AcademicYear[]>([])
   const [loadingAcademicYearList, setLoadingAcademicYearList] = useState(false)
   const [loadingCourseList, setLoadingCourseList] = useState(false)
-  const [selectedCourses, setSelectedCourses] = useState<{key: number, name: string}[]>([])
+  const [selectedCourses, setSelectedCourses] = useState<{ key: number, name: string }[]>([])
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<number | null>(null)
   const [selectedSemester, setSelectedSemester] = useState<number | null>(null)
 
   const [windowWidth, setWindowWidth] = useState(window.innerWidth)
 
-  const courseColumns: ColumnType<{key: number, name: string}>[] = [
+  const courseColumns: ColumnType<{ key: number, name: string }>[] = [
     {
       title: '课程名称',
       dataIndex: 'name',
@@ -222,7 +222,7 @@ export default function Learning({
                 } else {
                   return { label: item.name, value: item.id }
                 }
-              }).filter((item): item is {label: string, value: number} => item !== null)}
+              }).filter((item): item is { label: string, value: number } => item !== null)}
               loading={loadingSemesterList}
             />
           </div>
@@ -240,7 +240,7 @@ export default function Learning({
       </Card>
       <Row gutter={20} style={{ marginTop: 20 }}>
         <Col xs={10} md={9} lg={8}>
-          <SearchTable<{key: number, name: string}>
+          <SearchTable<{ key: number, name: string }>
             rowSelection={{
               selectedRowKeys: selectedCourseKeys,
               onChange: setSelectedCourseKeys,
@@ -271,23 +271,23 @@ export default function Learning({
             bordered
             footer={() => syncing ? `最后同步时间：${lastSync ? lastSync : '未同步'}` : ''}
             title={() => (
-                <>
-                  {uploadList && uploadList.length !== 0 && (syncing && autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : <Text ellipsis={{ rows: 1, expandable: false, tooltip: true }} style={{ width: 'calc(100% - 30px)' }}>
-                    课件列表：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => total + item.size, 0))}
-                  </Text>)}
-                  {(!uploadList || uploadList.length === 0) && (syncing ? (autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : '待下载更新课件列表为空  点击右侧立即同步👉') : '课件列表为空  点击右侧刷新👉')}
-                  <div style={{ float: 'right' }}>
-                    <Tooltip title={syncing ? '立即同步' : '刷新课件列表'}>
-                      <Button
-                        type='text'
-                        size='small'
-                        icon={<ReloadOutlined />}
-                        onClick={updateUploadList}
-                        loading={loadingUploadList}
-                      />
-                    </Tooltip>
-                  </div>
-                </>
+              <>
+                {uploadList && uploadList.length !== 0 && (syncing && autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : <Text ellipsis={{ rows: 1, expandable: false, tooltip: true }} style={{ width: 'calc(100% - 30px)' }}>
+                  课件列表：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => total + item.size, 0))}
+                </Text>)}
+                {(!uploadList || uploadList.length === 0) && (syncing ? (autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : '待下载更新课件列表为空  点击右侧立即同步👉') : '课件列表为空  点击右侧刷新👉')}
+                <div style={{ float: 'right' }}>
+                  <Tooltip title={syncing ? '立即同步' : '刷新课件列表'}>
+                    <Button
+                      type='text'
+                      size='small'
+                      icon={<ReloadOutlined />}
+                      onClick={updateUploadList}
+                      loading={loadingUploadList}
+                    />
+                  </Tooltip>
+                </div>
+              </>
             )}
           />
         </Col>

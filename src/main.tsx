@@ -54,7 +54,7 @@ export function Main() {
 
 const container = document.getElementById('root');
 if (container) {
-    createRoot(container).render(
-      <Main />
-    )
+  createRoot(container).render(
+    <Main />
+  )
 }
