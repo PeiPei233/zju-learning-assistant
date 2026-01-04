@@ -1453,11 +1453,11 @@ pub async fn start_download_ppts(
                     "download-progress",
                     Progress {
                         id: id.clone(),
-                        status: "downloading".to_string(),
+                        status: "writing".to_string(),
                         file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                         downloaded_size: count,
                         total_size: total_size as u64,
-                        msg: "正在使用 AI 总结".to_string(),
+                        msg: "正在进行 AI 总结".to_string(),
                     },
                 )
                 .unwrap();

@@ -5,8 +5,10 @@ import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/ic
 import SearchTable from '../../components/SearchTable'
 import dayjs, { Dayjs } from 'dayjs';
 import 'dayjs/locale/zh-cn';
-import { ClassroomTask, Task } from '../../downloadManager';
+import { ClassroomTask } from '../../downloadManager';
 import { useConfig } from '../../context/ConfigContext';
+import { useDownloadManager, useDownloadList } from '../../context/DownloadContext';
+import { useAddDownloadTasks } from '../../hooks/useAddDownloadTasks';
 import { Subject } from '../../model';
 import { ColumnType } from 'antd/es/table';
 
@@ -15,14 +17,12 @@ dayjs.locale('zh-cn')
 const { Text } = Typography
 const { RangePicker } = DatePicker;
 
-interface ClassroomProps {
-  addDownloadTasks: (tasks: Task[]) => void;
-}
+export default function Classroom() {
 
-export default function Classroom({ addDownloadTasks }: ClassroomProps) {
-
-  const { message, notification } = App.useApp()
+  const { notification } = App.useApp()
   const { config } = useConfig();
+  const downloadManager = useDownloadManager();
+  const addDownloadTasks = useAddDownloadTasks();
   const toPdf = config.to_pdf;
 
   const [selectedDateMethod, setSelectedDateMethod] = useState<'day' | 'week' | 'month'>('week')

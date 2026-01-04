@@ -1,14 +1,14 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { App, Menu, Layout, Tooltip, Badge, Typography, Progress, Drawer, List, Button } from 'antd';
+import { App, Menu, Layout, Tooltip, Badge, Typography } from 'antd';
 import { invoke } from '@tauri-apps/api/core'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
-import { LogoutOutlined, DownloadOutlined, SettingOutlined, FileSearchOutlined, ReloadOutlined, CloseOutlined, DeleteOutlined, FolderOutlined } from '@ant-design/icons';
+import { LogoutOutlined, DownloadOutlined, SettingOutlined, FileSearchOutlined } from '@ant-design/icons';
 import Learning from '../Learning'
 import Classroom from '../Classroom'
 import Score from '../Score'
 import Settings from '../../components/Settings'
 import DownloadDrawer from '../../components/DownloadDrawer';
-import { DownloadManager, LearningTask, Task } from '../../downloadManager';
+import { LearningTask, Task } from '../../downloadManager';
 import { listen } from '@tauri-apps/api/event';
 import { exit } from '@tauri-apps/plugin-process';
 import { Config, Upload } from '../../model';
@@ -17,9 +17,9 @@ import LearningIcon from '../../assets/images/learning.ico'
 import ClassroomIcon from '../../assets/images/classroom.png'
 import * as shell from "@tauri-apps/plugin-shell"
 import { useConfig } from '../../context/ConfigContext';
+import { useDownloadList, useDownloadManager, useDownloadDrawer } from '../../context/DownloadContext';
 
 const { Header, Content } = Layout;
-const { Text, Link } = Typography;
 
 interface HomeProps {
   setIsLogin: (isLogin: boolean) => void;
@@ -64,7 +64,13 @@ export default function Home({
 }: HomeProps) {
 
   const { modal, notification } = App.useApp()
-  const { config, updateConfigField, updateConfigBatch } = useConfig();
+  const { config } = useConfig();
+  const downloadManager = useDownloadManager();
+
+  // Destructure tasks and count here
+  const { count: downloadingCount, tasks: downloadTasks } = useDownloadList();
+  const { isDrawerOpen, openDrawer, closeDrawer } = useDownloadDrawer();
+
   const [current, setCurrent] = useState('learning')
 
   const [score, setScore] = useState<ScoreItem[]>([])
@@ -74,9 +80,6 @@ export default function Home({
   const [totalGp, setTotalGp] = useState(0)
   const [totalCredit, setTotalCredit] = useState(0)
 
-  const [taskList, setTaskList] = useState<Task[]>([])
-  const [downloadingCount, setDownloadingCount] = useState(0)
-  const [openDownloadDrawer, setOpenDownloadDrawer] = useState(false)
   const [openSettingDrawer, setOpenSettingDrawer] = useState(false)
 
   const [courseList, setCourseList] = useState<Course[]>([])
@@ -89,7 +92,6 @@ export default function Home({
 
   const syncScoreTimer = useRef<any>(null)
   const syncUploadTimer = useRef<any>(null)
-  const downloadManager = useRef(new DownloadManager())
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
   const notifiedTodo = useRef<Record<string, boolean>>({})
@@ -101,8 +103,8 @@ export default function Home({
 
   useEffect(() => {
     configRef.current = config
-    downloadManager.current.maxConcurrentTasks = config.max_concurrent_tasks
-  }, [config])
+    downloadManager.maxConcurrentTasks = config.max_concurrent_tasks
+  }, [config, downloadManager])
 
   function notifyUpdate(item: ScoreItem, oldTotalGp: number, oldTotalCredit: number, totalGp: number, totalCredit: number, dingUrl?: string) {
     if (!dingUrl) {
@@ -259,16 +261,14 @@ export default function Home({
       if (!res) setIsLogin(false)
     }).catch(() => setIsLogin(false))
 
-    const updateDownloadList = setInterval(() => {
-      setTaskList([...downloadManager.current.getTasks()].reverse())
-      setDownloadingCount(downloadManager.current.getDownloadingCount())
-    }, 1000)
+    // Download list polling is now handled by useDownloadList hook inside components that need it (like DownloadDrawer)
+    // We only need the count here, which is provided by useDownloadList() called at the top.
 
     syncTodoTask()
     const syncTodoInterval = setInterval(syncTodoTask, 60000)
 
     const unlistenProgress = listen<any>('download-progress', (res) => {
-      downloadManager.current.updateProgress(res.payload)
+      downloadManager.updateProgress(res.payload)
     })
 
     const unlistenClose = listen('close-requested', () => {
@@ -279,22 +279,23 @@ export default function Home({
       invoke('export_todo', { todoList: todoList.current, location: res.payload })
     })
 
-    const dm = downloadManager.current
     return () => {
       stopSyncScore()
       stopSyncUpload()
-      dm.cleanUp()
-      clearInterval(updateDownloadList)
+      // downloadManager.cleanUp() // Do NOT clean up on unmount, as manager is global singleton now
       clearInterval(syncTodoInterval)
       unlistenProgress.then((fn) => fn())
       unlistenClose.then((fn) => fn())
       unlistenExportTodo.then((fn) => fn())
     }
-  }, [setAutoLoginPassword, setAutoLoginUsername, setIsLogin])
+  }, [setAutoLoginPassword, setAutoLoginUsername, setIsLogin, downloadManager])
 
   const logout = () => {
-    const doLogout = () => invoke('logout').then(() => setIsLogin(false)).catch((err) => notification.error({ message: '退出登录失败', description: String(err) }));
-    if (downloadManager.current.getDownloadingCount() > 0 || syncingUpload || notifyScore) {
+    const doLogout = () => {
+      downloadManager.cleanUp();
+      invoke('logout').then(() => setIsLogin(false)).catch((err) => notification.error({ message: '退出登录失败', description: String(err) }));
+    };
+    if (downloadingCount > 0 || syncingUpload || notifyScore) {
       modal.confirm({
         title: '后台服务正在运行',
         content: '是否停止课件同步、成绩提醒、课件下载等后台服务并退出登录？',
@@ -305,31 +306,9 @@ export default function Home({
 
   const onMenuClick = ({ key }: { key: string }) => {
     if (key === 'logout') logout()
-    else if (key === 'download') setOpenDownloadDrawer(true)
+    else if (key === 'download') openDrawer() // Correctly call Context method
     else if (key === 'setting') setOpenSettingDrawer(true)
     else setCurrent(key)
-  }
-
-  function addDownloadTasks(tasks: Task[]) {
-    let exists = false
-    for (let i = 0; i < tasks.length; i++) {
-      if (downloadManager.current.checkTaskExists(tasks[i])) {
-        exists = true
-        break
-      }
-    }
-    const doAdd = (reDownload: boolean) => {
-      tasks.forEach((task) => downloadManager.current.addTask(task, reDownload))
-    }
-    if (exists) {
-      modal.confirm({
-        title: '下载确认',
-        content: '部分课件已在下载列表中，是否重新下载？',
-        onOk: () => doAdd(true),
-        onCancel: () => doAdd(false)
-      })
-    } else doAdd(true)
-    if (config.auto_open_download_list && tasks.length !== 0) setOpenDownloadDrawer(true)
   }
 
   const updateUploadList = () => {
@@ -343,8 +322,7 @@ export default function Home({
       if (syncingUpload) {
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
         if (config.auto_download) {
-          let tasks = res.map((item) => new LearningTask(item, true))
-          addDownloadTasks(tasks)
+          res.forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
           setUploadList([])
           setSelectedUploadKeys([])
         } else {
@@ -366,7 +344,7 @@ export default function Home({
       setLoadingUploadList(true)
       invoke<Upload[]>('get_uploads_list', { courses, syncUpload: true }).then((uploads) => {
         if (configRef.current.auto_download) {
-          uploads.forEach((item) => downloadManager.current.addTask(new LearningTask(item, true), true))
+          uploads.forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
           setUploadList(uploads.filter((item) => !selectedUploadKeys.includes(item.reference_id)))
           setSelectedUploadKeys([])
         } else {
@@ -434,7 +412,6 @@ export default function Home({
       </Header>
       <Content>
         {current === 'learning' && <Learning
-          addDownloadTasks={addDownloadTasks}
           syncing={syncingUpload}
           lastSync={lastSyncUpload}
           loadingUploadList={loadingUploadList}
@@ -449,7 +426,7 @@ export default function Home({
           courseList={courseList}
           setCourseList={setCourseList}
         />}
-        {current === 'classroom' && <Classroom addDownloadTasks={addDownloadTasks} />}
+        {current === 'classroom' && <Classroom />}
         {current === 'score' && <Score
           notify={notifyScore}
           lastSync={lastSyncScore}
@@ -461,18 +438,16 @@ export default function Home({
           handleSync={handleSyncScore}
         />}
       </Content>
+      {/* Updated: using downloadTasks from hook */}
       <DownloadDrawer
-        open={openDownloadDrawer}
-        onClose={() => setOpenDownloadDrawer(false)}
-        taskList={taskList}
-        downloadManager={downloadManager.current}
+        open={isDrawerOpen}
+        onClose={closeDrawer}
+        taskList={downloadTasks}
+        downloadManager={downloadManager}
       />
       <Settings
         open={openSettingDrawer}
         onClose={() => setOpenSettingDrawer(false)}
-        config={config}
-        updateConfigField={updateConfigField}
-        updateConfigBatch={updateConfigBatch}
         currentVersion={currentVersion}
         latestVersionData={latestVersionData}
         setOpenVersionModal={setOpenVersionModal}

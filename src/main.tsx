@@ -6,6 +6,7 @@ import zhCN from 'antd/locale/zh_CN';
 import Index from './Index'
 import './global.css'
 import { ConfigProvider as AppConfigProvider } from './context/ConfigContext'
+import { DownloadProvider } from './context/DownloadContext'
 
 export function Main() {
 
@@ -45,7 +46,9 @@ export function Main() {
     >
       <App>
         <AppConfigProvider>
-          <Index />
+          <DownloadProvider>
+            <Index />
+          </DownloadProvider>
         </AppConfigProvider>
       </App>
     </ConfigProvider>

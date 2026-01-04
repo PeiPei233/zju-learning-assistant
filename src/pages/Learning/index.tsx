@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { App, Layout, Select, Button, Tooltip, Input, Row, Col, Switch, Card } from 'antd';
+import { App, Layout, Select, Button, Tooltip, Input, Row, Col, Switch, Card, Typography } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core'
 import SearchTable from '../../components/SearchTable'
@@ -8,6 +8,8 @@ import { bytesToSize } from '../../utils';
 import dayjs from 'dayjs'
 import { useConfig } from '../../context/ConfigContext';
 import { LearningTask, Task } from '../../downloadManager';
+import { useAddDownloadTasks } from '../../hooks/useAddDownloadTasks';
+import { ColumnType } from 'antd/es/table';
 
 const { Content } = Layout;
 const { Text } = Typography;
@@ -33,7 +35,6 @@ interface Course {
 }
 
 interface LearningProps {
-  addDownloadTasks: (tasks: Task[]) => void;
   syncing: boolean;
   lastSync: string | null;
   loadingUploadList: boolean;
@@ -50,7 +51,6 @@ interface LearningProps {
 }
 
 export default function Learning({
-  addDownloadTasks,
   syncing,
   lastSync,
   loadingUploadList,
@@ -67,6 +67,7 @@ export default function Learning({
 }: LearningProps) {
   const { notification } = App.useApp()
   const { config } = useConfig();
+  const addDownloadTasks = useAddDownloadTasks();
   const autoDownload = config.auto_download;
 
   const [semesterList, setSemesterList] = useState<Semester[]>([])
@@ -295,6 +296,3 @@ export default function Learning({
     </div>
   )
 }
-
-// Added Typography import which was missing in destructuring
-import { Typography } from 'antd';
