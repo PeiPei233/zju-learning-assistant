@@ -20,6 +20,7 @@ export default function DownloadDrawer({ open, onClose, taskList, downloadManage
       open={open}
       onClose={onClose}
       closeIcon={<ArrowLeftOutlined />}
+      resizable={true}
       title={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignContent: 'center' }}>
           <div>下载列表</div>

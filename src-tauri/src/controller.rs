@@ -1127,7 +1127,7 @@ pub async fn start_download_ppts(
     state.insert(id.clone(), download_state.clone());
 
     tokio::task::spawn(async move {
-        let ai_task_handle = if config.auto_download_subtitle || config.llm_enabled {
+        let ai_task_handle = if config.download_subtitle || config.llm_enabled {
             let zju_clone = zju_assist.clone();
             let subject_clone = subject.clone();
             let config_clone = config.clone();
@@ -1152,7 +1152,7 @@ pub async fn start_download_ppts(
                                 format!("{}-{}", subject_clone.course_name, subject_clone.sub_name);
 
                             // 2. 保存字幕
-                            if config_clone.auto_download_subtitle {
+                            if config_clone.download_subtitle {
                                 if let Err(e) =
                                     save_subtitle(&contents, &sub_dir, &file_stem, &config_clone)
                                         .await

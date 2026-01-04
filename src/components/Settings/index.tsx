@@ -114,6 +114,7 @@ export default function Settings({
         closeIcon={<ArrowLeftOutlined />}
         onClose={onClose}
         title='设置'
+        resizable={true}
       >
         <List itemLayout='horizontal'>
           <List.Item>
@@ -140,13 +141,13 @@ export default function Settings({
 
           <List.Item>
             <List.Item.Meta
-              title={<Text style={{ fontWeight: 'normal' }}>自动下载字幕</Text>}
+              title={<Text style={{ fontWeight: 'normal' }}>下载语音识别文本</Text>}
               description={
                 <div>
                   <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>
-                    下载智云课堂课件时，自动下载语音识别文本。
+                    下载智云课堂课件时，同时下载语音识别文本。
                   </Text>
-                  {config.auto_download_subtitle && (
+                  {config.download_subtitle && (
                     <div style={{ marginTop: 5 }}>
                       <a onClick={() => setSubtitleModalOpen(true)} style={{ fontSize: 12 }}>
                         <SettingOutlined style={{ marginRight: 4 }} />
@@ -158,8 +159,8 @@ export default function Settings({
               }
             />
             <Switch
-              checked={config.auto_download_subtitle}
-              onChange={(checked) => updateConfigField('auto_download_subtitle', checked)}
+              checked={config.download_subtitle}
+              onChange={(checked) => updateConfigField('download_subtitle', checked)}
             />
           </List.Item>
 

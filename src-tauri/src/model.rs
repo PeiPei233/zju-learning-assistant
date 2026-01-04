@@ -11,7 +11,7 @@ pub struct Config {
     pub max_concurrent_tasks: u32,
     pub auto_start: bool,
 
-    pub auto_download_subtitle: bool,
+    pub download_subtitle: bool,
     pub subtitle_language: Vec<String>,
     pub subtitle_format: String,
     pub subtitle_with_timestamps: bool,

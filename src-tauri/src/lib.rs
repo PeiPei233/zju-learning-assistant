@@ -93,7 +93,7 @@ pub fn run() {
                 max_concurrent_tasks: 3,
                 auto_start: false,
 
-                auto_download_subtitle: false,
+                download_subtitle: false,
                 subtitle_language: vec!["zh".to_string()],
                 subtitle_format: "srt".to_string(),
                 subtitle_with_timestamps: true,

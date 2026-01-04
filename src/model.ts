@@ -35,7 +35,7 @@ export class Config {
     tray: boolean
     max_concurrent_tasks: number
     auto_start: boolean
-    auto_download_subtitle: boolean
+    download_subtitle: boolean
     subtitle_language: string[]
     subtitle_format: string
     subtitle_with_timestamps: boolean
