@@ -6,7 +6,7 @@ import * as dialog from "@tauri-apps/plugin-dialog";
 import { useConfig } from '../../context/ConfigContext';
 import LlmSettingsModal from './LlmSettingsModal';
 import SubtitleSettingsModal from './SubtitleSettingsModal';
-import { Config } from '../../model';
+import { Config, VersionInfo } from '../../model';
 
 const { Text } = Typography;
 
@@ -14,7 +14,7 @@ interface SettingsProps {
   open: boolean;
   onClose: () => void;
   currentVersion: string;
-  latestVersionData: any;
+  latestVersionData: VersionInfo | null;
   setOpenVersionModal: (open: boolean) => void;
 }
 
@@ -261,7 +261,7 @@ export default function Settings({
           <a onClick={() => setOpenVersionModal(true)}>
             <List.Item>
               <List.Item.Meta
-                title={<Badge count={(!latestVersionData || (latestVersionData && latestVersionData.tag_name === currentVersion) ? 0 : 'New')} size='small'>
+                title={<Badge count={(!latestVersionData || (latestVersionData && latestVersionData.version === currentVersion) ? 0 : 'New')} size='small'>
                   <Text style={{ fontWeight: 'normal' }}>应用版本</Text>
                 </Badge>}
               />

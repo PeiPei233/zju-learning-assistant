@@ -11,7 +11,7 @@ import DownloadDrawer from '../../components/DownloadDrawer';
 import { LearningTask, Task } from '../../downloadManager';
 import { listen } from '@tauri-apps/api/event';
 import { exit } from '@tauri-apps/plugin-process';
-import { Config, Upload } from '../../model';
+import { Config, Upload, VersionInfo } from '../../model';
 import dayjs from 'dayjs'
 import LearningIcon from '../../assets/images/learning.ico'
 import ClassroomIcon from '../../assets/images/classroom.png'
@@ -26,7 +26,7 @@ interface HomeProps {
   setAutoLoginUsername: (username: string) => void;
   setAutoLoginPassword: (password: string) => void;
   currentVersion: string;
-  latestVersionData: any;
+  latestVersionData: VersionInfo | null;
   setOpenVersionModal: (open: boolean) => void;
 }
 
@@ -402,7 +402,7 @@ export default function Home({
           </Menu.Item>
           <Menu.Item key='setting'>
             <Tooltip title='设置'>
-              <Badge count={(!latestVersionData || (latestVersionData && latestVersionData.tag_name === currentVersion) ? 0 : 1)} dot>
+              <Badge count={(!latestVersionData || (latestVersionData && latestVersionData.version === currentVersion) ? 0 : 1)} dot>
                 <SettingOutlined />
               </Badge>
             </Tooltip>

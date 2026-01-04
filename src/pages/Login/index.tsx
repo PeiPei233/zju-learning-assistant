@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { listen } from '@tauri-apps/api/event';
 import { exit } from '@tauri-apps/plugin-process';
+import { VersionInfo } from '../../model';
 
 const { Text } = Typography
 
@@ -12,7 +13,7 @@ interface LoginProps {
   autoLoginUsername?: string;
   autoLoginPassword?: string;
   currentVersion: string;
-  latestVersionData: any;
+  latestVersionData: VersionInfo | null;
   setOpenVersionModal: (open: boolean) => void;
 }
 
@@ -168,7 +169,7 @@ export default function Login({
         right: 40
       }}>
         <a onClick={() => setOpenVersionModal(true)}>
-          <Badge count={(!latestVersionData || (latestVersionData && latestVersionData.tag_name === currentVersion) ? 0 : 'New')} size='small'>
+          <Badge count={(!latestVersionData || (latestVersionData && latestVersionData.version === currentVersion) ? 0 : 'New')} size='small'>
             <Text type='secondary'>当前版本：{currentVersion}</Text>
           </Badge>
         </a>

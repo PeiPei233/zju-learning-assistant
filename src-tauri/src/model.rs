@@ -56,3 +56,10 @@ pub struct Subject {
     pub path: String, // actual save path is path + sub_name
     pub ppt_image_urls: Vec<String>,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct VersionInfo {
+    pub version: String,
+    pub notes: String,
+    pub url: String,
+}

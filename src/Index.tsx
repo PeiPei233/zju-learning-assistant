@@ -10,6 +10,7 @@ import Home from './pages/Home'
 import Markdown from 'react-markdown';
 import { convertUrlsToMarkdown } from './utils';
 import * as shell from "@tauri-apps/plugin-shell"
+import { VersionInfo } from './model';
 dayjs.locale('zh-cn')
 
 const { Paragraph, Text } = Typography
@@ -22,20 +23,20 @@ function Index() {
   const [autoLoginUsername, setAutoLoginUsername] = useState('')
   const [autoLoginPassword, setAutoLoginPassword] = useState('')
   const [currentVersion, setCurrentVersion] = useState('')
-  const [latestVersionData, setLatestVersionData] = useState<any>(null)
+  const [latestVersionData, setLatestVersionData] = useState<VersionInfo | null>(null)
   const [openVersionModal, setOpenVersionModal] = useState(false)
 
   useEffect(() => {
     getVersion().then((v) => {
       setCurrentVersion('v' + v)
-      invoke<any>('get_latest_version_info').then((res) => {
+      invoke<VersionInfo | null>('get_latest_version_info').then((res) => {
         const data = res
         if (!data) throw new Error('获取最新版本信息失败')
-        if (!data.tag_name) throw new Error(JSON.stringify(data))
-        if (data.tag_name !== 'v' + v) {
+        if (!data.version) throw new Error(JSON.stringify(data))
+        if (data.version !== 'v' + v) {
           notification.info({
             message: '发现新版本',
-            description: `当前版本：${'v' + v}，最新版本：${data.tag_name}`
+            description: `当前版本：${'v' + v}，最新版本：${data.version}`
           })
         }
         setLatestVersionData(data)
@@ -129,12 +130,12 @@ function Index() {
         }}>
           {
             !latestVersionData ? '当前已是最新版本' :
-              latestVersionData.tag_name === currentVersion ? (
-                `当前已是最新版本：[${currentVersion}](${latestVersionData.html_url})\n\n` +
-                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.body)}`
+              latestVersionData.version === currentVersion ? (
+                `当前已是最新版本：[${currentVersion}](${latestVersionData.url})\n\n` +
+                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.notes)}`
               ) : (
-                `发现新版：[${latestVersionData.tag_name}](${latestVersionData.html_url})\n\n` +
-                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.body)}`
+                `发现新版：[${latestVersionData.version}](${latestVersionData.url})\n\n` +
+                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.notes)}`
               )
           }
         </Markdown>

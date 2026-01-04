@@ -56,3 +56,9 @@ export class Config {
         return new Config({ ...this });
     }
 }
+
+export interface VersionInfo {
+    version: string;
+    notes: string;
+    url: string;
+}
