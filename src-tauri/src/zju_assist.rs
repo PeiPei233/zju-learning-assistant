@@ -6,6 +6,7 @@ use reqwest::cookie::{CookieStore, Jar};
 use reqwest::header::{HeaderMap, AUTHORIZATION, USER_AGENT};
 use reqwest::{Client, Method, RequestBuilder, Response};
 use reqwest::{Error, IntoUrl};
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 use std::cmp::min;
@@ -13,7 +14,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
 use url::Url;
-use serde::Deserialize;
 
 use crate::model::Subject;
 use crate::utils::{measure_latency, rsa_no_padding};
@@ -190,8 +190,8 @@ impl ZjuAssist {
             .unwrap();
 
         tokio::pin! {
-            let latency_default = measure_latency(client_default, "http://zdbk.zju.edu.cn/");
-            let latency_no_proxy = measure_latency(client_no_proxy, "http://zdbk.zju.edu.cn/");
+            let latency_default = measure_latency(client_default, "https://zdbk.zju.edu.cn/");
+            let latency_no_proxy = measure_latency(client_no_proxy, "https://zdbk.zju.edu.cn/");
         }
 
         let latency_default_result;
@@ -312,7 +312,7 @@ impl ZjuAssist {
             self.get("https://tgmedia.cmc.zju.edu.cn/index.php?r=auth/login&auType=cmc&tenant_code=112&forward=https%3A%2F%2Fclassroom.zju.edu.cn%2F")
                 .send()
                 .await?;
-            self.post("https://zjuam.zju.edu.cn/cas/login?service=http://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
+            self.post("https://zjuam.zju.edu.cn/cas/login?service=https://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
                 .send()
                 .await?;
             self.have_login = true;
@@ -432,7 +432,13 @@ impl ZjuAssist {
         Ok(uploads)
     }
 
-    pub async fn download_file(&self, id: i64, reference_id: i64, name: &str, path: &str) -> Result<()> {
+    pub async fn download_file(
+        &self,
+        id: i64,
+        reference_id: i64,
+        name: &str,
+        path: &str,
+    ) -> Result<()> {
         let res = self
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
@@ -445,7 +451,12 @@ impl ZjuAssist {
         let res = match res.status().is_success() {
             true => res,
             false => {
-                self.get(format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id)).send().await?
+                self.get(format!(
+                    "https://courses.zju.edu.cn/api/uploads/{}/blob",
+                    id
+                ))
+                .send()
+                .await?
             }
         };
         std::fs::create_dir_all(Path::new(path))?;
@@ -472,7 +483,12 @@ impl ZjuAssist {
             let res = match res.status().is_success() {
                 true => res,
                 false => {
-                    self.get(format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id)).send().await?
+                    self.get(format!(
+                        "https://courses.zju.edu.cn/api/uploads/{}/blob",
+                        id
+                    ))
+                    .send()
+                    .await?
                 }
             };
             if res.status().is_success() {
@@ -967,7 +983,7 @@ impl ZjuAssist {
 
         let res = self
             .post(format!(
-                "http://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
+                "https://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
                 self.username
             ))
             .send()
@@ -980,7 +996,7 @@ impl ZjuAssist {
 
             let res = self
                 .post(format!(
-                    "http://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
+                    "https://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
                     self.username
                 ))
                 .send()
@@ -1007,6 +1023,7 @@ impl ZjuAssist {
         if let Err(err) = self.probe_score().await {
             info!("probe_score before get_score failed: {}", err);
             self.relogin().await?;
+            self.ensure_zdbk_session().await?;
         }
 
         let data = [
@@ -1101,12 +1118,16 @@ impl ZjuAssist {
         }
 
         if let Some(item) = json.list.first() {
-            Ok(item.all_content.iter().map(|c| SubtitleContent {
-                begin_sec: c.begin_sec,
-                end_sec: c.end_sec,
-                text: c.text.clone(),
-                trans_text: c.trans_text.clone(),
-            }).collect())
+            Ok(item
+                .all_content
+                .iter()
+                .map(|c| SubtitleContent {
+                    begin_sec: c.begin_sec,
+                    end_sec: c.end_sec,
+                    text: c.text.clone(),
+                    trans_text: c.trans_text.clone(),
+                })
+                .collect())
         } else {
             Ok(Vec::new())
         }
