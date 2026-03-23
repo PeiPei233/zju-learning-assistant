@@ -6,6 +6,7 @@ use reqwest::cookie::{CookieStore, Jar};
 use reqwest::header::{HeaderMap, AUTHORIZATION, USER_AGENT};
 use reqwest::{Client, Method, RequestBuilder, Response};
 use reqwest::{Error, IntoUrl};
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 use std::cmp::min;
@@ -13,7 +14,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
 use url::Url;
-use serde::Deserialize;
 
 use crate::model::Subject;
 use crate::utils::{measure_latency, rsa_no_padding};
@@ -53,6 +53,12 @@ struct SubtitleItem {
 struct SubtitleResponse {
     code: i64,
     list: Vec<SubtitleItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ZdbkSsoLoginUrlResponse {
+    status: String,
+    ssologinurl: Option<String>,
 }
 
 impl ZjuRequestBuilder {
@@ -184,8 +190,8 @@ impl ZjuAssist {
             .unwrap();
 
         tokio::pin! {
-            let latency_default = measure_latency(client_default, "http://zdbk.zju.edu.cn/");
-            let latency_no_proxy = measure_latency(client_no_proxy, "http://zdbk.zju.edu.cn/");
+            let latency_default = measure_latency(client_default, "https://zdbk.zju.edu.cn/");
+            let latency_no_proxy = measure_latency(client_no_proxy, "https://zdbk.zju.edu.cn/");
         }
 
         let latency_default_result;
@@ -306,7 +312,7 @@ impl ZjuAssist {
             self.get("https://tgmedia.cmc.zju.edu.cn/index.php?r=auth/login&auType=cmc&tenant_code=112&forward=https%3A%2F%2Fclassroom.zju.edu.cn%2F")
                 .send()
                 .await?;
-            self.post("https://zjuam.zju.edu.cn/cas/login?service=http://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
+            self.post("https://zjuam.zju.edu.cn/cas/login?service=https://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
                 .send()
                 .await?;
             self.have_login = true;
@@ -426,7 +432,13 @@ impl ZjuAssist {
         Ok(uploads)
     }
 
-    pub async fn download_file(&self, id: i64, reference_id: i64, name: &str, path: &str) -> Result<()> {
+    pub async fn download_file(
+        &self,
+        id: i64,
+        reference_id: i64,
+        name: &str,
+        path: &str,
+    ) -> Result<()> {
         let res = self
             .get(format!(
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
@@ -439,7 +451,12 @@ impl ZjuAssist {
         let res = match res.status().is_success() {
             true => res,
             false => {
-                self.get(format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id)).send().await?
+                self.get(format!(
+                    "https://courses.zju.edu.cn/api/uploads/{}/blob",
+                    id
+                ))
+                .send()
+                .await?
             }
         };
         std::fs::create_dir_all(Path::new(path))?;
@@ -466,7 +483,12 @@ impl ZjuAssist {
             let res = match res.status().is_success() {
                 true => res,
                 false => {
-                    self.get(format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id)).send().await?
+                    self.get(format!(
+                        "https://courses.zju.edu.cn/api/uploads/{}/blob",
+                        id
+                    ))
+                    .send()
+                    .await?
                 }
             };
             if res.status().is_success() {
@@ -923,6 +945,45 @@ impl ZjuAssist {
 
     // zdbk
 
+    async fn ensure_zdbk_session(&mut self) -> Result<()> {
+        if !self.have_login {
+            return Err(anyhow!("Not login"));
+        }
+
+        let service = "https://zdbk.zju.edu.cn/jwglxt/xtgl/login_slogin.html";
+        let encoded_service: String =
+            url::form_urlencoded::byte_serialize(service.as_bytes()).collect();
+        let cas_service_url = format!(
+            "https://zjuam.zju.edu.cn/cas/login?service={}",
+            encoded_service
+        );
+
+        self.get(cas_service_url).send().await?;
+        self.get(service).send().await?;
+
+        let sso_meta_url = "https://zdbk.zju.edu.cn/jwglxt/xtgl/login_cxSsoLoginUrl.html";
+        let sso_meta_resp = self.post(sso_meta_url).send().await?;
+        let sso_meta_text = sso_meta_resp.text().await?;
+        let sso_meta: ZdbkSsoLoginUrlResponse = serde_json::from_str(&sso_meta_text)
+            .map_err(|e| anyhow!("Parse zdbk SSO login url failed: {}", e))?;
+
+        if sso_meta.status == "success" {
+            if let Some(sso_login_url) = sso_meta.ssologinurl {
+                self.get(sso_login_url).send().await?;
+                return Ok(());
+            } else {
+                return Err(anyhow!(
+                    "zdbk SSO login failed: ssologinurl missing in successful response"
+                ));
+            }
+        }
+
+        Err(anyhow!(
+            "zdbk SSO login failed: status is '{}'",
+            sso_meta.status
+        ))
+    }
+
     pub async fn check_evaluation_done(&mut self) -> Result<bool> {
         if !self.have_login {
             return Err(anyhow!("Not login"));
@@ -930,7 +991,7 @@ impl ZjuAssist {
 
         let res = self
             .post(format!(
-                "http://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
+                "https://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
                 self.username
             ))
             .send()
@@ -943,7 +1004,7 @@ impl ZjuAssist {
 
             let res = self
                 .post(format!(
-                    "http://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
+                    "https://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
                     self.username
                 ))
                 .send()
@@ -962,6 +1023,17 @@ impl ZjuAssist {
     }
 
     pub async fn get_score(&mut self) -> Result<Vec<Value>> {
+        if let Err(err) = self.ensure_zdbk_session().await {
+            info!("ensure_zdbk_session before get_score failed: {}", err);
+            return Err(anyhow!("Get score failed: ensure session failed"));
+        }
+
+        if let Err(err) = self.probe_score().await {
+            info!("probe_score before get_score failed: {}", err);
+            self.relogin().await?;
+            self.ensure_zdbk_session().await?;
+        }
+
         let data = [
             ("xn", ""),
             ("xq", ""),
@@ -983,32 +1055,62 @@ impl ZjuAssist {
             ("time", "1"),
         ];
 
-        let res = self.post(format!("https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N508301&su={}", self.username))
-            .form(&data)
-            .send()
-            .await?;
+        let score_url = format!(
+            "https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N508301&su={}",
+            self.username
+        );
+
+        let res = self.post(&score_url).form(&data).send().await?;
+        let first_status = res.status();
+        let first_url = res.url().to_string();
         let text = res.text().await?;
+
         let json = serde_json::from_str(&text);
         if json.is_err() {
-            self.relogin().await?;
-
-            let res = self.post(format!("http://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
-                .form(&data)
-                .send()
-                .await?;
-            let text = res.text().await?;
-            debug!("{}", text);
-            let json = serde_json::from_str(&text);
-            if json.is_err() {
-                return Err(anyhow!("Get score failed"));
-            }
-            let json: Value = json.unwrap();
-            let score = json["items"].as_array().unwrap();
-            return Ok(score.iter().cloned().collect());
+            debug!(
+                "get_score first response not json: status={} url={} text={}",
+                first_status, first_url, text
+            );
+            return Err(anyhow!("Get score failed"));
         }
         let json: Value = json.unwrap();
         let score = json["items"].as_array().unwrap();
         return Ok(score.iter().cloned().collect());
+    }
+
+    async fn probe_score(&self) -> Result<()> {
+        let probe_data = [
+            ("xn", ""),
+            ("xq", ""),
+            ("zscjl", ""),
+            ("zscjr", ""),
+            ("_search", "false"),
+            ("nd", "0"),
+            ("queryModel.showCount", "1"),
+            ("queryModel.currentPage", "1"),
+            ("queryModel.sortName", "xkkh"),
+            ("queryModel.sortOrder", "asc"),
+            ("time", "1"),
+        ];
+
+        let score_probe_url = format!(
+            "https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N508301&su={}",
+            self.username
+        );
+
+        let res = self.post(score_probe_url).form(&probe_data).send().await?;
+        let text = res.text().await?;
+        if serde_json::from_str::<Value>(&text).is_ok() {
+            return Ok(());
+        }
+        if text.contains("统一身份认证平台")
+            || text.contains("/cas/login")
+            || text.contains("login_slogin")
+        {
+            return Err(anyhow!("Probe score failed: redirected to login page"));
+        }
+
+        Err(anyhow!("Probe score failed"))
     }
 
     pub async fn get_subtitle(&self, sub_id: i64) -> Result<Vec<SubtitleContent>> {
@@ -1024,12 +1126,16 @@ impl ZjuAssist {
         }
 
         if let Some(item) = json.list.first() {
-            Ok(item.all_content.iter().map(|c| SubtitleContent {
-                begin_sec: c.begin_sec,
-                end_sec: c.end_sec,
-                text: c.text.clone(),
-                trans_text: c.trans_text.clone(),
-            }).collect())
+            Ok(item
+                .all_content
+                .iter()
+                .map(|c| SubtitleContent {
+                    begin_sec: c.begin_sec,
+                    end_sec: c.end_sec,
+                    text: c.text.clone(),
+                    trans_text: c.trans_text.clone(),
+                })
+                .collect())
         } else {
             Ok(Vec::new())
         }
