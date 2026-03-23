@@ -55,6 +55,12 @@ struct SubtitleResponse {
     list: Vec<SubtitleItem>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ZdbkSsoLoginUrlResponse {
+    status: String,
+    ssologinurl: Option<String>,
+}
+
 impl ZjuRequestBuilder {
     fn new<U: IntoUrl + Clone>(
         client: ZjuAssist,
