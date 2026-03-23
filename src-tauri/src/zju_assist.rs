@@ -923,6 +923,37 @@ impl ZjuAssist {
 
     // zdbk
 
+    async fn ensure_zdbk_session(&mut self) -> Result<()> {
+        if !self.have_login {
+            return Err(anyhow!("Not login"));
+        }
+
+        let service = "https://zdbk.zju.edu.cn/jwglxt/xtgl/login_slogin.html";
+        let encoded_service: String =
+            url::form_urlencoded::byte_serialize(service.as_bytes()).collect();
+        let cas_service_url = format!(
+            "https://zjuam.zju.edu.cn/cas/login?service={}",
+            encoded_service
+        );
+
+        self.get(cas_service_url).send().await?;
+        self.get(service).send().await?;
+
+        let sso_meta_url = "https://zdbk.zju.edu.cn/jwglxt/xtgl/login_cxSsoLoginUrl.html";
+        let sso_meta_resp = self.post(sso_meta_url).send().await?;
+        let sso_meta_text = sso_meta_resp.text().await?;
+        let sso_meta: ZdbkSsoLoginUrlResponse = serde_json::from_str(&sso_meta_text)
+            .map_err(|_| anyhow!("Parse zdbk SSO login url failed"))?;
+
+        if sso_meta.status == "success" {
+            if let Some(sso_login_url) = sso_meta.ssologinurl {
+                self.get(sso_login_url).send().await?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn check_evaluation_done(&mut self) -> Result<bool> {
         if !self.have_login {
             return Err(anyhow!("Not login"));
@@ -962,6 +993,16 @@ impl ZjuAssist {
     }
 
     pub async fn get_score(&mut self) -> Result<Vec<Value>> {
+        if let Err(err) = self.ensure_zdbk_session().await {
+            info!("ensure_zdbk_session before get_score failed: {}", err);
+            return Err(anyhow!("Get score failed: ensure session failed"));
+        }
+
+        if let Err(err) = self.probe_score().await {
+            info!("probe_score before get_score failed: {}", err);
+            self.relogin().await?;
+        }
+
         let data = [
             ("xn", ""),
             ("xq", ""),
@@ -983,32 +1024,62 @@ impl ZjuAssist {
             ("time", "1"),
         ];
 
-        let res = self.post(format!("https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N508301&su={}", self.username))
-            .form(&data)
-            .send()
-            .await?;
+        let score_url = format!(
+            "https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N508301&su={}",
+            self.username
+        );
+
+        let res = self.post(&score_url).form(&data).send().await?;
+        let first_status = res.status();
+        let first_url = res.url().to_string();
         let text = res.text().await?;
+
         let json = serde_json::from_str(&text);
         if json.is_err() {
-            self.relogin().await?;
-
-            let res = self.post(format!("http://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
-                .form(&data)
-                .send()
-                .await?;
-            let text = res.text().await?;
-            debug!("{}", text);
-            let json = serde_json::from_str(&text);
-            if json.is_err() {
-                return Err(anyhow!("Get score failed"));
-            }
-            let json: Value = json.unwrap();
-            let score = json["items"].as_array().unwrap();
-            return Ok(score.iter().cloned().collect());
+            debug!(
+                "get_score first response not json: status={} url={} text={}",
+                first_status, first_url, text
+            );
+            return Err(anyhow!("Get score failed"));
         }
         let json: Value = json.unwrap();
         let score = json["items"].as_array().unwrap();
         return Ok(score.iter().cloned().collect());
+    }
+
+    async fn probe_score(&self) -> Result<()> {
+        let probe_data = [
+            ("xn", ""),
+            ("xq", ""),
+            ("zscjl", ""),
+            ("zscjr", ""),
+            ("_search", "false"),
+            ("nd", "0"),
+            ("queryModel.showCount", "1"),
+            ("queryModel.currentPage", "1"),
+            ("queryModel.sortName", "xkkh"),
+            ("queryModel.sortOrder", "asc"),
+            ("time", "1"),
+        ];
+
+        let score_probe_url = format!(
+            "https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N508301&su={}",
+            self.username
+        );
+
+        let res = self.post(score_probe_url).form(&probe_data).send().await?;
+        let text = res.text().await?;
+        if serde_json::from_str::<Value>(&text).is_ok() {
+            return Ok(());
+        }
+        if text.contains("统一身份认证平台")
+            || text.contains("/cas/login")
+            || text.contains("login_slogin")
+        {
+            return Err(anyhow!("Probe score failed: redirected to login page"));
+        }
+
+        Err(anyhow!("Probe score failed"))
     }
 
     pub async fn get_subtitle(&self, sub_id: i64) -> Result<Vec<SubtitleContent>> {
