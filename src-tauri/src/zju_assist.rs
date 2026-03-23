@@ -965,15 +965,23 @@ impl ZjuAssist {
         let sso_meta_resp = self.post(sso_meta_url).send().await?;
         let sso_meta_text = sso_meta_resp.text().await?;
         let sso_meta: ZdbkSsoLoginUrlResponse = serde_json::from_str(&sso_meta_text)
-            .map_err(|_| anyhow!("Parse zdbk SSO login url failed"))?;
+            .map_err(|e| anyhow!("Parse zdbk SSO login url failed: {}", e))?;
 
         if sso_meta.status == "success" {
             if let Some(sso_login_url) = sso_meta.ssologinurl {
                 self.get(sso_login_url).send().await?;
+                return Ok(());
+            } else {
+                return Err(anyhow!(
+                    "zdbk SSO login failed: ssologinurl missing in successful response"
+                ));
             }
         }
 
-        Ok(())
+        Err(anyhow!(
+            "zdbk SSO login failed: status is '{}'",
+            sso_meta.status
+        ))
     }
 
     pub async fn check_evaluation_done(&mut self) -> Result<bool> {
