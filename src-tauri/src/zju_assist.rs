@@ -184,8 +184,8 @@ impl ZjuAssist {
             .unwrap();
 
         tokio::pin! {
-            let latency_default = measure_latency(client_default, "http://zdbk.zju.edu.cn/");
-            let latency_no_proxy = measure_latency(client_no_proxy, "http://zdbk.zju.edu.cn/");
+            let latency_default = measure_latency(client_default, "https://zdbk.zju.edu.cn/");
+            let latency_no_proxy = measure_latency(client_no_proxy, "https://zdbk.zju.edu.cn/");
         }
 
         let latency_default_result;
@@ -306,7 +306,7 @@ impl ZjuAssist {
             self.get("https://tgmedia.cmc.zju.edu.cn/index.php?r=auth/login&auType=cmc&tenant_code=112&forward=https%3A%2F%2Fclassroom.zju.edu.cn%2F")
                 .send()
                 .await?;
-            self.post("https://zjuam.zju.edu.cn/cas/login?service=http://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
+            self.post("https://zjuam.zju.edu.cn/cas/login?service=https://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
                 .send()
                 .await?;
             self.have_login = true;
@@ -930,7 +930,7 @@ impl ZjuAssist {
 
         let res = self
             .post(format!(
-                "http://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
+                "https://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
                 self.username
             ))
             .send()
@@ -943,7 +943,7 @@ impl ZjuAssist {
 
             let res = self
                 .post(format!(
-                    "http://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
+                    "https://zdbk.zju.edu.cn/jwglxt/xtgl/index_cxMyCosJxpj.html?gnmkdm=N5083&su={}",
                     self.username
                 ))
                 .send()
@@ -992,7 +992,7 @@ impl ZjuAssist {
         if json.is_err() {
             self.relogin().await?;
 
-            let res = self.post(format!("http://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
+            let res = self.post(format!("https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083&su={}", self.username))
                 .form(&data)
                 .send()
                 .await?;
