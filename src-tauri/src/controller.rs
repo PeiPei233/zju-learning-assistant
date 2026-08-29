@@ -22,6 +22,8 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
+#[cfg(not(desktop))]
 use tauri_plugin_shell::ShellExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
@@ -394,9 +396,9 @@ pub fn export_todo(
     info!("export_todo to {}", location);
 
     if location == "help" {
-        let res = handle.shell().open(
+        let res = handle.opener().open_url(
             "https://github.com/PeiPei233/zju-learning-assistant?tab=readme-ov-file#导出学在浙大待办事项",
-            None,
+            None::<&str>,
         )
         .map_err(|err| err.to_string());
         if let Err(err) = res {

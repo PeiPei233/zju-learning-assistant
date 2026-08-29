@@ -14,7 +14,7 @@ use tauri::{Emitter, Manager};
 #[cfg(desktop)]
 use tauri_plugin_cli::CliExt;
 use tauri_plugin_log::{Target, TargetKind};
-use tauri_plugin_shell::ShellExt;
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 use zju_assist::ZjuAssist;
 
@@ -24,6 +24,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_cli::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -219,7 +220,7 @@ pub fn run() {
                         "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
                         course_id, id
                     );
-                    if let Err(e) = app.shell().open(url, None) {
+                    if let Err(e) = app.opener().open_url(url, None::<&str>) {
                         info!("Failed to open url: {}", e);
                     }
                 }
