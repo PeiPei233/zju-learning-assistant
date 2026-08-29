@@ -465,7 +465,6 @@ impl ZjuAssist {
             ))
             .send()
             .await?;
-        let mut filename = name.to_string();
         // if the upload is not allowed to download, then get the preview url
         let res = match res.status().is_success() {
             true => res,
@@ -479,7 +478,7 @@ impl ZjuAssist {
             }
         };
         std::fs::create_dir_all(Path::new(path))?;
-        let mut file = File::create(Path::new(path).join(filename))?;
+        let mut file = File::create(Path::new(path).join(name))?;
         let content = res.bytes().await?;
         file.write_all(&content)?;
         Ok(())

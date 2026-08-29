@@ -1,5 +1,5 @@
 use crate::model::{Config, Progress, Subject, Upload, VersionInfo};
-use crate::utils::{export_todo_ics, format_srt_timestamp, images_to_pdf, save_subtitle};
+use crate::utils::{export_todo_ics, images_to_pdf, save_subtitle};
 use crate::zju_assist::{SubtitleContent, ZjuAssist};
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
@@ -10,14 +10,12 @@ use log::{debug, info};
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use serde_json::{json, Value};
-use std::cmp::min;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::path::BaseDirectory;
-use tauri::utils::config;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
@@ -845,8 +843,8 @@ pub async fn start_download_upload(
                     )
                     .unwrap();
                 info!(
-                    "download_upload: fail {} {} {} {}",
-                    upload.id, upload.reference_id, upload.file_name, upload.path
+                    "download_upload: fail {} {} {} {}: {}",
+                    upload.id, upload.reference_id, upload.file_name, upload.path, err
                 );
                 // clean up
                 let res = tokio::fs::remove_file(&filepath.clone())
@@ -966,6 +964,9 @@ pub fn cancel_download(
 
 #[tauri::command]
 pub fn open_file(handle: AppHandle, path: String, folder: bool) -> Result<(), String> {
+    #[cfg(desktop)]
+    let _ = &handle;
+
     info!("open_file: {} {}", path, folder);
     if Path::new(&path).exists() {
         if folder {
