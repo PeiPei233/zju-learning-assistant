@@ -30,6 +30,7 @@ export class Config {
     save_path: string
     to_pdf: boolean
     auto_download: boolean
+    excluded_upload_extensions: string[]
     ding_url: string
     auto_open_download_list: boolean
     tray: boolean
@@ -49,7 +50,7 @@ export class Config {
     llm_hide_think_tag: boolean
 
     constructor(config?: Partial<Config>) {
-        Object.assign(this, config);
+        Object.assign(this, { excluded_upload_extensions: [] }, config);
     }
 
     clone(): Config {

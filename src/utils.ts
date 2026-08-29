@@ -23,6 +23,19 @@ export function formatTime(secs: number): string {
     }
 }
 
+export function normalizeFileExtensions(extensions: readonly string[] = []): string[] {
+    return Array.from(new Set(
+        extensions
+            .map((extension) => extension.trim().toLowerCase().replace(/^\.+/, ''))
+            .filter(Boolean)
+    ));
+}
+
+export function isFileExtensionExcluded(fileName: string, extensions: readonly string[] = []): boolean {
+    const normalizedFileName = fileName.trim().toLowerCase();
+    return normalizeFileExtensions(extensions).some((extension) => normalizedFileName.endsWith(`.${extension}`));
+}
+
 
 export function convertUrlsToMarkdown(text: string): string {
     const markdownLinkRegex = /\[([^\]]*)\]\((http[s]?:\/\/[^\s\[\]()]+)\)/g;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { App, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Tooltip } from 'antd';
+import { App, Drawer, List, Typography, Button, Badge, Switch, Input, Space, InputNumber, Tooltip, Select } from 'antd';
 import { EditOutlined, CheckOutlined, SendOutlined, ArrowLeftOutlined, SettingOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
 import * as dialog from "@tauri-apps/plugin-dialog";
@@ -7,6 +7,7 @@ import { useConfig } from '../../context/ConfigContext';
 import LlmSettingsModal from './LlmSettingsModal';
 import SubtitleSettingsModal from './SubtitleSettingsModal';
 import { Config, VersionInfo } from '../../model';
+import { normalizeFileExtensions } from '../../utils';
 
 const { Text } = Typography;
 
@@ -195,6 +196,31 @@ export default function Settings({
               </div>}
             />
             <Switch checked={config.auto_download} onChange={(checked) => updateConfigField('auto_download', checked)} />
+          </List.Item>
+
+          <List.Item>
+            <List.Item.Meta
+              title={<Text style={{ fontWeight: 'normal' }}>批量下载排除文件类型</Text>}
+              description={<div>
+                <Text type="secondary" style={{ display: 'block', fontWeight: 'normal', fontSize: 12 }}>匹配的文件不会被默认选中，也不会自动下载；仍可在课件列表中手动勾选。</Text>
+                <Select
+                  mode="tags"
+                  value={config.excluded_upload_extensions}
+                  placeholder="不排除"
+                  tokenSeparators={[',', '，', ' ']}
+                  maxTagCount="responsive"
+                  style={{ width: '100%', marginTop: 8 }}
+                  options={['mp4', 'mp3', 'mov', 'm4a', 'wav'].map((extension) => ({
+                    label: extension,
+                    value: extension
+                  }))}
+                  onChange={(extensions) => updateConfigField(
+                    'excluded_upload_extensions',
+                    normalizeFileExtensions(extensions)
+                  )}
+                />
+              </div>}
+            />
           </List.Item>
 
           <List.Item>

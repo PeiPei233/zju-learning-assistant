@@ -264,7 +264,7 @@ export default function Learning({
             }}
             rowKey='reference_id'
             columns={uploadColumns}
-            dataSource={syncing && autoDownload ? [] : uploadList}
+            dataSource={uploadList}
             loading={loadingUploadList}
             pagination={false}
             scroll={{ y: syncing ? 'calc(100vh - 292px)' : 'calc(100vh - 270px)' }}
@@ -273,9 +273,9 @@ export default function Learning({
             footer={() => syncing ? `最后同步时间：${lastSync ? lastSync : '未同步'}` : ''}
             title={() => (
               <>
-                {uploadList && uploadList.length !== 0 && (syncing && autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : <Text ellipsis={{ rows: 1, expandable: false, tooltip: true }} style={{ width: 'calc(100% - 30px)' }}>
-                  课件列表：已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => total + item.size, 0))}
-                </Text>)}
+                {uploadList && uploadList.length !== 0 && <Text ellipsis={{ rows: 1, expandable: false, tooltip: true }} style={{ width: 'calc(100% - 30px)' }}>
+                  {syncing && autoDownload ? `已按设置跳过 ${uploadList.length} 个文件；` : '课件列表：'}已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => total + item.size, 0))}
+                </Text>}
                 {(!uploadList || uploadList.length === 0) && (syncing ? (autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : '待下载更新课件列表为空  点击右侧立即同步👉') : '课件列表为空  点击右侧刷新👉')}
                 <div style={{ float: 'right' }}>
                   <Tooltip title={syncing ? '立即同步' : '刷新课件列表'}>

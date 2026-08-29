@@ -18,6 +18,7 @@ import ClassroomIcon from '../../assets/images/classroom.png'
 import * as shell from "@tauri-apps/plugin-shell"
 import { useConfig } from '../../context/ConfigContext';
 import { useDownloadList, useDownloadManager, useDownloadDrawer } from '../../context/DownloadContext';
+import { isFileExtensionExcluded } from '../../utils';
 
 const { Header, Content } = Layout;
 
@@ -53,6 +54,12 @@ interface TodoItem {
   course_name: string;
   end_time: string;
 }
+
+const getDefaultSelectedUploadKeys = (uploads: Upload[], excludedExtensions: readonly string[] = []): React.Key[] => (
+  uploads
+    .filter((item) => !isFileExtensionExcluded(item.file_name, excludedExtensions))
+    .map((item) => item.reference_id)
+)
 
 export default function Home({
   setIsLogin,
@@ -319,19 +326,21 @@ export default function Home({
     }
     setLoadingUploadList(true)
     invoke<Upload[]>('get_uploads_list', { courses, syncUpload: syncingUpload }).then((res) => {
+      const selectedKeys = getDefaultSelectedUploadKeys(res, config.excluded_upload_extensions)
       if (syncingUpload) {
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
         if (config.auto_download) {
-          res.forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
-          setUploadList([])
+          res.filter((item) => selectedKeys.includes(item.reference_id))
+            .forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
+          setUploadList(res.filter((item) => !selectedKeys.includes(item.reference_id)))
           setSelectedUploadKeys([])
         } else {
           setUploadList(res)
-          setSelectedUploadKeys(res.map((item) => item.reference_id))
+          setSelectedUploadKeys(selectedKeys)
         }
       } else {
         setUploadList(res)
-        setSelectedUploadKeys(res.map((item) => item.reference_id))
+        setSelectedUploadKeys(selectedKeys)
       }
     }).catch((err) => {
       notification.error({ message: '获取课件列表失败', description: String(err) })
@@ -343,13 +352,15 @@ export default function Home({
       let courses = courseList.filter((item) => selectedCourseKeysRef.current.includes(item.id))
       setLoadingUploadList(true)
       invoke<Upload[]>('get_uploads_list', { courses, syncUpload: true }).then((uploads) => {
+        const selectedKeys = getDefaultSelectedUploadKeys(uploads, configRef.current.excluded_upload_extensions)
         if (configRef.current.auto_download) {
-          uploads.forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
-          setUploadList(uploads.filter((item) => !selectedUploadKeys.includes(item.reference_id)))
+          uploads.filter((item) => selectedKeys.includes(item.reference_id))
+            .forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
+          setUploadList(uploads.filter((item) => !selectedKeys.includes(item.reference_id)))
           setSelectedUploadKeys([])
         } else {
           setUploadList(uploads)
-          setSelectedUploadKeys(uploads.map((item) => item.reference_id))
+          setSelectedUploadKeys(selectedKeys)
         }
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
       }).catch((err) => {
