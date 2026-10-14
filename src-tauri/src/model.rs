@@ -64,6 +64,12 @@ pub struct Upload {
     pub course_name: String,
     pub path: String, // actual save path is path + file_name
     pub size: u64,
+    #[serde(default)]
+    pub activity_id: Option<i64>,
+    #[serde(default)]
+    pub allow_download: Option<bool>,
+    #[serde(default)]
+    pub allow_private_wps_office_view: bool,
 }
 
 #[derive(Clone, Serialize, Default)]

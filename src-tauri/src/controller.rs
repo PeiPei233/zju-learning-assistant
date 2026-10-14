@@ -7,7 +7,6 @@ use dashmap::DashMap;
 use futures::TryStreamExt;
 use keyring::Entry;
 use log::{debug, info};
-use percent_encoding::percent_decode_str;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::atomic::AtomicBool;
@@ -706,6 +705,11 @@ pub async fn get_uploads_list(
                     course_name: course_name.clone(),
                     path,
                     size,
+                    activity_id: upload["activity_id"].as_i64(),
+                    allow_download: upload["allow_download"].as_bool(),
+                    allow_private_wps_office_view: upload["allow_private_wps_office_view"]
+                        .as_bool()
+                        .unwrap_or(false),
                 });
             }
             Ok(uploads)
@@ -727,9 +731,11 @@ pub async fn get_uploads_list(
                 .unwrap()
                 .to_string();
             // if path not exists, or size not match, then download
-            if !Path::new(&filepath).exists()
-                || Path::new(&filepath).metadata().unwrap().len() != upload.size as u64
-            {
+            let original_exists = Path::new(&filepath)
+                .metadata()
+                .map(|metadata| metadata.len() == upload.size)
+                .unwrap_or(false);
+            if !original_exists && !crate::preview_receipt::is_current(upload) {
                 sync_uploads.push(upload.clone());
             }
         }
@@ -755,198 +761,194 @@ pub async fn start_download_upload(
     let download_state = Arc::new(AtomicBool::new(true));
     state.insert(id.clone(), download_state.clone());
 
-    let res = zju_assist
-        .get_uploads_response(upload.id, upload.reference_id)
-        .await
-        .map_err(|err| err.to_string())?;
-
-    if !res.status().is_success() {
-        debug!(
-            "download_upload: fail {} {} {} {} {}",
-            upload.id,
-            upload.reference_id,
-            upload.file_name,
-            upload.path,
-            res.status()
-        );
-        state.remove(&id);
-        return Err("下载失败".to_string());
-    }
-
-    // create father dir if not exists
-    std::fs::create_dir_all(Path::new(&upload.path)).map_err(|e| e.to_string())?;
-
-    let content_length = res.content_length().unwrap_or(upload.size as u64);
-    let mut file_name = upload.file_name.clone();
-    let url = res.url().to_string();
-    if let Some(start) = url.find("name=") {
-        let start = start + 5;
-        let end = url[start..].find("&").unwrap_or(url.len() - start);
-        file_name = percent_decode_str(&url[start..start + end])
-            .decode_utf8_lossy()
-            .to_string();
-    }
+    let prepared = tokio::select! {
+        result = tokio::time::timeout(Duration::from_secs(180), zju_assist.get_upload_download(&upload)) => {
+            result.map_err(|_| "准备下载超时，请重试".to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()))
+        }
+        _ = async {
+            while download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        } => Err("已取消".to_string()),
+    };
+    let download = match prepared {
+        Ok(download) => download,
+        Err(error) => {
+            state.remove(&id);
+            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = window.emit(
+                    "download-progress",
+                    Progress {
+                        id,
+                        status: "canceled".into(),
+                        file_name: upload.file_name,
+                        msg: "已取消".into(),
+                        ..Progress::default()
+                    },
+                );
+                return Ok(());
+            }
+            return Err(error);
+        }
+    };
+    let res = download.response;
+    let is_preview = download.is_preview;
+    let content_length = res.content_length();
+    let candidate = if is_preview {
+        crate::wps::preview_file_name(&upload.file_name)
+    } else {
+        res.url()
+            .query_pairs()
+            .find(|(name, _)| name == "name")
+            .map(|(_, value)| value.into_owned())
+            .unwrap_or_else(|| upload.file_name.clone())
+    };
+    // A server-provided name must not escape the selected course directory.
+    let file_name = match Path::new(&candidate)
+        .file_name()
+        .and_then(|name| name.to_str())
+    {
+        Some(name) if !name.is_empty() && name != "." && name != ".." => name.to_string(),
+        _ => {
+            state.remove(&id);
+            return Err("课件文件名无效".into());
+        }
+    };
     let filepath = Path::new(&upload.path).join(&file_name);
-
-    info!("download_upload - filepath: {:?}", filepath);
-
-    // if path exists, and size match, then skip
-    if sync_upload && filepath.exists() && filepath.metadata().unwrap().len() == content_length {
-        debug!(
-            "download_upload: skip {} {} {} {}",
-            upload.id, upload.reference_id, upload.file_name, upload.path
-        );
-        window
-            .emit(
-                "download-progress",
-                Progress {
-                    id: id.clone(),
-                    status: "done".to_string(),
-                    file_name: file_name.clone(),
-                    downloaded_size: content_length,
-                    total_size: content_length,
-                    msg: "下载完成".to_string(),
-                },
-            )
-            .unwrap();
-        info!(
-            "download_upload: done {} {} {} {}",
-            upload.id, upload.reference_id, upload.file_name, upload.path
+    if sync_upload
+        && content_length.is_some_and(|size| {
+            size > 0
+                && filepath
+                    .metadata()
+                    .map(|metadata| metadata.len() == size)
+                    .unwrap_or(false)
+        })
+    {
+        if is_preview {
+            // Failure to save the receipt should not turn a completed file into a failure.
+            if let Err(error) =
+                crate::preview_receipt::save(&upload, &file_name, content_length.unwrap())
+            {
+                debug!("preview receipt: {}", error);
+            }
+        }
+        state.remove(&id);
+        let _ = window.emit(
+            "download-progress",
+            Progress {
+                id,
+                status: "done".into(),
+                file_name,
+                downloaded_size: content_length.unwrap(),
+                total_size: content_length.unwrap(),
+                msg: "下载完成".into(),
+            },
         );
         return Ok(());
     }
-    debug!(
-        "download_upload: stream {} {} {} {:?}",
-        upload.id, upload.reference_id, upload.file_name, filepath
-    );
-    let mut file = tokio::fs::File::create(filepath.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-
+    let temporary = filepath.with_file_name(format!(
+        ".{}.{:x}.part",
+        file_name,
+        md5::compute(id.as_bytes())
+    ));
     tokio::task::spawn(async move {
-        let mut current_size: u64 = 0;
-        let mut stream = res.bytes_stream();
-        loop {
-            let res = stream.try_next().await.map_err(|e| e.to_string());
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: file_name.clone(),
-                            downloaded_size: current_size,
-                            total_size: content_length,
-                            msg: "下载失败".to_string(),
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_upload: fail {} {} {} {}: {}",
-                    upload.id, upload.reference_id, upload.file_name, upload.path, err
-                );
-                // clean up
-                let res = tokio::fs::remove_file(&filepath.clone())
-                    .await
-                    .map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_upload: clean up fail: {}", err);
+        let mut current_size = 0_u64;
+        let result = async {
+            tokio::fs::create_dir_all(&upload.path)
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut file = tokio::fs::File::create(&temporary)
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut stream = res.bytes_stream();
+            let mut signature: Vec<u8> = Vec::new();
+            loop {
+                let next = tokio::select! {
+                    result = stream.try_next() => result.map_err(|_| "下载连接中断，请重试".to_string())?,
+                    _ = async {
+                        while download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+                    } => return Err("已取消".to_string()),
+                };
+                let Some(chunk) = next else {
+                    break;
+                };
+                if is_preview && signature.len() < 5 {
+                    signature.extend(chunk.iter().take(5 - signature.len()).copied());
+                    if signature.len() == 5 && signature != b"%PDF-" {
+                        return Err("WPS 返回的内容不是 PDF，请刷新课件列表后重试".into());
+                    }
                 }
-                break;
-            }
-
-            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "canceled".to_string(),
-                            file_name: file_name.clone(),
-                            downloaded_size: current_size,
-                            total_size: content_length,
-                            msg: "已取消".to_string(),
-                        },
-                    )
-                    .unwrap();
-                // clean up
-                let res = tokio::fs::remove_file(&filepath.clone())
+                file.write_all(&chunk)
                     .await
-                    .map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_upload: clean up fail: {}", err);
-                }
-                return;
-            }
-            let item = res.unwrap();
-            if item.is_none() {
-                break;
-            }
-            let chunk = item.unwrap();
-            current_size += chunk.len() as u64;
-            let res = file.write_all(&chunk).await.map_err(|e| e.to_string());
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: file_name.clone(),
-                            downloaded_size: current_size,
-                            total_size: content_length,
-                            msg: "写入文件失败".to_string(),
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_upload: fail {} {} {} {} {}",
-                    upload.id, upload.reference_id, upload.file_name, upload.path, err
-                );
-                // clean up
-                let res = tokio::fs::remove_file(&filepath.clone())
-                    .await
-                    .map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_upload: clean up fail: {}", err);
-                }
-                break;
-            }
-
-            window
-                .emit(
+                    .map_err(|error| format!("写入文件失败: {}", error))?;
+                current_size += chunk.len() as u64;
+                let _ = window.emit(
                     "download-progress",
                     Progress {
                         id: id.clone(),
-                        status: "downloading".to_string(),
+                        status: "downloading".into(),
                         file_name: file_name.clone(),
                         downloaded_size: current_size,
-                        total_size: content_length,
-                        msg: "".to_string(),
+                        total_size: content_length.unwrap_or(upload.size),
+                        msg: if is_preview {
+                            "正在下载 WPS 导出的 PDF".into()
+                        } else {
+                            String::new()
+                        },
                     },
-                )
-                .unwrap();
+                );
+            }
+            if current_size == 0
+                || content_length.is_some_and(|expected| expected != current_size)
+                || (is_preview && signature != b"%PDF-")
+            {
+                return Err("文件未完整下载，请重试".to_string());
+            }
+            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("已取消".to_string());
+            }
+            file.flush().await.map_err(|error| error.to_string())?;
+            drop(file);
+            tokio::fs::rename(&temporary, &filepath)
+                .await
+                .map_err(|error| error.to_string())?;
+            if is_preview {
+                if let Err(error) = crate::preview_receipt::save(&upload, &file_name, current_size) {
+                    debug!("preview receipt: {}", error);
+                }
+            }
+            Ok::<(), String>(())
         }
+        .await;
+        let (status, message) = match result {
+            Ok(()) => ("done", "下载完成".to_string()),
+            Err(error) => {
+                let _ = tokio::fs::remove_file(&temporary).await;
+                if download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                    ("failed", error)
+                } else {
+                    ("canceled", "已取消".to_string())
+                }
+            }
+        };
         window
-            .emit(
-                "download-progress",
-                Progress {
-                    id: id.clone(),
-                    status: "done".to_string(),
-                    file_name: file_name.clone(),
-                    downloaded_size: content_length,
-                    total_size: content_length,
-                    msg: "下载完成".to_string(),
-                },
-            )
-            .unwrap();
-        info!(
-            "download_upload: done {} {} {} {}",
-            upload.id, upload.reference_id, upload.file_name, upload.path
+            .state::<DashMap<String, Arc<AtomicBool>>>()
+            .remove(&id);
+        let _ = window.emit(
+            "download-progress",
+            Progress {
+                id,
+                status: status.into(),
+                file_name,
+                downloaded_size: current_size,
+                total_size: content_length.unwrap_or(current_size),
+                msg: message,
+            },
         );
     });
-
     Ok(())
 }
 
