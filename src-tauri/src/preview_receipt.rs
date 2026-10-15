@@ -75,7 +75,6 @@ mod tests {
             path: directory.to_string_lossy().into(),
             size: 10000,
             activity_id: Some(8),
-            allow_download: Some(false),
             allow_private_wps_office_view: true,
         };
         std::fs::write(directory.join("slides.preview.pdf"), b"%PDF-preview").unwrap();

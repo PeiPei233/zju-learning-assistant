@@ -17,7 +17,6 @@ use url::Url;
 
 use crate::model::{Subject, Upload};
 use crate::utils::{measure_latency, rsa_no_padding};
-use crate::wps::{parse_bootstrap, validate_preview_url, PrintRequest};
 
 #[derive(Clone)]
 pub struct ZjuAssist {
@@ -36,32 +35,6 @@ pub struct ZjuRequestBuilder {
 pub struct UploadResponse {
     pub response: Response,
     pub is_preview: bool,
-}
-
-#[cfg(test)]
-mod download_tests {
-    use super::*;
-
-    #[tokio::test]
-    #[ignore = "requires ZLA_TEST_WPS_PREVIEW_URL from an accessible course preview"]
-    async fn live_wps_print_export() {
-        let url = Url::parse(&std::env::var("ZLA_TEST_WPS_PREVIEW_URL").unwrap()).unwrap();
-        let id = url
-            .path_segments()
-            .unwrap()
-            .next_back()
-            .unwrap()
-            .parse()
-            .unwrap();
-        let client = ZjuAssist::new();
-        let response = client.get_wps_pdf_from_preview(id, url).await.unwrap();
-        let content_length = response.content_length();
-        let bytes = response.bytes().await.unwrap();
-        assert!(bytes.starts_with(b"%PDF-"));
-        if let Some(expected) = content_length {
-            assert_eq!(bytes.len() as u64, expected);
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -556,11 +529,11 @@ impl ZjuAssist {
                     reference_id
                 ))
                 .send()
-                .await?;
+                .await;
             // if the upload is not allowed to download, then get the preview url
-            let res = match res.status().is_success() {
-                true => res,
-                false => {
+            let res = match res {
+                Ok(res) if res.status().is_success() => res,
+                _ => {
                     self.get(format!(
                         "https://courses.zju.edu.cn/api/uploads/{}/blob",
                         id
@@ -572,9 +545,6 @@ impl ZjuAssist {
             if res.status().is_success() {
                 return Ok(res);
             }
-            if res.status().is_client_error() && res.status().as_u16() != 429 {
-                return Err(anyhow!("课件下载接口返回 HTTP {}", res.status().as_u16()));
-            }
             tokio::time::sleep(Duration::from_millis(delay_time)).await;
             retries += 1;
             delay_time *= 2;
@@ -582,108 +552,29 @@ impl ZjuAssist {
         Err(anyhow!("Failed to get upload response"))
     }
 
-    pub async fn get_upload_download(&self, upload: &Upload) -> Result<UploadResponse> {
-        if upload.allow_download != Some(false) || !upload.allow_private_wps_office_view {
-            match self
-                .get_uploads_response(upload.id, upload.reference_id)
-                .await
-            {
-                Ok(response) => {
-                    return Ok(UploadResponse {
-                        response,
-                        is_preview: false,
-                    })
-                }
-                Err(error) if !upload.allow_private_wps_office_view => return Err(error),
-                Err(_) => {}
+    pub async fn get_upload_download(
+        &self,
+        upload: &Upload,
+        on_preview: impl FnOnce(),
+    ) -> Result<UploadResponse> {
+        match self
+            .get_uploads_response(upload.id, upload.reference_id)
+            .await
+        {
+            Ok(response) => Ok(UploadResponse {
+                response,
+                is_preview: false,
+            }),
+            Err(_) if upload.allow_private_wps_office_view => {
+                on_preview();
+                let response = crate::wps::download(self, upload).await?;
+                Ok(UploadResponse {
+                    response,
+                    is_preview: true,
+                })
             }
+            Err(error) => Err(error),
         }
-        let response = self.get_wps_pdf(upload).await?;
-        Ok(UploadResponse {
-            response,
-            is_preview: true,
-        })
-    }
-
-    async fn get_wps_pdf(&self, upload: &Upload) -> Result<Response> {
-        let activity_id = upload
-            .activity_id
-            .ok_or_else(|| anyhow!("缺少课件所属活动，请刷新课件列表后重试"))?;
-        let mut endpoint = Url::parse(&format!(
-            "https://courses.zju.edu.cn/api/uploads/{}/preview/private-wps",
-            upload.id
-        ))?;
-        endpoint
-            .query_pairs_mut()
-            .append_pair("preview", "true")
-            .append_pair("refer_id", &activity_id.to_string())
-            .append_pair("refer_type", "learning_activity");
-        let preview_info: Value = self
-            .get(endpoint)
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-        let preview_url = Url::parse(
-            preview_info["preview_url"]
-                .as_str()
-                .ok_or_else(|| anyhow!("此课件未提供 WPS 预览地址"))?,
-        )?;
-        self.get_wps_pdf_from_preview(upload.id, preview_url).await
-    }
-
-    async fn get_wps_pdf_from_preview(&self, upload_id: i64, preview_url: Url) -> Result<Response> {
-        validate_preview_url(&preview_url)?;
-        let page = self
-            .request(Method::GET, preview_url)
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await
-            .map_err(|error| error.without_url())?
-            .error_for_status()
-            .map_err(|error| error.without_url())?;
-        // Redirects can add a routing node. Keep the resulting query verbatim.
-        let preview_url = page.url().clone();
-        validate_preview_url(&preview_url)?;
-        let bootstrap = parse_bootstrap(&page.text().await?, upload_id)?;
-        let request = PrintRequest::new(&preview_url, bootstrap)?;
-        let exported = self
-            .post(request.url.clone())
-            .headers(request.headers.clone())
-            .body(request.body.clone())
-            .timeout(Duration::from_secs(90))
-            .send()
-            .await?;
-        if !exported.status().is_success() {
-            return Err(anyhow!(
-                "WPS 打印导出失败 (HTTP {})",
-                exported.status().as_u16()
-            ));
-        }
-        let encrypted = exported
-            .headers()
-            .get("encryption")
-            .is_some_and(|v| v == "1");
-        let url = request.download_url(&exported.text().await?, encrypted)?;
-        let mut headers = HeaderMap::new();
-        headers.insert("referer", preview_url.as_str().parse()?);
-        // Do not log temporary signed download URLs through the generic GET helper.
-        let response = self
-            .request(Method::GET, url)
-            .headers(headers)
-            .timeout(Duration::from_secs(180))
-            .send()
-            .await
-            .map_err(|error| error.without_url())?;
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "WPS 导出文件下载失败 (HTTP {})，请重试以获取新地址",
-                response.status().as_u16()
-            ));
-        }
-        Ok(response)
     }
 
     pub async fn get_academic_year_list(&self) -> Result<Vec<Value>> {

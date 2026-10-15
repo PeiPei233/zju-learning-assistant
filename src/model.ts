@@ -6,7 +6,6 @@ export class Upload {
     path: string
     size: number
     activity_id?: number
-    allow_download?: boolean
     allow_private_wps_office_view?: boolean
 }
 

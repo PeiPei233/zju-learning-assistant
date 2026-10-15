@@ -63,13 +63,14 @@ export class Task {
         this.speed = (progress.downloaded_size - this.downloadedSize) / (currentTime - this.lastUpdateTime) * 1000
         this.lastUpdateTime = currentTime
         let avgSpeed = this.downloadedSize / (this.lastUpdateTime - this.startTime)
-        this.remainingTime = (this.totalSize - this.downloadedSize) / avgSpeed / 1000
+        this.remainingTime = this.totalSize > 0 ? (this.totalSize - this.downloadedSize) / avgSpeed / 1000 : 0
         this.downloadedSize = progress.downloaded_size
-        this.progress = this.downloadedSize / this.totalSize
+        this.progress = this.totalSize > 0 ? this.downloadedSize / this.totalSize : 0
     }
 
     public async cancel(): Promise<any> {
         this.status = 'canceled'
+        this.msg = ''
     }
 
     public getDescription(): string {
@@ -234,6 +235,7 @@ export class DownloadManager {
             task.start().catch(err => {
                 console.log(err)
                 task.status = 'failed'
+                task.msg = ''
                 task.errorMessage = err.toString()
                 let index = this.downloading.findIndex(item => item.id === task.id)
                 if (index !== -1) {

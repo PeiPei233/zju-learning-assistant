@@ -67,8 +67,6 @@ pub struct Upload {
     #[serde(default)]
     pub activity_id: Option<i64>,
     #[serde(default)]
-    pub allow_download: Option<bool>,
-    #[serde(default)]
     pub allow_private_wps_office_view: bool,
 }
 
