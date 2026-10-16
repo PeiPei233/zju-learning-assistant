@@ -706,6 +706,10 @@ pub async fn get_uploads_list(
                     course_name: course_name.clone(),
                     path,
                     size,
+                    activity_id: upload["activity_id"].as_i64(),
+                    allow_private_wps_office_view: upload["allow_private_wps_office_view"]
+                        .as_bool()
+                        .unwrap_or(false),
                 });
             }
             Ok(uploads)
@@ -727,9 +731,11 @@ pub async fn get_uploads_list(
                 .unwrap()
                 .to_string();
             // if path not exists, or size not match, then download
-            if !Path::new(&filepath).exists()
-                || Path::new(&filepath).metadata().unwrap().len() != upload.size as u64
-            {
+            let original_exists = Path::new(&filepath)
+                .metadata()
+                .map(|metadata| metadata.len() == upload.size)
+                .unwrap_or(false);
+            if !original_exists {
                 sync_uploads.push(upload.clone());
             }
         }
@@ -757,8 +763,54 @@ pub async fn start_download_upload(
 
     let res = zju_assist
         .get_uploads_response(upload.id, upload.reference_id)
-        .await
-        .map_err(|err| err.to_string())?;
+        .await;
+    let (res, is_preview) = match res {
+        Ok(res) => (res, false),
+        Err(_) if upload.allow_private_wps_office_view => {
+            if download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = window.emit(
+                    "download-progress",
+                    Progress {
+                        id: id.clone(),
+                        status: "downloading".to_string(),
+                        file_name: crate::wps::preview_file_name(&upload.file_name),
+                        msg: "正在导出预览版 PDF".to_string(),
+                        ..Progress::default()
+                    },
+                );
+            }
+            let activity_id = upload
+                .activity_id
+                .ok_or_else(|| "缺少课件所属活动，请刷新课件列表后重试".to_string())?;
+            let res = crate::wps::download(&zju_assist, upload.id, activity_id)
+                .await
+                .map_err(|err| err.to_string())?;
+            (res, true)
+        }
+        Err(err) => return Err(err.to_string()),
+    };
+    let completion_message = if is_preview {
+        "预览版 PDF（非原文件）"
+    } else {
+        "下载完成"
+    };
+
+    if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+        state.remove(&id);
+        window
+            .emit(
+                "download-progress",
+                Progress {
+                    id,
+                    status: "canceled".to_string(),
+                    file_name: upload.file_name,
+                    msg: "已取消".to_string(),
+                    ..Progress::default()
+                },
+            )
+            .unwrap();
+        return Ok(());
+    }
 
     if !res.status().is_success() {
         debug!(
@@ -776,10 +828,13 @@ pub async fn start_download_upload(
     // create father dir if not exists
     std::fs::create_dir_all(Path::new(&upload.path)).map_err(|e| e.to_string())?;
 
-    let content_length = res.content_length().unwrap_or(upload.size as u64);
+    let response_length = res.content_length();
+    let content_length = response_length.unwrap_or(if is_preview { 0 } else { upload.size });
     let mut file_name = upload.file_name.clone();
     let url = res.url().to_string();
-    if let Some(start) = url.find("name=") {
+    if is_preview {
+        file_name = crate::wps::preview_file_name(&upload.file_name);
+    } else if let Some(start) = url.find("name=") {
         let start = start + 5;
         let end = url[start..].find("&").unwrap_or(url.len() - start);
         file_name = percent_decode_str(&url[start..start + end])
@@ -791,7 +846,11 @@ pub async fn start_download_upload(
     info!("download_upload - filepath: {:?}", filepath);
 
     // if path exists, and size match, then skip
-    if sync_upload && filepath.exists() && filepath.metadata().unwrap().len() == content_length {
+    if sync_upload
+        && (!is_preview || content_length > 0)
+        && filepath.exists()
+        && filepath.metadata().unwrap().len() == content_length
+    {
         debug!(
             "download_upload: skip {} {} {} {}",
             upload.id, upload.reference_id, upload.file_name, upload.path
@@ -805,7 +864,7 @@ pub async fn start_download_upload(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
-                    msg: "下载完成".to_string(),
+                    msg: completion_message.to_string(),
                 },
             )
             .unwrap();
@@ -826,8 +885,29 @@ pub async fn start_download_upload(
     tokio::task::spawn(async move {
         let mut current_size: u64 = 0;
         let mut stream = res.bytes_stream();
+        let mut signature = Vec::new();
         loop {
             let res = stream.try_next().await.map_err(|e| e.to_string());
+            let res = res.and_then(|item| {
+                if is_preview {
+                    if let Some(chunk) = &item {
+                        signature.extend(chunk.iter().take(5 - signature.len()).copied());
+                    }
+                    if (signature.len() == 5 && signature != b"%PDF-")
+                        || (item.is_none()
+                            && (signature != b"%PDF-"
+                                || response_length.is_some_and(|size| size != current_size)))
+                    {
+                        return Err("下载文件无效或不完整".to_string());
+                    }
+                }
+                Ok(item)
+            });
+            let res = if matches!(&res, Ok(None)) {
+                file.flush().await.map(|_| None).map_err(|e| e.to_string())
+            } else {
+                res
+            };
             if let Err(err) = res {
                 window
                     .emit(
@@ -847,13 +927,14 @@ pub async fn start_download_upload(
                     upload.id, upload.reference_id, upload.file_name, upload.path, err
                 );
                 // clean up
+                drop(file);
                 let res = tokio::fs::remove_file(&filepath.clone())
                     .await
                     .map_err(|e| e.to_string());
                 if let Err(err) = res {
                     debug!("download_upload: clean up fail: {}", err);
                 }
-                break;
+                return;
             }
 
             if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
@@ -871,6 +952,7 @@ pub async fn start_download_upload(
                     )
                     .unwrap();
                 // clean up
+                drop(file);
                 let res = tokio::fs::remove_file(&filepath.clone())
                     .await
                     .map_err(|e| e.to_string());
@@ -905,13 +987,14 @@ pub async fn start_download_upload(
                     upload.id, upload.reference_id, upload.file_name, upload.path, err
                 );
                 // clean up
+                drop(file);
                 let res = tokio::fs::remove_file(&filepath.clone())
                     .await
                     .map_err(|e| e.to_string());
                 if let Err(err) = res {
                     debug!("download_upload: clean up fail: {}", err);
                 }
-                break;
+                return;
             }
 
             window
@@ -928,6 +1011,12 @@ pub async fn start_download_upload(
                 )
                 .unwrap();
         }
+        drop(file);
+        let content_length = if is_preview {
+            current_size
+        } else {
+            content_length
+        };
         window
             .emit(
                 "download-progress",
@@ -937,7 +1026,7 @@ pub async fn start_download_upload(
                     file_name: file_name.clone(),
                     downloaded_size: content_length,
                     total_size: content_length,
-                    msg: "下载完成".to_string(),
+                    msg: completion_message.to_string(),
                 },
             )
             .unwrap();

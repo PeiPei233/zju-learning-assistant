@@ -1,6 +1,7 @@
 mod controller;
 mod model;
 mod utils;
+mod wps;
 mod zju_assist;
 
 use dashmap::DashMap;

@@ -64,6 +64,8 @@ pub struct Upload {
     pub course_name: String,
     pub path: String, // actual save path is path + file_name
     pub size: u64,
+    pub activity_id: Option<i64>,
+    pub allow_private_wps_office_view: bool,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -73,7 +75,6 @@ pub struct Progress {
     pub file_name: String,
     pub downloaded_size: u64,
     pub total_size: u64,
-    #[serde(default)]
     pub msg: String,
 }
 

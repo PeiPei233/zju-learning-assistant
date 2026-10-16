@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use log::{debug, info};
 use percent_encoding::percent_decode_str;
 use regex::Regex;
@@ -118,6 +118,30 @@ impl ZjuRequestBuilder {
     pub fn json<T: Serialize + ?Sized>(&mut self, json: &T) -> &mut Self {
         self.request_builder_first = self.request_builder_first.try_clone().unwrap().json(json);
         self.request_builder_second = self.request_builder_second.try_clone().unwrap().json(json);
+        self
+    }
+
+    pub fn body(&mut self, body: String) -> &mut Self {
+        self.request_builder_first = self
+            .request_builder_first
+            .try_clone()
+            .unwrap()
+            .body(body.clone());
+        self.request_builder_second = self.request_builder_second.try_clone().unwrap().body(body);
+        self
+    }
+
+    pub fn timeout(&mut self, timeout: Duration) -> &mut Self {
+        self.request_builder_first = self
+            .request_builder_first
+            .try_clone()
+            .unwrap()
+            .timeout(timeout);
+        self.request_builder_second = self
+            .request_builder_second
+            .try_clone()
+            .unwrap()
+            .timeout(timeout);
         self
     }
 
@@ -413,7 +437,11 @@ impl ZjuAssist {
         let activities = json["activities"].as_array().unwrap();
         for activity in activities {
             if activity["uploads"].is_array() {
-                uploads.extend(activity["uploads"].as_array().unwrap().iter().cloned());
+                for item in activity["uploads"].as_array().unwrap() {
+                    let mut upload = item.clone();
+                    upload["activity_id"] = activity["id"].clone();
+                    uploads.push(upload);
+                }
             }
         }
         Ok(uploads)
@@ -496,11 +524,11 @@ impl ZjuAssist {
                     reference_id
                 ))
                 .send()
-                .await?;
+                .await;
             // if the upload is not allowed to download, then get the preview url
-            let res = match res.status().is_success() {
-                true => res,
-                false => {
+            let res = match res {
+                Ok(res) if res.status().is_success() => res,
+                _ => {
                     self.get(format!(
                         "https://courses.zju.edu.cn/api/uploads/{}/blob",
                         id
