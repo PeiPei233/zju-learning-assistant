@@ -1,6 +1,5 @@
 mod controller;
 mod model;
-mod preview_receipt;
 mod utils;
 mod wps;
 mod zju_assist;

@@ -735,7 +735,7 @@ pub async fn get_uploads_list(
                 .metadata()
                 .map(|metadata| metadata.len() == upload.size)
                 .unwrap_or(false);
-            if !original_exists && !crate::preview_receipt::is_current(upload) {
+            if !original_exists {
                 sync_uploads.push(upload.clone());
             }
         }
@@ -842,11 +842,6 @@ pub async fn start_download_upload(
         && filepath.exists()
         && filepath.metadata().unwrap().len() == content_length
     {
-        if is_preview {
-            if let Err(error) = crate::preview_receipt::save(&upload, &file_name, content_length) {
-                debug!("preview receipt: {}", error);
-            }
-        }
         debug!(
             "download_upload: skip {} {} {} {}",
             upload.id, upload.reference_id, upload.file_name, upload.path
@@ -1008,11 +1003,6 @@ pub async fn start_download_upload(
                 .unwrap();
         }
         drop(file);
-        if is_preview {
-            if let Err(error) = crate::preview_receipt::save(&upload, &file_name, current_size) {
-                debug!("preview receipt: {}", error);
-            }
-        }
         let content_length = if is_preview {
             current_size
         } else {
