@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use log::{debug, info};
 use percent_encoding::percent_decode_str;
 use regex::Regex;
@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
 use url::Url;
 
-use crate::model::Subject;
+use crate::model::{Subject, Upload};
 use crate::utils::{measure_latency, rsa_no_padding};
 
 #[derive(Clone)]
@@ -30,6 +30,11 @@ pub struct ZjuAssist {
 pub struct ZjuRequestBuilder {
     request_builder_first: RequestBuilder,
     request_builder_second: RequestBuilder,
+}
+
+pub struct UploadResponse {
+    pub response: Response,
+    pub is_preview: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +123,30 @@ impl ZjuRequestBuilder {
     pub fn json<T: Serialize + ?Sized>(&mut self, json: &T) -> &mut Self {
         self.request_builder_first = self.request_builder_first.try_clone().unwrap().json(json);
         self.request_builder_second = self.request_builder_second.try_clone().unwrap().json(json);
+        self
+    }
+
+    pub fn body(&mut self, body: String) -> &mut Self {
+        self.request_builder_first = self
+            .request_builder_first
+            .try_clone()
+            .unwrap()
+            .body(body.clone());
+        self.request_builder_second = self.request_builder_second.try_clone().unwrap().body(body);
+        self
+    }
+
+    pub fn timeout(&mut self, timeout: Duration) -> &mut Self {
+        self.request_builder_first = self
+            .request_builder_first
+            .try_clone()
+            .unwrap()
+            .timeout(timeout);
+        self.request_builder_second = self
+            .request_builder_second
+            .try_clone()
+            .unwrap()
+            .timeout(timeout);
         self
     }
 
@@ -413,7 +442,11 @@ impl ZjuAssist {
         let activities = json["activities"].as_array().unwrap();
         for activity in activities {
             if activity["uploads"].is_array() {
-                uploads.extend(activity["uploads"].as_array().unwrap().iter().cloned());
+                for item in activity["uploads"].as_array().unwrap() {
+                    let mut upload = item.clone();
+                    upload["activity_id"] = activity["id"].clone();
+                    uploads.push(upload);
+                }
             }
         }
         Ok(uploads)
@@ -496,11 +529,11 @@ impl ZjuAssist {
                     reference_id
                 ))
                 .send()
-                .await?;
+                .await;
             // if the upload is not allowed to download, then get the preview url
-            let res = match res.status().is_success() {
-                true => res,
-                false => {
+            let res = match res {
+                Ok(res) if res.status().is_success() => res,
+                _ => {
                     self.get(format!(
                         "https://courses.zju.edu.cn/api/uploads/{}/blob",
                         id
@@ -517,6 +550,31 @@ impl ZjuAssist {
             delay_time *= 2;
         }
         Err(anyhow!("Failed to get upload response"))
+    }
+
+    pub async fn get_upload_download(
+        &self,
+        upload: &Upload,
+        on_preview: impl FnOnce(),
+    ) -> Result<UploadResponse> {
+        match self
+            .get_uploads_response(upload.id, upload.reference_id)
+            .await
+        {
+            Ok(response) => Ok(UploadResponse {
+                response,
+                is_preview: false,
+            }),
+            Err(_) if upload.allow_private_wps_office_view => {
+                on_preview();
+                let response = crate::wps::download(self, upload).await?;
+                Ok(UploadResponse {
+                    response,
+                    is_preview: true,
+                })
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn get_academic_year_list(&self) -> Result<Vec<Value>> {

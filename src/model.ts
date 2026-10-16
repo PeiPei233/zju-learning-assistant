@@ -5,6 +5,8 @@ export class Upload {
     course_name: string
     path: string
     size: number
+    activity_id?: number
+    allow_private_wps_office_view?: boolean
 }
 
 export class Progress {
