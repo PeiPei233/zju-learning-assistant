@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
 use url::Url;
 
-use crate::model::{Subject, Upload};
+use crate::model::Subject;
 use crate::utils::{measure_latency, rsa_no_padding};
 
 #[derive(Clone)]
@@ -30,11 +30,6 @@ pub struct ZjuAssist {
 pub struct ZjuRequestBuilder {
     request_builder_first: RequestBuilder,
     request_builder_second: RequestBuilder,
-}
-
-pub struct UploadResponse {
-    pub response: Response,
-    pub is_preview: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -550,31 +545,6 @@ impl ZjuAssist {
             delay_time *= 2;
         }
         Err(anyhow!("Failed to get upload response"))
-    }
-
-    pub async fn get_upload_download(
-        &self,
-        upload: &Upload,
-        on_preview: impl FnOnce(),
-    ) -> Result<UploadResponse> {
-        match self
-            .get_uploads_response(upload.id, upload.reference_id)
-            .await
-        {
-            Ok(response) => Ok(UploadResponse {
-                response,
-                is_preview: false,
-            }),
-            Err(_) if upload.allow_private_wps_office_view => {
-                on_preview();
-                let response = crate::wps::download(self, upload).await?;
-                Ok(UploadResponse {
-                    response,
-                    is_preview: true,
-                })
-            }
-            Err(error) => Err(error),
-        }
     }
 
     pub async fn get_academic_year_list(&self) -> Result<Vec<Value>> {

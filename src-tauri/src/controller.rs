@@ -761,8 +761,12 @@ pub async fn start_download_upload(
     let download_state = Arc::new(AtomicBool::new(true));
     state.insert(id.clone(), download_state.clone());
 
-    let download = zju_assist
-        .get_upload_download(&upload, || {
+    let res = zju_assist
+        .get_uploads_response(upload.id, upload.reference_id)
+        .await;
+    let (res, is_preview) = match res {
+        Ok(res) => (res, false),
+        Err(_) if upload.allow_private_wps_office_view => {
             if download_state.load(std::sync::atomic::Ordering::SeqCst) {
                 let _ = window.emit(
                     "download-progress",
@@ -775,11 +779,16 @@ pub async fn start_download_upload(
                     },
                 );
             }
-        })
-        .await
-        .map_err(|err| err.to_string())?;
-    let res = download.response;
-    let is_preview = download.is_preview;
+            let activity_id = upload
+                .activity_id
+                .ok_or_else(|| "缺少课件所属活动，请刷新课件列表后重试".to_string())?;
+            let res = crate::wps::download(&zju_assist, upload.id, activity_id)
+                .await
+                .map_err(|err| err.to_string())?;
+            (res, true)
+        }
+        Err(err) => return Err(err.to_string()),
+    };
     let completion_message = if is_preview {
         "预览版 PDF（非原文件）"
     } else {

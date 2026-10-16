@@ -12,7 +12,6 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use url::Url;
 
-use crate::model::Upload;
 use crate::zju_assist::ZjuAssist;
 
 #[derive(Deserialize)]
@@ -177,13 +176,10 @@ impl PrintRequest {
     }
 }
 
-pub async fn download(client: &ZjuAssist, upload: &Upload) -> Result<Response> {
-    let activity_id = upload
-        .activity_id
-        .ok_or_else(|| anyhow!("缺少课件所属活动，请刷新课件列表后重试"))?;
+pub async fn download(client: &ZjuAssist, upload_id: i64, activity_id: i64) -> Result<Response> {
     let mut endpoint = Url::parse(&format!(
         "https://courses.zju.edu.cn/api/uploads/{}/preview/private-wps",
-        upload.id
+        upload_id
     ))?;
     endpoint
         .query_pairs_mut()
@@ -203,7 +199,7 @@ pub async fn download(client: &ZjuAssist, upload: &Upload) -> Result<Response> {
             .as_str()
             .ok_or_else(|| anyhow!("此课件未提供 WPS 预览地址"))?,
     )?;
-    download_from_preview(client, upload.id, preview_url).await
+    download_from_preview(client, upload_id, preview_url).await
 }
 
 async fn download_from_preview(
