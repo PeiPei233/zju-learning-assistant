@@ -491,65 +491,83 @@ impl ZjuAssist {
         name: &str,
         path: &str,
     ) -> Result<()> {
-        let res = self
-            .get(format!(
-                "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
-                reference_id
-            ))
-            .send()
-            .await?;
-        // if the upload is not allowed to download, then get the preview url
-        let res = match res.status().is_success() {
-            true => res,
-            false => {
-                self.get(format!(
-                    "https://courses.zju.edu.cn/api/uploads/{}/blob",
-                    id
-                ))
-                .send()
-                .await?
-            }
-        };
+        // Both entry points must check authorization before creating a local file.
+        let res = self.get_uploads_response(id, reference_id).await?;
+        let content = res.bytes().await?;
         std::fs::create_dir_all(Path::new(path))?;
         let mut file = File::create(Path::new(path).join(name))?;
-        let content = res.bytes().await?;
         file.write_all(&content)?;
         Ok(())
     }
 
     pub async fn get_uploads_response(&self, id: i64, reference_id: i64) -> Result<Response> {
-        const MAX_RETRIES: usize = 5;
-        let mut retries = 0;
-        let mut delay_time = 100;
+        let endpoints = [
+            format!(
+                "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
+                reference_id
+            ),
+            format!("https://courses.zju.edu.cn/api/uploads/{}/blob", id),
+        ];
+        self.get_original_upload_response(&endpoints).await
+    }
 
-        while retries < MAX_RETRIES {
-            let res = self
-                .get(format!(
-                    "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
-                    reference_id
-                ))
-                .send()
-                .await;
-            // if the upload is not allowed to download, then get the preview url
-            let res = match res {
-                Ok(res) if res.status().is_success() => res,
-                _ => {
-                    self.get(format!(
-                        "https://courses.zju.edu.cn/api/uploads/{}/blob",
-                        id
-                    ))
+    async fn get_original_upload_response(&self, endpoints: &[String]) -> Result<Response> {
+        const MAX_RETRIES: usize = 5;
+        let mut delay_time = 100;
+        let mut failures = vec![String::new(); endpoints.len()];
+
+        for attempt in 0..MAX_RETRIES {
+            let mut retryable = false;
+            for (index, endpoint) in endpoints.iter().enumerate() {
+                match self
+                    .get(endpoint)
+                    .timeout(Duration::from_secs(30))
                     .send()
-                    .await?
+                    .await
+                {
+                    // The CAS login page can return 200 after a redirect. It is not a file.
+                    Ok(res) if res.url().host_str() == Some("zjuam.zju.edu.cn") => {
+                        return Err(anyhow!("登录已过期，请重新登录后下载课件"));
+                    }
+                    Ok(res) if res.status().is_success() => return Ok(res),
+                    Ok(res) => {
+                        let status = res.status();
+                        let message = res
+                            .json::<Value>()
+                            .await
+                            .ok()
+                            .and_then(|data| {
+                                data.get("message")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_owned)
+                            })
+                            .unwrap_or_else(|| {
+                                status.canonical_reason().unwrap_or("请求失败").to_string()
+                            });
+                        if status == reqwest::StatusCode::UNAUTHORIZED {
+                            return Err(anyhow!("登录已过期 (HTTP 401)：{}", message));
+                        }
+                        failures[index] =
+                            format!("接口 {} HTTP {}：{}", index + 1, status.as_u16(), message);
+                        retryable |= status.is_server_error()
+                            || status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+                    }
+                    Err(error) => {
+                        failures[index] = format!("接口 {}：{}", index + 1, error.without_url());
+                        retryable = true;
+                    }
                 }
-            };
-            if res.status().is_success() {
-                return Ok(res);
             }
-            tokio::time::sleep(Duration::from_millis(delay_time)).await;
-            retries += 1;
-            delay_time *= 2;
+            // A permission denial is deterministic. Repeating both requests cannot grant access.
+            if !retryable {
+                break;
+            }
+            if attempt + 1 < MAX_RETRIES {
+                tokio::time::sleep(Duration::from_millis(delay_time)).await;
+                delay_time *= 2;
+            }
         }
-        Err(anyhow!("Failed to get upload response"))
+        Err(anyhow!("课件原文件下载失败：{}", failures.join("；")))
     }
 
     pub async fn get_upload_download(
@@ -565,13 +583,11 @@ impl ZjuAssist {
                 response,
                 is_preview: false,
             }),
-            Err(_) if upload.allow_private_wps_office_view => {
-                on_preview();
-                let response = crate::wps::download(self, upload).await?;
-                Ok(UploadResponse {
-                    response,
-                    is_preview: true,
-                })
+            Err(error) if upload.allow_private_wps_office_view => {
+                info!("常规原文件接口失败，尝试 WPS 原文件接口：{}", error);
+                crate::wps::download(self, upload, on_preview)
+                    .await
+                    .map_err(|wps_error| anyhow!("{}；WPS 文件获取失败：{}", error, wps_error))
             }
             Err(error) => Err(error),
         }
@@ -1135,5 +1151,114 @@ impl ZjuAssist {
         } else {
             Ok(Vec::new())
         }
+    }
+}
+
+#[cfg(test)]
+mod original_download_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn server(
+        responses: Vec<(&'static str, &'static str)>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            for (status, body) in responses {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 1024];
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                socket.write_all(format!("HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", status, body.len(), body).as_bytes()).await.unwrap();
+            }
+        });
+        (url, task)
+    }
+
+    #[tokio::test]
+    async fn permission_denials_preserve_server_reason_without_retries() {
+        let (url, server) = server(vec![
+            (
+                "403 Forbidden",
+                r#"{"message":"reference download denied"}"#,
+            ),
+            ("403 Forbidden", r#"{"message":"original download denied"}"#),
+        ])
+        .await;
+        let mut client = ZjuAssist::new();
+        client.proxy_first = false;
+        let error = tokio::time::timeout(
+            Duration::from_secs(3),
+            client.get_original_upload_response(&[
+                format!("{url}/reference"),
+                format!("{url}/upload"),
+            ]),
+        )
+        .await
+        .unwrap()
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("HTTP 403"));
+        assert!(error.contains("reference download denied"));
+        assert!(error.contains("original download denied"));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn expired_login_does_not_try_other_download_routes() {
+        let (url, server) = server(vec![(
+            "401 Unauthorized",
+            r#"{"message":"session expired"}"#,
+        )])
+        .await;
+        let mut client = ZjuAssist::new();
+        client.proxy_first = false;
+        let error = client
+            .get_original_upload_response(&[url.clone(), url])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("HTTP 401"));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn legacy_upload_endpoint_can_still_return_the_original_file() {
+        let (url, server) = server(vec![
+            ("403 Forbidden", r#"{"message":"reference denied"}"#),
+            ("200 OK", "original file bytes"),
+        ])
+        .await;
+        let mut client = ZjuAssist::new();
+        client.proxy_first = false;
+        let response = client
+            .get_original_upload_response(&[format!("{url}/reference"), format!("{url}/upload")])
+            .await
+            .unwrap();
+        assert_eq!(response.text().await.unwrap(), "original file bytes");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn transient_server_failure_can_recover_the_original_file() {
+        let (url, server) = server(vec![
+            ("503 Service Unavailable", r#"{"message":"try later"}"#),
+            ("403 Forbidden", r#"{"message":"alternate denied"}"#),
+            ("200 OK", "original file bytes"),
+        ])
+        .await;
+        let mut client = ZjuAssist::new();
+        client.proxy_first = false;
+        let response = client
+            .get_original_upload_response(&[format!("{url}/reference"), format!("{url}/upload")])
+            .await
+            .unwrap();
+        assert_eq!(response.text().await.unwrap(), "original file bytes");
+        server.await.unwrap();
     }
 }

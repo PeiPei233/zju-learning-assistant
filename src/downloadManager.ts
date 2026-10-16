@@ -52,6 +52,7 @@ export class Task {
         this.msg = progress.msg || ''
         let currentTime = Date.now()
         if (this.status === 'done') {
+            this.downloadedSize = progress.downloaded_size
             this.progress = 1
             this.speed = 0
             this.remainingTime = 0

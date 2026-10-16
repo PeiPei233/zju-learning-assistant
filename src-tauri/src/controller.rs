@@ -881,22 +881,16 @@ pub async fn start_download_upload(
     tokio::task::spawn(async move {
         let mut current_size: u64 = 0;
         let mut stream = res.bytes_stream();
-        let mut signature = Vec::new();
+        let mut integrity =
+            crate::upload_integrity::UploadIntegrity::new(response_length, is_preview);
         loop {
             let res = stream.try_next().await.map_err(|e| e.to_string());
             let res = res.and_then(|item| {
-                if is_preview {
-                    if let Some(chunk) = &item {
-                        signature.extend(chunk.iter().take(5 - signature.len()).copied());
-                    }
-                    if (signature.len() == 5 && signature != b"%PDF-")
-                        || (item.is_none()
-                            && (signature != b"%PDF-"
-                                || response_length.is_some_and(|size| size != current_size)))
-                    {
-                        return Err("下载文件无效或不完整".to_string());
-                    }
+                match &item {
+                    Some(chunk) => integrity.push(chunk),
+                    None => integrity.finish(),
                 }
+                .map_err(|error| error.to_string())?;
                 Ok(item)
             });
             let res = if matches!(&res, Ok(None)) {
@@ -914,7 +908,7 @@ pub async fn start_download_upload(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
-                            msg: "下载失败".to_string(),
+                            msg: format!("下载失败：{}", err),
                         },
                     )
                     .unwrap();
@@ -1013,11 +1007,7 @@ pub async fn start_download_upload(
                 debug!("preview receipt: {}", error);
             }
         }
-        let content_length = if is_preview {
-            current_size
-        } else {
-            content_length
-        };
+        let content_length = current_size;
         window
             .emit(
                 "download-progress",

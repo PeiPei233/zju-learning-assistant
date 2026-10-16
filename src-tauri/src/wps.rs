@@ -1,4 +1,4 @@
-//! WPS WebOffice's print export transport. The key and routing information are
+//! WPS WebOffice's original download and print export transport. Keys and routing are
 //! obtained from a fresh preview page, never persisted or written to logs.
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use anyhow::{anyhow, bail, Context, Result};
@@ -13,18 +13,24 @@ use std::time::Duration;
 use url::Url;
 
 use crate::model::Upload;
-use crate::zju_assist::ZjuAssist;
+use crate::zju_assist::{UploadResponse, ZjuAssist};
 
-#[derive(Deserialize)]
-pub struct Bootstrap {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DownloadMode {
+    Original,
+    PreviewPdf,
+}
+
+#[derive(Clone, Deserialize)]
+struct Bootstrap {
     pub root_file_id: String,
     pub app_id: String,
     pub csrf_token: String,
     pub encryption: Encryption,
 }
 
-#[derive(Deserialize)]
-pub struct Encryption {
+#[derive(Clone, Deserialize)]
+struct Encryption {
     pub algorithm: String,
     #[serde(rename = "publicKey")]
     public_key: String,
@@ -33,7 +39,7 @@ pub struct Encryption {
     enabled: bool,
 }
 
-pub struct PrintRequest {
+struct OfficeRequest {
     pub url: Url,
     pub headers: HeaderMap,
     pub body: String,
@@ -41,7 +47,7 @@ pub struct PrintRequest {
     iv: [u8; 16],
 }
 
-pub fn parse_bootstrap(html: &str, upload_id: i64) -> Result<Bootstrap> {
+fn parse_bootstrap(html: &str, upload_id: i64) -> Result<Bootstrap> {
     let source = html
         .split_once("window.__WPSENV__=")
         .ok_or_else(|| anyhow!("WPS 预览页面格式已变化或登录已过期"))?
@@ -58,7 +64,7 @@ pub fn parse_bootstrap(html: &str, upload_id: i64) -> Result<Bootstrap> {
     Ok(bootstrap)
 }
 
-pub fn validate_preview_url(url: &Url) -> Result<()> {
+fn validate_preview_url(url: &Url) -> Result<()> {
     if url.scheme() != "https"
         || url.host_str() != Some("course-wps.zju.edu.cn")
         || !url.username().is_empty()
@@ -70,7 +76,7 @@ pub fn validate_preview_url(url: &Url) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_download_url(url: &Url) -> Result<()> {
+fn validate_download_url(url: &Url) -> Result<()> {
     let host = url.host_str().unwrap_or_default();
     if url.scheme() != "https"
         || !(host == "zju.edu.cn" || host.ends_with(".zju.edu.cn"))
@@ -90,8 +96,8 @@ fn encrypt(key: &[u8; 32], iv: &[u8; 16], text: &[u8]) -> String {
     )
 }
 
-impl PrintRequest {
-    pub fn new(preview_url: &Url, bootstrap: Bootstrap) -> Result<Self> {
+impl OfficeRequest {
+    fn new(preview_url: &Url, bootstrap: Bootstrap, mode: DownloadMode) -> Result<Self> {
         validate_preview_url(preview_url)?;
         if !bootstrap.encryption.enabled || bootstrap.encryption.algorithm != "AES256" {
             bail!("WPS 加密协议已变化，请更新 ZLA");
@@ -113,9 +119,13 @@ impl PrintRequest {
         let wrapped_key = public_key
             .encrypt(&mut rng, Pkcs1v15Encrypt, &serde_json::to_vec(&parameters)?)
             .context("无法生成 WPS 导出请求")?;
+        let (method, action) = match mode {
+            DownloadMode::Original => ("GET", "download"),
+            DownloadMode::PreviewPdf => ("POST", "export"),
+        };
         let api = json!({
-            "method": "POST",
-            "api": format!("/api/v3/office/file/{}/export", bootstrap.root_file_id),
+            "method": method,
+            "api": format!("/api/v3/office/file/{}/{}", bootstrap.root_file_id, action),
             "query_string": "", "schema": "https",
         });
         let mut headers = HeaderMap::new();
@@ -140,14 +150,19 @@ impl PrintRequest {
         }
         let url = preview_url.join(&bootstrap.encryption.gateway)?;
         validate_preview_url(&url)?;
-        let body = encrypt(
-            &key,
-            &iv,
-            &serde_json::to_vec(&json!({
-                "format": "pdf", "options": {}, "print": true,
-                "clientId": "", "password": "",
-            }))?,
-        );
+        // The WPS GET transport uses POST to the gateway with no request body.
+        let body = if mode == DownloadMode::Original {
+            String::new()
+        } else {
+            encrypt(
+                &key,
+                &iv,
+                &serde_json::to_vec(&json!({
+                    "format": "pdf", "options": {}, "print": true,
+                    "clientId": "", "password": "",
+                }))?,
+            )
+        };
         Ok(Self {
             url,
             headers,
@@ -157,7 +172,7 @@ impl PrintRequest {
         })
     }
 
-    pub fn download_url(&self, body: &str, encrypted: bool) -> Result<Url> {
+    fn response_json(&self, body: &str, encrypted: bool) -> Result<Value> {
         let plaintext = if encrypted {
             let ciphertext = STANDARD.decode(body.trim()).context("WPS 响应编码无效")?;
             let data = cbc::Decryptor::<aes::Aes256>::new((&self.key).into(), (&self.iv).into())
@@ -167,17 +182,25 @@ impl PrintRequest {
         } else {
             body.to_string()
         };
-        let data: Value = serde_json::from_str(&plaintext).context("WPS 导出响应不是 JSON")?;
+        serde_json::from_str(&plaintext).context("WPS 导出响应不是 JSON")
+    }
+
+    fn download_url(&self, body: &str, encrypted: bool) -> Result<Url> {
+        let data = self.response_json(body, encrypted)?;
         let raw_url = data["url"]
             .as_str()
-            .ok_or_else(|| anyhow!("WPS 未提供导出文件，可能没有打印权限或文件尚未准备好"))?;
+            .ok_or_else(|| anyhow!("WPS 未提供文件下载地址，可能没有相应权限或文件尚未准备好"))?;
         let url = self.url.join(raw_url)?;
         validate_download_url(&url)?;
         Ok(url)
     }
 }
 
-pub async fn download(client: &ZjuAssist, upload: &Upload) -> Result<Response> {
+pub async fn download(
+    client: &ZjuAssist,
+    upload: &Upload,
+    on_preview: impl FnOnce(),
+) -> Result<UploadResponse> {
     let activity_id = upload
         .activity_id
         .ok_or_else(|| anyhow!("缺少课件所属活动，请刷新课件列表后重试"))?;
@@ -203,13 +226,40 @@ pub async fn download(client: &ZjuAssist, upload: &Upload) -> Result<Response> {
             .as_str()
             .ok_or_else(|| anyhow!("此课件未提供 WPS 预览地址"))?,
     )?;
-    download_from_preview(client, upload.id, preview_url).await
+    match download_from_preview(
+        client,
+        upload.id,
+        preview_url.clone(),
+        DownloadMode::Original,
+    )
+    .await
+    {
+        Ok(response) => Ok(UploadResponse {
+            response,
+            is_preview: false,
+        }),
+        Err(original_error) => {
+            log::info!("WPS 原文件下载失败，尝试打印导出：{}", original_error);
+            on_preview();
+            let response =
+                download_from_preview(client, upload.id, preview_url, DownloadMode::PreviewPdf)
+                    .await
+                    .map_err(|preview_error| {
+                        anyhow!("{}；预览版 PDF 导出失败：{}", original_error, preview_error)
+                    })?;
+            Ok(UploadResponse {
+                response,
+                is_preview: true,
+            })
+        }
+    }
 }
 
 async fn download_from_preview(
     client: &ZjuAssist,
     upload_id: i64,
     preview_url: Url,
+    mode: DownloadMode,
 ) -> Result<Response> {
     validate_preview_url(&preview_url)?;
     let page = client
@@ -224,17 +274,18 @@ async fn download_from_preview(
     let preview_url = page.url().clone();
     validate_preview_url(&preview_url)?;
     let bootstrap = parse_bootstrap(&page.text().await?, upload_id)?;
-    let request = PrintRequest::new(&preview_url, bootstrap)?;
-    let exported = client
-        .post(request.url.clone())
+    let request = OfficeRequest::new(&preview_url, bootstrap, mode)?;
+    let mut transport = client.post(request.url.clone());
+    transport
         .headers(request.headers.clone())
-        .body(request.body.clone())
-        .timeout(Duration::from_secs(90))
-        .send()
-        .await?;
+        .timeout(Duration::from_secs(90));
+    if !request.body.is_empty() {
+        transport.body(request.body.clone());
+    }
+    let exported = transport.send().await?;
     if !exported.status().is_success() {
         return Err(anyhow!(
-            "WPS 打印导出失败 (HTTP {})",
+            "WPS 文件获取失败 (HTTP {})",
             exported.status().as_u16()
         ));
     }
@@ -255,7 +306,7 @@ async fn download_from_preview(
         .map_err(|error| error.without_url())?;
     if !response.status().is_success() {
         return Err(anyhow!(
-            "WPS 导出文件下载失败 (HTTP {})，请重试以获取新地址",
+            "WPS 文件下载失败 (HTTP {})，请重试以获取新地址",
             response.status().as_u16()
         ));
     }
@@ -275,29 +326,8 @@ mod tests {
     use super::*;
     use rsa::{pkcs8::EncodePublicKey, RsaPrivateKey};
 
-    #[tokio::test]
-    #[ignore = "requires ZLA_TEST_WPS_PREVIEW_URL from an accessible course preview"]
-    async fn live_wps_print_export() {
-        let url = Url::parse(&std::env::var("ZLA_TEST_WPS_PREVIEW_URL").unwrap()).unwrap();
-        let id = url
-            .path_segments()
-            .unwrap()
-            .next_back()
-            .unwrap()
-            .parse()
-            .unwrap();
-        let client = ZjuAssist::new();
-        let response = download_from_preview(&client, id, url).await.unwrap();
-        let content_length = response.content_length();
-        let bytes = response.bytes().await.unwrap();
-        assert!(bytes.starts_with(b"%PDF-"));
-        if let Some(expected) = content_length {
-            assert_eq!(bytes.len() as u64, expected);
-        }
-    }
-
     #[test]
-    fn print_request_matches_the_wps_wire_protocol() {
+    fn original_and_print_requests_match_the_wps_wire_protocol() {
         let mut rng = rand::thread_rng();
         let private = RsaPrivateKey::new(&mut rng, 1024).unwrap();
         let pem = private
@@ -315,36 +345,44 @@ mod tests {
                 enabled: true,
             },
         };
-        let request = PrintRequest::new(&Url::parse("https://course-wps.zju.edu.cn/weboffice/office/f/42?route_key=1&__doc_ha_node=node").unwrap(), bootstrap).unwrap();
-        let wrapped = STANDARD
-            .decode(request.headers["encryption-parameters"].as_bytes())
-            .unwrap();
-        let parameters: Value =
-            serde_json::from_slice(&private.decrypt(Pkcs1v15Encrypt, &wrapped).unwrap()).unwrap();
-        assert_eq!(
-            parameters["private_key"].as_str().unwrap().as_bytes(),
-            request.key
-        );
-        assert_eq!(parameters["iv"].as_str().unwrap().as_bytes(), request.iv);
-        assert_eq!(
-            request.headers["x-user-query"],
-            "route_key=1&__doc_ha_node=node"
-        );
-        let decode = |value: &str| {
-            let data =
-                cbc::Decryptor::<aes::Aes256>::new((&request.key).into(), (&request.iv).into())
-                    .decrypt_padded_vec_mut::<Pkcs7>(&STANDARD.decode(value).unwrap())
+        for mode in [DownloadMode::Original, DownloadMode::PreviewPdf] {
+            let request = OfficeRequest::new(&Url::parse("https://course-wps.zju.edu.cn/weboffice/office/f/42?route_key=1&__doc_ha_node=node").unwrap(), bootstrap.clone(), mode).unwrap();
+            let wrapped = STANDARD
+                .decode(request.headers["encryption-parameters"].as_bytes())
+                .unwrap();
+            let parameters: Value =
+                serde_json::from_slice(&private.decrypt(Pkcs1v15Encrypt, &wrapped).unwrap())
                     .unwrap();
-            serde_json::from_slice::<Value>(&data).unwrap()
-        };
-        assert_eq!(
-            decode(request.headers["api-parameters"].to_str().unwrap())["api"],
-            "/api/v3/office/file/42/export"
-        );
-        assert_eq!(
-            decode(&request.body),
-            json!({"format":"pdf","options":{},"print":true,"clientId":"","password":""})
-        );
+            assert_eq!(
+                parameters["private_key"].as_str().unwrap().as_bytes(),
+                request.key
+            );
+            assert_eq!(parameters["iv"].as_str().unwrap().as_bytes(), request.iv);
+            assert_eq!(
+                request.headers["x-user-query"],
+                "route_key=1&__doc_ha_node=node"
+            );
+            let decode = |value: &str| {
+                let data =
+                    cbc::Decryptor::<aes::Aes256>::new((&request.key).into(), (&request.iv).into())
+                        .decrypt_padded_vec_mut::<Pkcs7>(&STANDARD.decode(value).unwrap())
+                        .unwrap();
+                serde_json::from_slice::<Value>(&data).unwrap()
+            };
+            let api = decode(request.headers["api-parameters"].to_str().unwrap());
+            if mode == DownloadMode::Original {
+                assert_eq!(api["method"], "GET");
+                assert_eq!(api["api"], "/api/v3/office/file/42/download");
+                assert!(request.body.is_empty());
+            } else {
+                assert_eq!(api["method"], "POST");
+                assert_eq!(api["api"], "/api/v3/office/file/42/export");
+                assert_eq!(
+                    decode(&request.body),
+                    json!({"format":"pdf","options":{},"print":true,"clientId":"","password":""})
+                );
+            }
+        }
     }
 
     #[test]
@@ -374,7 +412,7 @@ mod tests {
 
     #[test]
     fn decodes_encrypted_export_without_changing_signed_query() {
-        let request = PrintRequest {
+        let request = OfficeRequest {
             url: Url::parse("https://course-wps.zju.edu.cn/weboffice").unwrap(),
             headers: HeaderMap::new(),
             body: String::new(),
