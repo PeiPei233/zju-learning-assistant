@@ -79,11 +79,6 @@ export default function DownloadDrawer({ open, onClose, taskList, downloadManage
                   fontWeight: 'normal',
                   fontSize: 12
                 }}>{item.getDescription()}</Text>}
-                {item.status === 'done' && item.msg && item.msg !== '下载完成' && <Text type="secondary" style={{
-                  display: 'block',
-                  fontWeight: 'normal',
-                  fontSize: 12
-                }}>{item.msg}</Text>}
                 {item.status === 'done' && <Link
                   onClick={() => {
                     downloadManager.openTask(item.id, false).catch((err) => {
