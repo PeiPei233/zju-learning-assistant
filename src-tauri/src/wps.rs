@@ -12,25 +12,24 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use url::Url;
 
-use crate::model::Upload;
-use crate::zju_assist::{UploadResponse, ZjuAssist};
+use crate::zju_assist::ZjuAssist;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum DownloadMode {
+pub enum DownloadMode {
     Original,
     PreviewPdf,
 }
 
-#[derive(Clone, Deserialize)]
-struct Bootstrap {
+#[derive(Deserialize)]
+pub struct Bootstrap {
     pub root_file_id: String,
     pub app_id: String,
     pub csrf_token: String,
     pub encryption: Encryption,
 }
 
-#[derive(Clone, Deserialize)]
-struct Encryption {
+#[derive(Deserialize)]
+pub struct Encryption {
     pub algorithm: String,
     #[serde(rename = "publicKey")]
     public_key: String,
@@ -39,7 +38,7 @@ struct Encryption {
     enabled: bool,
 }
 
-struct OfficeRequest {
+pub struct OfficeRequest {
     pub url: Url,
     pub headers: HeaderMap,
     pub body: String,
@@ -47,7 +46,7 @@ struct OfficeRequest {
     iv: [u8; 16],
 }
 
-fn parse_bootstrap(html: &str, upload_id: i64) -> Result<Bootstrap> {
+pub fn parse_bootstrap(html: &str, upload_id: i64) -> Result<Bootstrap> {
     let source = html
         .split_once("window.__WPSENV__=")
         .ok_or_else(|| anyhow!("WPS 预览页面格式已变化或登录已过期"))?
@@ -64,7 +63,7 @@ fn parse_bootstrap(html: &str, upload_id: i64) -> Result<Bootstrap> {
     Ok(bootstrap)
 }
 
-fn validate_preview_url(url: &Url) -> Result<()> {
+pub fn validate_preview_url(url: &Url) -> Result<()> {
     if url.scheme() != "https"
         || url.host_str() != Some("course-wps.zju.edu.cn")
         || !url.username().is_empty()
@@ -76,7 +75,7 @@ fn validate_preview_url(url: &Url) -> Result<()> {
     Ok(())
 }
 
-fn validate_download_url(url: &Url) -> Result<()> {
+pub fn validate_download_url(url: &Url) -> Result<()> {
     let host = url.host_str().unwrap_or_default();
     if url.scheme() != "https"
         || !(host == "zju.edu.cn" || host.ends_with(".zju.edu.cn"))
@@ -97,7 +96,7 @@ fn encrypt(key: &[u8; 32], iv: &[u8; 16], text: &[u8]) -> String {
 }
 
 impl OfficeRequest {
-    fn new(preview_url: &Url, bootstrap: Bootstrap, mode: DownloadMode) -> Result<Self> {
+    pub fn new(preview_url: &Url, bootstrap: Bootstrap, mode: DownloadMode) -> Result<Self> {
         validate_preview_url(preview_url)?;
         if !bootstrap.encryption.enabled || bootstrap.encryption.algorithm != "AES256" {
             bail!("WPS 加密协议已变化，请更新 ZLA");
@@ -172,7 +171,7 @@ impl OfficeRequest {
         })
     }
 
-    fn response_json(&self, body: &str, encrypted: bool) -> Result<Value> {
+    pub fn download_url(&self, body: &str, encrypted: bool) -> Result<Url> {
         let plaintext = if encrypted {
             let ciphertext = STANDARD.decode(body.trim()).context("WPS 响应编码无效")?;
             let data = cbc::Decryptor::<aes::Aes256>::new((&self.key).into(), (&self.iv).into())
@@ -182,11 +181,7 @@ impl OfficeRequest {
         } else {
             body.to_string()
         };
-        serde_json::from_str(&plaintext).context("WPS 导出响应不是 JSON")
-    }
-
-    fn download_url(&self, body: &str, encrypted: bool) -> Result<Url> {
-        let data = self.response_json(body, encrypted)?;
+        let data: Value = serde_json::from_str(&plaintext).context("WPS 导出响应不是 JSON")?;
         let raw_url = data["url"]
             .as_str()
             .ok_or_else(|| anyhow!("WPS 未提供文件下载地址，可能没有相应权限或文件尚未准备好"))?;
@@ -198,15 +193,13 @@ impl OfficeRequest {
 
 pub async fn download(
     client: &ZjuAssist,
-    upload: &Upload,
-    on_preview: impl FnOnce(),
-) -> Result<UploadResponse> {
-    let activity_id = upload
-        .activity_id
-        .ok_or_else(|| anyhow!("缺少课件所属活动，请刷新课件列表后重试"))?;
+    upload_id: i64,
+    activity_id: i64,
+    mode: DownloadMode,
+) -> Result<Response> {
     let mut endpoint = Url::parse(&format!(
         "https://courses.zju.edu.cn/api/uploads/{}/preview/private-wps",
-        upload.id
+        upload_id
     ))?;
     endpoint
         .query_pairs_mut()
@@ -226,33 +219,7 @@ pub async fn download(
             .as_str()
             .ok_or_else(|| anyhow!("此课件未提供 WPS 预览地址"))?,
     )?;
-    match download_from_preview(
-        client,
-        upload.id,
-        preview_url.clone(),
-        DownloadMode::Original,
-    )
-    .await
-    {
-        Ok(response) => Ok(UploadResponse {
-            response,
-            is_preview: false,
-        }),
-        Err(original_error) => {
-            log::info!("WPS 原文件下载失败，尝试打印导出：{}", original_error);
-            on_preview();
-            let response =
-                download_from_preview(client, upload.id, preview_url, DownloadMode::PreviewPdf)
-                    .await
-                    .map_err(|preview_error| {
-                        anyhow!("{}；预览版 PDF 导出失败：{}", original_error, preview_error)
-                    })?;
-            Ok(UploadResponse {
-                response,
-                is_preview: true,
-            })
-        }
-    }
+    download_from_preview(client, upload_id, preview_url, mode).await
 }
 
 async fn download_from_preview(
@@ -334,19 +301,19 @@ mod tests {
             .to_public_key()
             .to_public_key_pem(Default::default())
             .unwrap();
-        let bootstrap = Bootstrap {
+        let bootstrap = || Bootstrap {
             root_file_id: "42".into(),
             app_id: "test-app".into(),
             csrf_token: "test-csrf".into(),
             encryption: Encryption {
                 algorithm: "AES256".into(),
-                public_key: STANDARD.encode(pem),
+                public_key: STANDARD.encode(&pem),
                 gateway: "/weboffice".into(),
                 enabled: true,
             },
         };
         for mode in [DownloadMode::Original, DownloadMode::PreviewPdf] {
-            let request = OfficeRequest::new(&Url::parse("https://course-wps.zju.edu.cn/weboffice/office/f/42?route_key=1&__doc_ha_node=node").unwrap(), bootstrap.clone(), mode).unwrap();
+            let request = OfficeRequest::new(&Url::parse("https://course-wps.zju.edu.cn/weboffice/office/f/42?route_key=1&__doc_ha_node=node").unwrap(), bootstrap(), mode).unwrap();
             let wrapped = STANDARD
                 .decode(request.headers["encryption-parameters"].as_bytes())
                 .unwrap();

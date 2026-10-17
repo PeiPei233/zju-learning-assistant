@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::Write, path::Path};
 use url::Url;
 
-use crate::model::{Subject, Upload};
+use crate::model::Subject;
 use crate::utils::{measure_latency, rsa_no_padding};
 
 #[derive(Clone)]
@@ -30,11 +30,6 @@ pub struct ZjuAssist {
 pub struct ZjuRequestBuilder {
     request_builder_first: RequestBuilder,
     request_builder_second: RequestBuilder,
-}
-
-pub struct UploadResponse {
-    pub response: Response,
-    pub is_preview: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -568,29 +563,6 @@ impl ZjuAssist {
             }
         }
         Err(anyhow!("课件原文件下载失败：{}", failures.join("；")))
-    }
-
-    pub async fn get_upload_download(
-        &self,
-        upload: &Upload,
-        on_preview: impl FnOnce(),
-    ) -> Result<UploadResponse> {
-        match self
-            .get_uploads_response(upload.id, upload.reference_id)
-            .await
-        {
-            Ok(response) => Ok(UploadResponse {
-                response,
-                is_preview: false,
-            }),
-            Err(error) if upload.allow_private_wps_office_view => {
-                info!("常规原文件接口失败，尝试 WPS 原文件接口：{}", error);
-                crate::wps::download(self, upload, on_preview)
-                    .await
-                    .map_err(|wps_error| anyhow!("{}；WPS 文件获取失败：{}", error, wps_error))
-            }
-            Err(error) => Err(error),
-        }
     }
 
     pub async fn get_academic_year_list(&self) -> Result<Vec<Value>> {
