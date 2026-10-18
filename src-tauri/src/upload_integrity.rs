@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 
-/// Validate streamed exports before reporting success or saving a sync receipt.
+/// Validate streamed downloads before reporting success.
 pub struct UploadIntegrity {
     expected_length: Option<u64>,
     require_pdf: bool,

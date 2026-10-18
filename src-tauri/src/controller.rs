@@ -735,7 +735,7 @@ pub async fn get_uploads_list(
                 .metadata()
                 .map(|metadata| metadata.len() == upload.size)
                 .unwrap_or(false);
-            if !original_exists && !crate::preview_receipt::is_current(upload) {
+            if !original_exists {
                 sync_uploads.push(upload.clone());
             }
         }
@@ -767,7 +767,10 @@ pub async fn start_download_upload(
     let (res, is_preview) = match res {
         Ok(res) => (res, false),
         Err(download_error) if upload.allow_private_wps_office_view => {
-            info!("常规原文件接口失败，尝试 WPS 原文件接口：{}", download_error);
+            info!(
+                "常规原文件接口失败，尝试 WPS 原文件接口：{}",
+                download_error
+            );
             let activity_id = upload
                 .activity_id
                 .ok_or_else(|| "缺少课件所属活动，请刷新课件列表后重试".to_string())?;
@@ -875,11 +878,6 @@ pub async fn start_download_upload(
         && filepath.exists()
         && filepath.metadata().unwrap().len() == content_length
     {
-        if is_preview {
-            if let Err(error) = crate::preview_receipt::save(&upload, &file_name, content_length) {
-                debug!("preview receipt: {}", error);
-            }
-        }
         debug!(
             "download_upload: skip {} {} {} {}",
             upload.id, upload.reference_id, upload.file_name, upload.path
@@ -1035,11 +1033,6 @@ pub async fn start_download_upload(
                 .unwrap();
         }
         drop(file);
-        if is_preview {
-            if let Err(error) = crate::preview_receipt::save(&upload, &file_name, current_size) {
-                debug!("preview receipt: {}", error);
-            }
-        }
         let content_length = current_size;
         window
             .emit(

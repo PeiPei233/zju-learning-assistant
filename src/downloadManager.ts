@@ -131,7 +131,7 @@ export class LearningTask extends Task {
     }
 
     async openFile(folder: boolean): Promise<string> {
-        // Keep source metadata unchanged for retries and preview sync receipts.
+        // Keep source metadata unchanged for retries.
         return invoke('open_file_upload', { upload: { ...this.upload, file_name: this.name }, folder })
     }
 
