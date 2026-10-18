@@ -767,40 +767,46 @@ pub async fn start_download_upload(
     let (res, is_preview) = match res {
         Ok(res) => (res, false),
         Err(_) if upload.allow_private_wps_office_view => {
+            info!(
+                "download_upload: fallback to WPS original download {}",
+                upload.id
+            );
             let activity_id = upload
                 .activity_id
                 .ok_or_else(|| "缺少课件所属活动，请刷新课件列表后重试".to_string())?;
-            if let Ok(res) = crate::wps::download(
+            let res = crate::wps::download(
                 &zju_assist,
                 upload.id,
                 activity_id,
                 crate::wps::DownloadMode::Original,
             )
-            .await
-            {
-                (res, false)
-            } else {
-                if download_state.load(std::sync::atomic::Ordering::SeqCst) {
-                    let _ = window.emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "downloading".to_string(),
-                            file_name: crate::wps::preview_file_name(&upload.file_name),
-                            msg: "正在导出预览版 PDF".to_string(),
-                            ..Progress::default()
-                        },
-                    );
+            .await;
+            match res {
+                Ok(res) => (res, false),
+                Err(_) => {
+                    info!("download_upload: fallback to WPS preview PDF {}", upload.id);
+                    if download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                        let _ = window.emit(
+                            "download-progress",
+                            Progress {
+                                id: id.clone(),
+                                status: "downloading".to_string(),
+                                file_name: crate::wps::preview_file_name(&upload.file_name),
+                                msg: "正在导出预览版 PDF".to_string(),
+                                ..Progress::default()
+                            },
+                        );
+                    }
+                    let res = crate::wps::download(
+                        &zju_assist,
+                        upload.id,
+                        activity_id,
+                        crate::wps::DownloadMode::PreviewPdf,
+                    )
+                    .await
+                    .map_err(|err| err.to_string())?;
+                    (res, true)
                 }
-                let res = crate::wps::download(
-                    &zju_assist,
-                    upload.id,
-                    activity_id,
-                    crate::wps::DownloadMode::PreviewPdf,
-                )
-                .await
-                .map_err(|err| err.to_string())?;
-                (res, true)
             }
         }
         Err(err) => return Err(err.to_string()),

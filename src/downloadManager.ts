@@ -47,7 +47,11 @@ export class Task {
 
     public updateProgress(progress: Progress): void {
         this.status = progress.status
-        this.totalSize = progress.total_size
+        this.totalSize = progress.downloaded_size > progress.total_size ? 0 : progress.total_size
+        if (this.totalSize === 0) {
+            this.progress = 0
+            this.remainingTime = 0
+        }
         this.name = progress.file_name
         this.msg = progress.msg || ''
         let currentTime = Date.now()
@@ -80,7 +84,7 @@ export class Task {
         if (this.status === 'pending') {
             return '等待中'
         } else if (this.status === 'downloading') {
-            return bytesToSize(this.downloadedSize) + '/' + bytesToSize(this.totalSize) + ' | ' + bytesToSize(this.speed) + '/s' +
+            return bytesToSize(this.downloadedSize) + '/' + (this.totalSize > 0 ? bytesToSize(this.totalSize) : '-') + ' | ' + bytesToSize(this.speed) + '/s' +
                 (this.remainingTime && !isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' 剩余 ' + formatTime(this.remainingTime) : '')
         } else if (this.status === 'done') {
             return '下载完成'
