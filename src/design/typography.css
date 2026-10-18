@@ -1,0 +1,9 @@
+/* Preserve the existing stacks while keeping their definitions in one place. */
+:root {
+  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI';
+  --font-fallback: Roboto, 'Helvetica Neue', Arial;
+  --font-body: var(--font-system), sans-serif;
+  --font-controls: var(--font-system), var(--font-fallback), sans-serif;
+  --font-text: var(--font-system), var(--font-fallback), 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-code: 'Roboto Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+}

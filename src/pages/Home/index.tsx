@@ -1,26 +1,32 @@
-import React, { useEffect, useState, useRef } from 'react'
-import { App, Menu, Layout, Tooltip, Badge, Typography } from 'antd';
-import { invoke } from '@tauri-apps/api/core'
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import type { ScoreItem } from '../../model';
+import { calculateScoreTotals } from '../../utils';
+import PreviewMenu from "../../components/PreviewMenu";
+import ActionButton from '../../components/ActionButton';
+import { useDesktopApp } from '../../context/NotificationContext';
+import ModuleFrame from '../../components/ModuleFrame';
+import PlatformIcon from '../../components/PlatformIcon';
+import { getPreviewData, isPreview } from '../../previewMode';
+import WindowChrome from '../../components/WindowChrome';
+import { PanelContext } from '../../context/PanelContext';
+import { QuestionCircleOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useRef, useCallback } from 'react'
+import { Tooltip, Badge } from 'antd';
+import { invoke, isPermissionGranted, requestPermission, sendNotification, listen, exit, shell } from '../../bridge';
+
 import { LogoutOutlined, DownloadOutlined, SettingOutlined, FileSearchOutlined } from '@ant-design/icons';
 import Learning from '../Learning'
 import Classroom from '../Classroom'
 import Score from '../Score'
 import Settings from '../../components/Settings'
-import DownloadDrawer from '../../components/DownloadDrawer';
-import { LearningTask, Task } from '../../downloadManager';
-import { listen } from '@tauri-apps/api/event';
-import { exit } from '@tauri-apps/plugin-process';
-import { Config, Upload, VersionInfo } from '../../model';
-import dayjs from 'dayjs'
-import LearningIcon from '../../assets/images/learning.ico'
-import ClassroomIcon from '../../assets/images/classroom.png'
-import * as shell from "@tauri-apps/plugin-shell"
-import { useConfig } from '../../context/ConfigContext';
-import { useDownloadList, useDownloadManager, useDownloadDrawer } from '../../context/DownloadContext';
-import { isFileExtensionExcluded } from '../../utils';
+import Downloads from '../../components/Downloads';
+import { LearningTask } from '../../downloadManager';
 
-const { Header, Content } = Layout;
+import { Upload, VersionInfo } from '../../model';
+import dayjs from 'dayjs'
+
+import { useConfig } from '../../context/ConfigContext';
+import { useDownloadList, useDownloadManager, useDownloadNavigation } from '../../context/DownloadContext';
+import { isFileExtensionExcluded } from '../../utils';
 
 interface HomeProps {
   setIsLogin: (isLogin: boolean) => void;
@@ -31,14 +37,7 @@ interface HomeProps {
   setOpenVersionModal: (open: boolean) => void;
 }
 
-interface ScoreItem {
-  xkkh: string;
-  kcmc: string;
-  cj: string;
-  xf: string;
-  jd: string;
-  bkcj: string;
-}
+
 
 interface Course {
   id: number;
@@ -70,15 +69,86 @@ export default function Home({
   setOpenVersionModal
 }: HomeProps) {
 
-  const { modal, notification } = App.useApp()
+  const { modal, notification } = useDesktopApp()
   const { config } = useConfig();
   const downloadManager = useDownloadManager();
 
   // Destructure tasks and count here
   const { count: downloadingCount, tasks: downloadTasks } = useDownloadList();
-  const { isDrawerOpen, openDrawer, closeDrawer } = useDownloadDrawer();
+  const { pageRequested, consumePageRequest } = useDownloadNavigation();
 
-  const [current, setCurrent] = useState('learning')
+  const [panelCollapsed, setPanelCollapsed] = useState(() => localStorage.getItem('context-panel-collapsed') === 'true');
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const stored = Number(localStorage.getItem('context-panel-width'));
+    return stored >= 200 && stored <= 420 ? stored : 250;
+  });
+  const resizePanel = (width: number) => { setPanelWidth(width); localStorage.setItem('context-panel-width', String(width)); };
+  const togglePanel = () => {
+    clearTimeout(peekTimer.current);
+    if (peek) setCurrent(peek);
+    setPeek(null);
+    setPanelCollapsed(value => { localStorage.setItem('context-panel-collapsed', String(!value)); return !value; });
+  };
+  const [current, setCurrent] = useState(() => {
+    const page = isPreview ? new URLSearchParams(location.search).get('page') : null;
+    return page && ['learning', 'classroom', 'score', 'download', 'setting'].includes(page) ? page : 'learning';
+  })
+  const [visited, setVisited] = useState([current]);
+  const [peek, setPeek] = useState<string | null>(null);
+  const peekTimer = useRef<ReturnType<typeof setTimeout>>();
+  const keepPeek = () => clearTimeout(peekTimer.current);
+  const dismissPeek = () => {
+    clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => {
+      // Select menus live in a portal; keep the sidebar available while using one.
+      if (document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden), .ant-picker-dropdown:not(.ant-picker-dropdown-hidden)')) return;
+      setPeek(null);
+    }, 240);
+  };
+  const hoverModule = (page: string) => {
+    if (!panelCollapsed) return;
+    clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => {
+      setVisited(pages => pages.includes(page) ? pages : [...pages, page]);
+      setPeek(page);
+    }, 160);
+  };
+  const railPreview = (page: string) => ({
+    'data-module': page,
+    'aria-expanded': panelCollapsed ? peek === page : current === page,
+    onPointerEnter: (event: React.PointerEvent) => { if (event.pointerType !== 'touch') hoverModule(page); },
+    onPointerLeave: dismissPeek,
+    onFocus: () => hoverModule(page),
+    onBlur: dismissPeek,
+  });
+  useEffect(() => () => clearTimeout(peekTimer.current), []);
+  useEffect(() => {
+    if (!peek) return;
+    const outside = (event: PointerEvent) => {
+      if (!(event.target as Element).closest('.context-panel, .navigation-rail, .ant-select-dropdown, .ant-picker-dropdown, .ant-modal-root')) {
+        clearTimeout(peekTimer.current); setPeek(null);
+      }
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        clearTimeout(peekTimer.current); setPeek(null);
+        // Avoid focus-trigger reopening after Escape.
+        (document.activeElement as HTMLElement)?.blur?.();
+      }
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [peek]);
+  const navigate = useCallback((page: string) => {
+    setVisited(pages => pages.includes(page) ? pages : [...pages, page]);
+    setCurrent(page);
+    clearTimeout(peekTimer.current);
+    setPeek(null);
+  }, []);
+  useEffect(() => {
+    if (pageRequested) { navigate('download'); consumePageRequest(); }
+  }, [pageRequested, consumePageRequest, navigate]);
 
   const [score, setScore] = useState<ScoreItem[]>([])
   const [loadingScore, setLoadingScore] = useState(false)
@@ -87,18 +157,24 @@ export default function Home({
   const [totalGp, setTotalGp] = useState(0)
   const [totalCredit, setTotalCredit] = useState(0)
 
-  const [openSettingDrawer, setOpenSettingDrawer] = useState(false)
-
-  const [courseList, setCourseList] = useState<Course[]>([])
-  const [selectedCourseKeys, setSelectedCourseKeys] = useState<React.Key[]>([])
+  const [courseList, setCourseList] = useState<Course[]>(() => getPreviewData()?.courses || [])
+  const [selectedCourseKeys, setSelectedCourseKeys] = useState<React.Key[]>(() => getPreviewData()?.courses.map(item => item.id) || [])
   const [loadingUploadList, setLoadingUploadList] = useState(false)
-  const [uploadList, setUploadList] = useState<Upload[]>([])
-  const [selectedUploadKeys, setSelectedUploadKeys] = useState<React.Key[]>([])
+  const [uploadList, setUploadList] = useState<Upload[]>(() => getPreviewData()?.uploads || [])
+  const [selectedUploadKeys, setSelectedUploadKeys] = useState<React.Key[]>(() => getPreviewData()?.uploads.slice(0, 3).map(item => item.reference_id) || [])
   const [syncingUpload, setSyncingUpload] = useState(false)
   const [lastSyncUpload, setLastSyncUpload] = useState<string | null>(null)
 
-  const syncScoreTimer = useRef<any>(null)
-  const syncUploadTimer = useRef<any>(null)
+  const syncScoreTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const syncUploadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const scoreRequestInFlight = useRef(false)
+  const uploadRequestInFlight = useRef(false)
+  const scoreRun = useRef(0)
+  const uploadRun = useRef(0)
+  const scoreRef = useRef(score)
+  const notifyScoreRef = useRef(false)
+  const courseListRef = useRef(courseList)
+  courseListRef.current = courseList
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
   const notifiedTodo = useRef<Record<string, boolean>>({})
@@ -115,7 +191,7 @@ export default function Home({
 
   function notifyUpdate(item: ScoreItem, oldTotalGp: number, oldTotalCredit: number, totalGp: number, totalCredit: number, dingUrl?: string) {
     if (!dingUrl) {
-      dingUrl = config.ding_url
+      dingUrl = configRef.current.ding_url
     }
     invoke('notify_score', {
       score: item,
@@ -126,71 +202,57 @@ export default function Home({
       dingUrl
     }).catch((err) => {
       notification.error({
-        message: '发送通知失败',
+        title: '发送通知失败',
         description: String(err)
       })
     })
   }
 
   function updateScore(newScore: ScoreItem[]) {
-    const oldScore = score
+    const oldScore = scoreRef.current
+    scoreRef.current = newScore
     setScore(newScore)
     setLastSyncScore(dayjs().format('YYYY-MM-DD HH:mm:ss'))
-
-    let currentGp = 0
-    let currentCredit = 0
-
-    oldScore.forEach((item) => {
-      if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-        currentGp += parseFloat(item.jd) * parseFloat(item.xf)
-        currentCredit += parseFloat(item.xf)
-      }
-    })
-
-    newScore.forEach((item) => {
-      const oldItem = oldScore.find((oi) => oi.xkkh === item.xkkh)
-      if (oldItem) {
-        if (oldItem.cj !== item.cj || oldItem.bkcj !== item.bkcj || oldItem.jd !== item.jd || oldItem.xf !== item.xf) {
-          let oldTotalGp = currentGp
-          let oldTotalCredit = currentCredit
-          if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-            currentGp += parseFloat(item.jd) * parseFloat(item.xf) - parseFloat(oldItem.jd) * parseFloat(oldItem.xf)
-            currentCredit += parseFloat(item.xf) - parseFloat(oldItem.xf)
-          }
-          if (notifyScore) {
-            notifyUpdate(item, oldTotalGp, oldTotalCredit, currentGp, currentCredit)
-          }
-        }
-      } else {
-        let oldTotalGp = currentGp
-        let oldTotalCredit = currentCredit
-        if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-          currentGp += parseFloat(item.jd) * parseFloat(item.xf)
-          currentCredit += parseFloat(item.xf)
-        }
-        if (notifyScore) {
-          notifyUpdate(item, oldTotalGp, oldTotalCredit, currentGp, currentCredit)
+    const oldTotals = calculateScoreTotals(oldScore)
+    const totals = calculateScoreTotals(newScore)
+    setTotalGp(totals.gp)
+    setTotalCredit(totals.credit)
+    if (notifyScoreRef.current) {
+      const previous = new Map(oldScore.map(item => [item.xkkh, item]))
+      for (const item of newScore) {
+        const old = previous.get(item.xkkh)
+        if (!old || old.cj !== item.cj || old.bkcj !== item.bkcj || old.jd !== item.jd || old.xf !== item.xf) {
+          notifyUpdate(item, oldTotals.gp, oldTotals.credit, totals.gp, totals.credit)
         }
       }
-    })
-
-    setTotalGp(currentGp)
-    setTotalCredit(currentCredit)
+    }
   }
 
   const startSyncScore = () => {
+    clearTimeout(syncScoreTimer.current)
+    const run = ++scoreRun.current
+    const scheduleNext = () => {
+      syncScoreTimer.current = setTimeout(syncScoreTask, Math.floor(Math.random() * 60000) + 60000)
+    }
     const syncScoreTask = () => {
+      if (run !== scoreRun.current) return
+      // Manual refresh takes priority: skip this tick rather than queueing a request.
+      if (scoreRequestInFlight.current) { scheduleNext(); return }
+      scoreRequestInFlight.current = true
       setLoadingScore(true)
       invoke<ScoreItem[]>('get_score').then((res) => {
+        if (run !== scoreRun.current) return
         updateScore(res)
       }).catch((err) => {
+        if (run !== scoreRun.current) return
         notification.error({
-          message: '成绩同步失败',
+          title: '成绩同步失败',
           description: String(err)
         })
       }).finally(() => {
-        const nextSync = Math.floor(Math.random() * 60000) + 60000
-        syncScoreTimer.current = setTimeout(syncScoreTask, nextSync)
+        scoreRequestInFlight.current = false
+        if (run !== scoreRun.current) return
+        scheduleNext()
         setLoadingScore(false)
       })
     }
@@ -198,36 +260,42 @@ export default function Home({
   }
 
   const stopSyncScore = () => {
+    scoreRun.current++
+    notifyScoreRef.current = false
     clearTimeout(syncScoreTimer.current)
-    syncScoreTimer.current = null
+    syncScoreTimer.current = undefined
   }
 
   const handleSyncScore = () => {
-    if (loadingScore) return
+    if (scoreRequestInFlight.current) return
+    scoreRequestInFlight.current = true
     setLoadingScore(true)
     invoke<ScoreItem[]>('get_score').then((res) => {
       updateScore(res)
       invoke<boolean>('check_evaluation_done').then((evalDone) => {
         if (!evalDone) {
           notification.warning({
-            message: '教学评价未完成',
-            description: '本学期尚未完成评价，无法查询最新成绩！',
-            btn: <button onClick={() => shell.open('https://alt.zju.edu.cn/studentEvaluationBackend/list')}>去评价</button>
+            key: 'evaluation-required',
+            title: '教学评价未完成',
+            description: '本学期尚未完成教学评价，请完成后重新同步成绩。',
+            actions: <ActionButton variant="secondary" onClick={() => shell.open('https://alt.zju.edu.cn/studentEvaluationBackend/list').catch(err => notification.error({ title: '打开教学评价失败', description: String(err) }))}>去评价</ActionButton>
           })
         } else {
-          notification.success({ message: '成绩同步成功' })
+          notification.success({ title: '成绩同步成功' })
         }
       }).catch((err) => {
-        notification.error({ message: '查询教学评价失败', description: String(err) })
+        notification.error({ title: '查询教学评价失败', description: String(err) })
       })
     }).catch((err) => {
-      notification.error({ message: '成绩同步失败', description: String(err) })
+      notification.error({ title: '成绩同步失败', description: String(err) })
     }).finally(() => {
+      scoreRequestInFlight.current = false
       setLoadingScore(false)
     })
   }
 
   const handleSwitchSyncScore = (checked: boolean) => {
+    notifyScoreRef.current = checked
     setNotifyScore(checked)
     if (checked) startSyncScore()
     else stopSyncScore()
@@ -268,7 +336,7 @@ export default function Home({
       if (!res) setIsLogin(false)
     }).catch(() => setIsLogin(false))
 
-    // Download list polling is now handled by useDownloadList hook inside components that need it (like DownloadDrawer)
+    // Download list polling is now handled by useDownloadList hook inside components that need it (like Downloads)
     // We only need the count here, which is provided by useDownloadList() called at the top.
 
     syncTodoTask()
@@ -300,12 +368,20 @@ export default function Home({
   const logout = () => {
     const doLogout = () => {
       downloadManager.cleanUp();
-      invoke('logout').then(() => setIsLogin(false)).catch((err) => notification.error({ message: '退出登录失败', description: String(err) }));
+      invoke('logout').then(() => setIsLogin(false)).catch((err) => notification.error({ title: '退出登录失败', description: String(err) }));
     };
     if (downloadingCount > 0 || syncingUpload || notifyScore) {
       modal.confirm({
-        title: '后台服务正在运行',
-        content: '是否停止课件同步、成绩提醒、课件下载等后台服务并退出登录？',
+        className: 'desktop-modal desktop-confirm',
+        width: 400,
+        centered: true,
+        icon: null,
+        title: '停止后台任务并退出登录？',
+        content: `退出后将停止${[syncingUpload && '课件同步', notifyScore && '成绩提醒', downloadingCount > 0 && `${downloadingCount} 项下载任务`].filter(Boolean).join('、')}。`,
+        okText: '停止并退出',
+        cancelText: '取消',
+        cancelButtonProps: { autoInsertSpace: false },
+        autoFocusButton: 'cancel',
         onOk: doLogout
       })
     } else doLogout()
@@ -313,17 +389,17 @@ export default function Home({
 
   const onMenuClick = ({ key }: { key: string }) => {
     if (key === 'logout') logout()
-    else if (key === 'download') openDrawer() // Correctly call Context method
-    else if (key === 'setting') setOpenSettingDrawer(true)
-    else setCurrent(key)
+    else navigate(key)
   }
 
   const updateUploadList = () => {
-    let courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
+    if (uploadRequestInFlight.current) return
+    const courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
     if (courses.length === 0) {
-      notification.error({ message: '请选择课程' })
+      notification.error({ title: '请选择课程' })
       return
     }
+    uploadRequestInFlight.current = true
     setLoadingUploadList(true)
     invoke<Upload[]>('get_uploads_list', { courses, syncUpload: syncingUpload }).then((res) => {
       const selectedKeys = getDefaultSelectedUploadKeys(res, config.excluded_upload_extensions)
@@ -343,15 +419,28 @@ export default function Home({
         setSelectedUploadKeys(selectedKeys)
       }
     }).catch((err) => {
-      notification.error({ message: '获取课件列表失败', description: String(err) })
-    }).finally(() => setLoadingUploadList(false))
+      notification.error({ title: '获取课件列表失败', description: String(err) })
+    }).finally(() => {
+      uploadRequestInFlight.current = false
+      setLoadingUploadList(false)
+    })
   }
 
   const startSyncUpload = () => {
+    clearTimeout(syncUploadTimer.current)
+    const run = ++uploadRun.current
+    const scheduleNext = () => {
+      syncUploadTimer.current = setTimeout(syncUploadTask, Math.floor(Math.random() * 60000) + 60000)
+    }
     const syncUploadTask = () => {
-      let courses = courseList.filter((item) => selectedCourseKeysRef.current.includes(item.id))
+      if (run !== uploadRun.current) return
+      // Manual refresh takes priority: skip this tick rather than queueing a request.
+      if (uploadRequestInFlight.current) { scheduleNext(); return }
+      uploadRequestInFlight.current = true
+      const courses = courseListRef.current.filter((item) => selectedCourseKeysRef.current.includes(item.id))
       setLoadingUploadList(true)
       invoke<Upload[]>('get_uploads_list', { courses, syncUpload: true }).then((uploads) => {
+        if (run !== uploadRun.current) return
         const selectedKeys = getDefaultSelectedUploadKeys(uploads, configRef.current.excluded_upload_extensions)
         if (configRef.current.auto_download) {
           uploads.filter((item) => selectedKeys.includes(item.reference_id))
@@ -364,10 +453,12 @@ export default function Home({
         }
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
       }).catch((err) => {
-        notification.error({ message: '同步课件失败', description: String(err) })
+        if (run !== uploadRun.current) return
+        notification.error({ title: '同步课件失败', description: String(err) })
       }).finally(() => {
-        const nextSync = Math.floor(Math.random() * 60000) + 60000
-        syncUploadTimer.current = setTimeout(syncUploadTask, nextSync)
+        uploadRequestInFlight.current = false
+        if (run !== uploadRun.current) return
+        scheduleNext()
         setLoadingUploadList(false)
       })
     }
@@ -375,8 +466,9 @@ export default function Home({
   }
 
   const stopSyncUpload = () => {
+    uploadRun.current++
     clearTimeout(syncUploadTimer.current)
-    syncUploadTimer.current = null
+    syncUploadTimer.current = undefined
   }
 
   const handleSwitchSyncUpload = (checked: boolean) => {
@@ -386,83 +478,63 @@ export default function Home({
   }
 
   return (
-    <Layout className='home-layout'>
-      <Header className='home-layout' style={{ display: 'flex', alignItems: 'center', padding: '0 16px', height: 40, marginBottom: 10 }}>
-        <Menu onClick={onMenuClick} selectedKeys={[current]} mode="horizontal" style={{ width: '100%', lineHeight: '40px' }}>
-          <Menu.Item key='learning' icon={<img src={LearningIcon} style={{ width: 14 }} alt="learning" />}>
-            <Tooltip title={syncingUpload ? `学在浙大课件同步正在运行 - 上次同步时间：${lastSyncUpload}` : ''}>
-              <Badge dot={true} count={syncingUpload ? 1 : 0} color='green'>
-                <span style={{ color: current === 'learning' ? '#1677ff' : undefined }}>学在浙大</span>
-              </Badge>
-            </Tooltip>
-          </Menu.Item>
-          <Menu.Item key='classroom' icon={<img src={ClassroomIcon} style={{ width: 14 }} alt="classroom" />}>智云课堂</Menu.Item>
-          <Menu.Item key='score' icon={<FileSearchOutlined />}>
-            <Tooltip title={notifyScore ? `成绩提醒正在运行 - 上次同步时间：${lastSyncScore}` : ''}>
-              <Badge dot={true} count={notifyScore ? 1 : 0} color='green'>
-                <span style={{ color: current === 'score' ? '#1677ff' : undefined }}>成绩查询</span>
-              </Badge>
-            </Tooltip>
-          </Menu.Item>
-        </Menu>
-        <Menu onClick={onMenuClick} selectedKeys={[current]} mode="horizontal" style={{ float: 'right', lineHeight: '40px', minWidth: 46 * 3 }}>
-          <Menu.Item key='download'>
-            <Badge count={downloadingCount} size='small'>
-              <Tooltip title='下载列表'><DownloadOutlined /></Tooltip>
-            </Badge>
-          </Menu.Item>
-          <Menu.Item key='setting'>
-            <Tooltip title='设置'>
-              <Badge count={(!latestVersionData || (latestVersionData && latestVersionData.version === currentVersion) ? 0 : 1)} dot>
-                <SettingOutlined />
-              </Badge>
-            </Tooltip>
-          </Menu.Item>
-          <Menu.Item key='logout'><Tooltip title='退出登录'><LogoutOutlined /></Tooltip></Menu.Item>
-        </Menu>
-      </Header>
-      <Content>
-        {current === 'learning' && <Learning
-          syncing={syncingUpload}
-          lastSync={lastSyncUpload}
-          loadingUploadList={loadingUploadList}
-          uploadList={uploadList}
-          setUploadList={setUploadList}
-          handleSwitchSync={handleSwitchSyncUpload}
-          updateUploadList={updateUploadList}
-          selectedUploadKeys={selectedUploadKeys}
-          setSelectedUploadKeys={setSelectedUploadKeys}
-          selectedCourseKeys={selectedCourseKeys}
-          setSelectedCourseKeys={setSelectedCourseKeys}
-          courseList={courseList}
-          setCourseList={setCourseList}
-        />}
-        {current === 'classroom' && <Classroom />}
-        {current === 'score' && <Score
-          notify={notifyScore}
-          lastSync={lastSyncScore}
-          totalGp={totalGp}
-          totalCredit={totalCredit}
-          loading={loadingScore}
-          score={score}
-          handleSwitch={handleSwitchSyncScore}
-          handleSync={handleSyncScore}
-        />}
-      </Content>
-      {/* Updated: using downloadTasks from hook */}
-      <DownloadDrawer
-        open={isDrawerOpen}
-        onClose={closeDrawer}
-        taskList={downloadTasks}
-        downloadManager={downloadManager}
-      />
-      <Settings
-        open={openSettingDrawer}
-        onClose={() => setOpenSettingDrawer(false)}
-        currentVersion={currentVersion}
-        latestVersionData={latestVersionData}
-        setOpenVersionModal={setOpenVersionModal}
-      />
-    </Layout>
+    <PanelContext.Provider value={{ collapsed: panelCollapsed, toggle: togglePanel, width: panelWidth, setWidth: resizePanel, peek, keepPeek, dismissPeek, activateModule: setCurrent }}>
+      <WindowChrome navigation />
+      <div className="desktop-shell">
+        <nav className="navigation-rail" aria-label="主导航">
+
+          {[
+            { key: 'learning', label: '学在浙大', icon: <PlatformIcon platform="learning" />, active: syncingUpload },
+            { key: 'classroom', label: '智云课堂', icon: <PlatformIcon platform="classroom" />, active: false },
+            { key: 'score', label: '成绩查询', icon: <FileSearchOutlined />, active: notifyScore },
+          ].map(item => <Tooltip key={item.key} title={panelCollapsed ? null : `${item.label}${item.active ? ' · 自动同步已开启' : ''}`} placement="right">
+            <button {...railPreview(item.key)} className={`rail-button ${current === item.key ? 'active' : ''}`} aria-label={`${item.label}${item.active ? ' · 自动同步已开启' : ''}`}
+              aria-current={current === item.key ? 'page' : undefined} onClick={() => navigate(item.key)}>
+              <Badge className="status-badge" dot={item.active}>{item.icon}</Badge>
+            </button>
+          </Tooltip>)}
+          <div className="rail-spacer" />
+          <PreviewMenu navigation />
+          <Tooltip title="帮助" placement="right"><button className="rail-button" aria-label="帮助" onClick={() => shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch(err => notification.error({ title: '打开帮助失败', description: String(err) }))}><QuestionCircleOutlined /></button></Tooltip>
+          <Tooltip title={panelCollapsed ? null : `下载列表${downloadingCount ? ` · ${downloadingCount} 项进行中` : ''}`} placement="right"><button {...railPreview('download')} className={`rail-button ${current === 'download' ? 'active' : ''}`} aria-current={current === 'download' ? 'page' : undefined} aria-label={`下载列表${downloadingCount ? ` · ${downloadingCount} 项进行中` : ''}`} onClick={() => navigate('download')}><Badge className="status-badge" count={downloadingCount} size="small"><DownloadOutlined /></Badge></button></Tooltip>
+          <Tooltip title={panelCollapsed ? null : `设置${latestVersionData && latestVersionData.version !== currentVersion ? ' · 有新版本' : ''}`} placement="right"><button {...railPreview('setting')} className={`rail-button ${current === 'setting' ? 'active' : ''}`} aria-current={current === 'setting' ? 'page' : undefined} aria-label={`设置${latestVersionData && latestVersionData.version !== currentVersion ? ' · 有新版本' : ''}`} onClick={() => navigate('setting')}><Badge className="status-badge" dot={!!latestVersionData && latestVersionData.version !== currentVersion}><SettingOutlined /></Badge></button></Tooltip>
+          <Tooltip title="退出登录" placement="right"><button className="rail-button" aria-label="退出登录" onClick={() => onMenuClick({ key: 'logout' })}><LogoutOutlined /></button></Tooltip>
+        </nav>
+        <div className="module-host">
+          {visited.includes('learning') && <ModuleFrame name="learning" current={current}><Learning
+            syncing={syncingUpload}
+            lastSync={lastSyncUpload}
+            loadingUploadList={loadingUploadList}
+            uploadList={uploadList}
+            setUploadList={setUploadList}
+            handleSwitchSync={handleSwitchSyncUpload}
+            updateUploadList={updateUploadList}
+            selectedUploadKeys={selectedUploadKeys}
+            setSelectedUploadKeys={setSelectedUploadKeys}
+            selectedCourseKeys={selectedCourseKeys}
+            setSelectedCourseKeys={setSelectedCourseKeys}
+            courseList={courseList}
+            setCourseList={setCourseList}
+          /></ModuleFrame>}
+          {visited.includes('classroom') && <ModuleFrame name="classroom" current={current}><Classroom /></ModuleFrame>}
+          {visited.includes('score') && <ModuleFrame name="score" current={current}><Score
+            notify={notifyScore}
+            lastSync={lastSyncScore}
+            totalGp={totalGp}
+            totalCredit={totalCredit}
+            loading={loadingScore}
+            score={score}
+            handleSwitch={handleSwitchSyncScore}
+            handleSync={handleSyncScore}
+          /></ModuleFrame>}
+          {visited.includes('download') && <ModuleFrame name="download" current={current}>
+            <Downloads taskList={downloadTasks} downloadManager={downloadManager} />
+          </ModuleFrame>}
+          {visited.includes('setting') && <ModuleFrame name="setting" current={current}>
+            <Settings currentVersion={currentVersion} latestVersionData={latestVersionData} setOpenVersionModal={setOpenVersionModal} />
+          </ModuleFrame>}
+        </div>
+      </div>
+    </PanelContext.Provider>
   )
 }

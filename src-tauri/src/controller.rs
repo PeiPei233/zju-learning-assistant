@@ -15,6 +15,7 @@ use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+#[cfg(target_os = "macos")]
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tauri_plugin_autostart::ManagerExt;
@@ -772,7 +773,7 @@ pub async fn start_download_upload(
                     "download-progress",
                     Progress {
                         id: id.clone(),
-                        status: "downloading".to_string(),
+                        status: "writing".to_string(),
                         file_name: crate::wps::preview_file_name(&upload.file_name),
                         msg: "正在导出预览版 PDF".to_string(),
                         ..Progress::default()

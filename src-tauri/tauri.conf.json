@@ -87,11 +87,11 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 600,
+        "height": 760,
         "resizable": true,
         "title": "zju-learning-assistant",
-        "width": 800,
-        "minHeight": 400,
+        "width": 1100,
+        "minHeight": 640,
         "minWidth": 700
       }
     ],

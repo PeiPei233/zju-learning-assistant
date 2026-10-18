@@ -1,13 +1,36 @@
 {
-  "bundle": {
-    "resources": [
-      "scripts/*.applescript"
-    ]
-  },
   "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 760,
+        "resizable": true,
+        "title": "zju-learning-assistant",
+        "width": 1100,
+        "minHeight": 640,
+        "minWidth": 700,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 12, "y": 21 },
+        "hiddenTitle": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "followsWindowActiveState",
+          "radius": 12
+        }
+      }
+    ],
     "trayIcon": {
       "iconPath": "icons/icon_template.png",
       "iconAsTemplate": true
     }
+  },
+  "bundle": {
+    "resources": [
+      "scripts/*.applescript"
+    ]
   }
 }

@@ -1,0 +1,21 @@
+:root { --notice-bg: #ffffff; --notice-shadow: 0 8px 32px #20201812, 0 2px 6px #20201808; --notice-success: #64846b; --notice-error: #b66c60; --notice-warning: #a18554; }
+:root[data-theme="dark"] { --notice-bg: #272725; --notice-shadow: 0 10px 32px #0005, 0 2px 6px #0002; --notice-success: #99b29c; --notice-error: #d69a8d; --notice-warning: #c1ab7c; }
+.ant-notification .ant-notification-notice-wrapper { background: var(--notice-bg); border-radius: 11px; box-shadow: var(--notice-shadow); margin-bottom: 10px; }
+.ant-notification .ant-notification-notice.desktop-notice { width: 348px; max-width: calc(100vw - 32px); padding: 15px 12px 13px 15px; border: 1px solid var(--line); border-radius: 11px; background: var(--notice-bg); color: var(--text); }
+.ant-notification .desktop-notice .ant-notification-notice-title { margin: 1px 26px 5px 29px; padding: 0; font-size: 13px; font-weight: 600; line-height: 19px; color: var(--text); }
+.ant-notification .desktop-notice .ant-notification-notice-description { margin: 0 26px 0 29px; font-size: 12px; line-height: 19px; color: var(--muted); overflow-wrap: anywhere; max-height: min(40vh, 240px); overflow-y: auto; }
+.ant-notification .desktop-notice .ant-notification-notice-icon { margin: 2px 0 0; font-size: 16px; width: 18px; color: var(--muted); }
+.ant-notification .desktop-notice-success .ant-notification-notice-icon { color: var(--notice-success); }
+.ant-notification .desktop-notice-error .ant-notification-notice-icon { color: var(--notice-error); }
+.ant-notification .desktop-notice-warning .ant-notification-notice-icon { color: var(--notice-warning); }
+.ant-notification .desktop-notice .ant-notification-notice-close { top: 13px; inset-inline-end: 12px; width: 24px; height: 24px; font-size: 12px; border-radius: 6px; color: var(--muted); }
+.ant-notification .desktop-notice .ant-notification-notice-close:hover { background: var(--hover); color: var(--text); }
+.ant-notification .desktop-notice .ant-notification-notice-actions { float: none; display: flex; align-items: center; gap: 6px; margin: 9px 0 -3px 23px; }
+.ant-notification .desktop-notice .ant-notification-notice-actions :is(.action-button, .ant-btn) { height: 28px; padding: 0 6px; border: 0; background: transparent; box-shadow: none; font-size: 12px; font-weight: 500; color: var(--text); }
+.ant-notification .desktop-notice .ant-notification-notice-actions :is(.action-button, .ant-btn):hover { background: var(--hover); }
+.desktop-notice-count { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--muted); }
+@keyframes desktop-notice-in { from { opacity: 0; transform: translate(6px,-8px); } to { opacity: 1; transform: translate(0,0); } }
+@keyframes desktop-notice-out { to { opacity: 0; transform: translateX(12px); } }
+.ant-notification .ant-notification-fade-enter, .ant-notification .ant-notification-fade-appear { animation: desktop-notice-in 220ms cubic-bezier(.2,.8,.2,1) both; }
+.ant-notification .ant-notification-fade-leave { animation: desktop-notice-out 160ms ease both; }
+@media (prefers-reduced-motion: reduce) { .ant-notification *, .ant-notification *::before { animation-duration: 1ms !important; transition-duration: 0ms !important; } }

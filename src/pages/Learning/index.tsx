@@ -1,18 +1,19 @@
+import PlatformIcon from '../../components/PlatformIcon';
+import { useDesktopApp } from '../../context/NotificationContext';
+import FileTypeIcon from '../../components/FileTypeIcon';
+import ActionButton from '../../components/ActionButton';
+import Workspace from '../../components/Workspace';
 import React, { useEffect, useState } from 'react'
-import { App, Layout, Select, Button, Tooltip, Input, Row, Col, Switch, Card, Typography } from 'antd';
+import { Select, Switch } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
-import { invoke } from '@tauri-apps/api/core'
-import SearchTable from '../../components/SearchTable'
+import { invoke } from '../../bridge'
+import ResourceList from '../../components/ResourceList'
 import { Upload } from '../../model';
 import { bytesToSize } from '../../utils';
-import dayjs from 'dayjs'
 import { useConfig } from '../../context/ConfigContext';
-import { LearningTask, Task } from '../../downloadManager';
+import { LearningTask } from '../../downloadManager';
 import { useAddDownloadTasks } from '../../hooks/useAddDownloadTasks';
-import { ColumnType } from 'antd/es/table';
 
-const { Content } = Layout;
-const { Text } = Typography;
 
 interface Semester {
   id: number;
@@ -39,11 +40,11 @@ interface LearningProps {
   lastSync: string | null;
   loadingUploadList: boolean;
   uploadList: Upload[];
-  setUploadList: (uploads: Upload[]) => void;
+  setUploadList: React.Dispatch<React.SetStateAction<Upload[]>>;
   handleSwitchSync: (checked: boolean) => void;
   updateUploadList: () => void;
   selectedUploadKeys: React.Key[];
-  setSelectedUploadKeys: (keys: React.Key[]) => void;
+  setSelectedUploadKeys: React.Dispatch<React.SetStateAction<React.Key[]>>;
   selectedCourseKeys: React.Key[];
   setSelectedCourseKeys: (keys: React.Key[]) => void;
   courseList: Course[];
@@ -65,7 +66,7 @@ export default function Learning({
   courseList,
   setCourseList
 }: LearningProps) {
-  const { notification } = App.useApp()
+  const { notification } = useDesktopApp()
   const { config } = useConfig();
   const addDownloadTasks = useAddDownloadTasks();
   const autoDownload = config.auto_download;
@@ -79,14 +80,6 @@ export default function Learning({
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<number | null>(null)
   const [selectedSemester, setSelectedSemester] = useState<number | null>(null)
 
-  const [windowWidth, setWindowWidth] = useState(window.innerWidth)
-
-  const courseColumns: ColumnType<{ key: number, name: string }>[] = [
-    {
-      title: '课程名称',
-      dataIndex: 'name',
-    },
-  ]
 
   useEffect(() => {
     setLoadingSemesterList(true)
@@ -95,7 +88,7 @@ export default function Learning({
       setSemesterList(res)
     }).catch((err) => {
       notification.error({
-        message: '获取学期列表失败',
+        title: '获取学期列表失败',
         description: String(err)
       })
     }).finally(() => {
@@ -108,7 +101,7 @@ export default function Learning({
       setAcademicYearList(res)
     }).catch((err) => {
       notification.error({
-        message: '获取学年列表失败',
+        title: '获取学年列表失败',
         description: String(err)
       })
     }).finally(() => {
@@ -124,32 +117,30 @@ export default function Learning({
       })))
     }).catch((err) => {
       notification.error({
-        message: '获取课程列表失败',
+        title: '获取课程列表失败',
         description: String(err)
       })
     }).finally(() => {
       setLoadingCourseList(false)
     })
 
-    const handleResize = () => setWindowWidth(window.innerWidth)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
   }, [notification, setCourseList])
 
-  const downloadUploads = () => {
-    let uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id))
+  const downloadUploads = async () => {
+    const uploads = uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id))
     if (uploads.length === 0) {
-      notification.error({ message: '请选择课件' })
+      notification.error({ title: '请选择课件' })
       return
     }
-    let tasks = uploads.map((item) => new LearningTask(item))
-    addDownloadTasks(tasks)
-    setUploadList(uploadList.filter((item) => !selectedUploadKeys.includes(item.reference_id)))
-    setSelectedUploadKeys([])
+    const tasks = uploads.map((item) => new LearningTask(item))
+    if (!await addDownloadTasks(tasks)) return
+    const addedKeys = new Set(uploads.map(item => item.reference_id))
+    setUploadList(current => current.filter(item => !addedKeys.has(item.reference_id)))
+    setSelectedUploadKeys(current => current.filter(key => !addedKeys.has(key as number)))
   }
 
   const filterCourseList = (academicYearID: number | null, semesterID: number | null) => {
-    let semester = semesterList.find((item) => item.id === semesterID)
+    const semester = semesterList.find((item) => item.id === semesterID)
     setSelectedCourses(courseList.filter((item) => {
       return (semesterID && semester && (item.semester_id === semester.id || (item.semester_id === 0 && item.academic_year_id === semester.academic_year_id))) ||
         (!semesterID && academicYearID && item.academic_year_id === academicYearID) ||
@@ -173,126 +164,29 @@ export default function Learning({
     setSelectedCourseKeys([])
   };
 
-  const uploadColumns: ColumnType<Upload>[] = [
-    { title: '课程名称', dataIndex: 'course_name' },
-    { title: '文件名', dataIndex: 'file_name' },
-    {
-      title: '大小',
-      dataIndex: 'size',
-      render: (size: number) => bytesToSize(size),
-      // @ts-ignore
-      searchable: false,
-      sorter: (a, b) => a.size - b.size
-    },
-  ]
-
-  return (
-    <div style={{ margin: 20 }}>
-      <Card styles={{ body: { padding: 15 } }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} >
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-            <Text style={{ minWidth: 75 }}>自动同步：</Text>
-            <Tooltip title={syncing ? (autoDownload ? '自动同步已开启，将自动下载已选课程的课件' : '自动同步已开启，将自动添加已选课程的未下载课件至课件列表') : '开启后，将自动检测学在浙大是否有课件更新'}>
-              <Switch checked={syncing} onChange={handleSwitchSync} />
-            </Tooltip>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-            <Text style={{ minWidth: 50 }}>学年：</Text>
-            <Select
-              allowClear
-              showSearch
-              style={{ minWidth: 110 }}
-              value={selectedAcademicYear}
-              onChange={onAcademicYearChange}
-              options={academicYearList.map((item) => ({
-                label: item.name,
-                value: item.id
-              }))}
-              loading={loadingAcademicYearList}
-            />
-            <Text style={{ minWidth: 50, marginLeft: 25 }}>学期：</Text>
-            <Select
-              allowClear
-              showSearch
-              style={{ minWidth: 140 }}
-              value={selectedSemester}
-              onChange={onSemesterChange}
-              options={semesterList.map((item) => {
-                if (selectedAcademicYear && selectedAcademicYear !== item.academic_year_id) {
-                  return null
-                } else {
-                  return { label: item.name, value: item.id }
-                }
-              }).filter((item): item is { label: string, value: number } => item !== null)}
-              loading={loadingSemesterList}
-            />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-            <Tooltip title={windowWidth > 712 ? '' : '下载课件'}>
-              <Button
-                type='primary'
-                icon={<DownloadOutlined />}
-                onClick={downloadUploads}
-                disabled={loadingUploadList}
-              >{windowWidth > 712 ? '下载课件' : ''}</Button>
-            </Tooltip>
-          </div>
-        </div>
-      </Card>
-      <Row gutter={20} style={{ marginTop: 20 }}>
-        <Col xs={10} md={9} lg={8}>
-          <SearchTable<{ key: number, name: string }>
-            rowSelection={{
-              selectedRowKeys: selectedCourseKeys,
-              onChange: setSelectedCourseKeys,
-            }}
-            columns={courseColumns}
-            dataSource={selectedCourses}
-            loading={loadingCourseList}
-            pagination={false}
-            scroll={{ y: 'calc(100vh - 270px)' }}
-            size='small'
-            bordered
-            title={() => `课程列表：已选择 ${selectedCourseKeys.length} 门课程`}
-          />
-        </Col>
-        <Col xs={14} md={15} lg={16}>
-          <SearchTable<Upload>
-            rowSelection={{
-              selectedRowKeys: selectedUploadKeys,
-              onChange: setSelectedUploadKeys,
-            }}
-            rowKey='reference_id'
-            columns={uploadColumns}
-            dataSource={uploadList}
-            loading={loadingUploadList}
-            pagination={false}
-            scroll={{ y: syncing ? 'calc(100vh - 292px)' : 'calc(100vh - 270px)' }}
-            size='small'
-            bordered
-            footer={() => syncing ? `最后同步时间：${lastSync ? lastSync : '未同步'}` : ''}
-            title={() => (
-              <>
-                {uploadList && uploadList.length !== 0 && <Text ellipsis={{ rows: 1, expandable: false, tooltip: true }} style={{ width: 'calc(100% - 30px)' }}>
-                  {syncing && autoDownload ? `已按设置跳过 ${uploadList.length} 个文件；` : '课件列表：'}已选择 {selectedUploadKeys.length} 个文件 共 {bytesToSize(uploadList.filter((item) => selectedUploadKeys.includes(item.reference_id)).reduce((total, item) => total + item.size, 0))}
-                </Text>}
-                {(!uploadList || uploadList.length === 0) && (syncing ? (autoDownload ? '检测到新课件后将会自动下载 点击右侧立即同步👉' : '待下载更新课件列表为空  点击右侧立即同步👉') : '课件列表为空  点击右侧刷新👉')}
-                <div style={{ float: 'right' }}>
-                  <Tooltip title={syncing ? '立即同步' : '刷新课件列表'}>
-                    <Button
-                      type='text'
-                      size='small'
-                      icon={<ReloadOutlined />}
-                      onClick={updateUploadList}
-                      loading={loadingUploadList}
-                    />
-                  </Tooltip>
-                </div>
-              </>
-            )}
-          />
-        </Col>
-      </Row>
+  return <Workspace headerless title="学在浙大" panel={<>
+    <div className="panel-heading"><h2>学在浙大</h2></div>
+    <div className="panel-controls course-filters">
+      <label>学年<Select aria-label="学年" placeholder="全部学年" allowClear showSearch optionFilterProp="label" value={selectedAcademicYear} onChange={onAcademicYearChange}
+        options={academicYearList.map(item => ({ label: item.name, value: item.id }))} loading={loadingAcademicYearList} /></label>
+      <label>学期<Select aria-label="学期" placeholder="全部学期" allowClear showSearch optionFilterProp="label" value={selectedSemester} onChange={onSemesterChange}
+        options={semesterList.filter(item => !selectedAcademicYear || selectedAcademicYear === item.academic_year_id).map(item => ({ label: item.name, value: item.id }))} loading={loadingSemesterList} /></label>
     </div>
-  )
+    <div className="panel-list"><ResourceList compact title="课程" items={selectedCourses} itemKey={course => course.key}
+      selectedKeys={selectedCourseKeys} onSelectionChange={setSelectedCourseKeys} loading={loadingCourseList}
+      fields={[{ label: '课程', value: course => course.name }]} renderItem={course => ({ title: course.name })} emptyIcon={<PlatformIcon platform="learning" />} emptyText="暂无课程" /></div>
+    <div className="panel-bottom"><div className="setting-line"><span>自动同步</span><Switch disabled={loadingUploadList} checked={syncing} onChange={handleSwitchSync} /></div>
+      <p>{autoDownload ? '新课件将自动下载，遵循文件排除设置。' : '新课件将添加到待下载列表。'}</p>
+      <p>最后同步 · {lastSync || '未同步'}</p></div>
+  </>}
+    footer={<><span>已选 {selectedUploadKeys.length} 个文件 <span className="muted">· {bytesToSize(uploadList.filter(item => selectedUploadKeys.includes(item.reference_id)).reduce((sum, item) => sum + item.size, 0))}</span></span>
+      <div className="footer-actions"><button className="text-button" onClick={() => setSelectedUploadKeys([])} disabled={loadingUploadList || !selectedUploadKeys.length}>取消选择</button><ActionButton variant="primary" onClick={downloadUploads} disabled={loadingUploadList || !selectedUploadKeys.length}><DownloadOutlined />下载所选课件</ActionButton></div></>}>
+    {syncing && autoDownload && uploadList.length > 0 && <p className="muted">已按设置跳过 {uploadList.length} 个文件，可手动选择下载。</p>}
+    <ResourceList<Upload> actions={<ActionButton variant="secondary" onClick={updateUploadList} disabled={loadingUploadList} aria-busy={loadingUploadList}><ReloadOutlined spin={loadingUploadList} />{loadingUploadList ? (syncing ? '正在同步' : '正在获取') : (syncing ? '立即同步' : '获取课件')}</ActionButton>} title="文件列表" items={uploadList} itemKey={item => item.reference_id}
+      selectedKeys={selectedUploadKeys} onSelectionChange={setSelectedUploadKeys} loading={loadingUploadList}
+      fields={[{ label: '文件名', value: item => item.file_name }, { label: '课程', value: item => item.course_name }]}
+      sorts={[{ label: '大小升序', compare: (a, b) => a.size - b.size }, { label: '大小降序', compare: (a, b) => b.size - a.size }]}
+      renderItem={item => ({ title: item.file_name, subtitle: item.course_name, icon: <FileTypeIcon name={item.file_name} />, meta: bytesToSize(item.size) })}
+      emptyIcon={<PlatformIcon platform="learning" />} emptyText={syncing ? '暂无新的课件' : '选择课程后，点击“获取课件”'} />
+  </Workspace>
 }

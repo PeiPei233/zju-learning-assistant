@@ -1,7 +1,12 @@
-import React, { useState, useEffect } from 'react'
-import { useMediaQuery } from 'react-responsive';
-import { Button, Card, App, Typography, Switch, Tooltip } from 'antd';
-import { SyncOutlined } from '@ant-design/icons';
+import type { ScoreItem } from '../../model';
+import { calculateScoreTotals } from '../../utils';
+import EmptyState from '../../components/EmptyState';
+import FetchState from '../../components/FetchState';
+import ActionButton from '../../components/ActionButton';
+import Workspace from '../../components/Workspace';
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { Switch } from 'antd';
+import { SyncOutlined, FileSearchOutlined, SearchOutlined } from '@ant-design/icons';
 import SearchTable from '../../components/SearchTable'
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -9,16 +14,8 @@ import { ColumnType } from 'antd/es/table';
 
 dayjs.locale('zh-cn')
 
-const { Text } = Typography
 
-interface ScoreItem {
-  xkkh: string;
-  kcmc: string;
-  cj: string;
-  xf: string;
-  jd: string;
-  bkcj: string;
-}
+
 
 interface ScoreProps {
   notify: boolean;
@@ -42,35 +39,44 @@ export default function Score({
   handleSync
 }: ScoreProps) {
 
-  const { notification } = App.useApp()
 
+  const [results, setResults] = useState({ count: score.length, filtered: false });
+  const handleResultsChange = useCallback((count: number, filtered: boolean) => setResults({ count, filtered }), []);
   const [selectedXkkh, setSelectedXkkh] = useState<React.Key[]>([])
-  const [selectedTotalGp, setSelectedTotalGp] = useState(0)
-  const [selectedTotalCredit, setSelectedTotalCredit] = useState(0)
-  const max770 = useMediaQuery({ query: '(max-width: 770px)' })
+  const selectedRows = useMemo(() => score.filter(row => selectedXkkh.includes(row.xkkh)), [score, selectedXkkh]);
+  const selectedKeys = selectedRows.map(row => row.xkkh);
+  const { gp: selectedTotalGp, credit: selectedTotalCredit } = useMemo(() => calculateScoreTotals(selectedRows), [selectedRows]);
+
+  useEffect(() => {
+    const currentKeys = new Set(score.map(row => row.xkkh));
+    setSelectedXkkh(previous => {
+      const retained = previous.filter(key => currentKeys.has(String(key)));
+      return retained.length === previous.length ? previous : retained;
+    });
+  }, [score]);
 
   useEffect(() => {
     handleSync()
+    // Initial fetch only; later refreshes are explicitly requested by the user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const columns: ColumnType<ScoreItem>[] = [
+  const columns: (ColumnType<ScoreItem> & { searchable?: boolean })[] = [
     {
       title: '选课课号',
       dataIndex: 'xkkh',
-      width: '39%',
+      width: '28%',
       sorter: (a, b) => a.xkkh.localeCompare(b.xkkh),
     },
     {
       title: '课程名称',
       dataIndex: 'kcmc',
-      width: max770 ? 113 : undefined,
       sorter: (a, b) => a.kcmc.localeCompare(b.kcmc),
     },
     {
       title: '成绩',
       dataIndex: 'cj',
       width: 65,
-      // @ts-ignore
       searchable: false,
       sorter: (a, b) => {
         const valA = parseInt(a.cj);
@@ -85,7 +91,6 @@ export default function Score({
       title: '学分',
       dataIndex: 'xf',
       width: 65,
-      // @ts-ignore
       searchable: false,
       sorter: (a, b) => {
         const valA = parseFloat(a.xf);
@@ -100,7 +105,6 @@ export default function Score({
       title: '绩点',
       dataIndex: 'jd',
       width: 65,
-      // @ts-ignore
       searchable: false,
       sorter: (a, b) => {
         const valA = parseFloat(a.jd);
@@ -115,65 +119,32 @@ export default function Score({
       title: '补考成绩',
       dataIndex: 'bkcj',
       width: 80,
-      // @ts-ignore
       searchable: false
     },
   ]
 
-  const onSelectChange = (selectedRowKeys: React.Key[], selectedRows: ScoreItem[]) => {
-    setSelectedXkkh(selectedRowKeys)
-    let gp = 0
-    let credit = 0
-    selectedRows.forEach(row => {
-      if (row.cj !== '合格' && row.cj !== '不合格' && row.cj !== '弃修') {
-        gp += parseFloat(row.jd) * parseFloat(row.xf)
-        credit += parseFloat(row.xf)
-      }
-    })
-    setSelectedTotalGp(gp)
-    setSelectedTotalCredit(credit)
-  }
-
-  return (
-    <div style={{ margin: 20 }}>
-      <Card styles={{ body: { padding: 15 } }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }} >
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-            <Text style={{ minWidth: 115 }}>自动同步并提醒：</Text>
-            <Tooltip title={notify ? '成绩推送已开启，将自动同步最新成绩并在成绩更新时提醒' : '成绩推送已关闭，开启后将自动同步最新成绩并在成绩更新时提醒'}>
-              <Switch loading={loading} checked={notify} onChange={handleSwitch} />
-            </Tooltip>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-            <Button type='primary' icon={<SyncOutlined />} loading={loading} onClick={handleSync}>{loading ? '正在同步' : '立即同步'}</Button>
-          </div>
-        </div>
-      </Card>
-      <SearchTable<ScoreItem>
-        rowSelection={{
-          selectedRowKeys: selectedXkkh,
-          onChange: onSelectChange,
-        }}
-        columns={columns}
-        dataSource={score}
-        rowKey='xkkh'
-        pagination={false}
-        scroll={{ y: 'calc(100vh - 255px)' }}
-        size='small'
-        bordered
-        footer={() => selectedXkkh.length ? `最后同步时间：${lastSync ? lastSync : '未同步'}，已选 ${selectedXkkh.length} 条记录，已选总绩点 ${(
-          selectedTotalCredit === 0 ? 0 : selectedTotalGp / selectedTotalCredit
-        ).toFixed(2)}，已选总学分 ${selectedTotalCredit.toFixed(2)}` :
-          `最后同步时间：${lastSync ? lastSync : '未同步'}，共 ${score.length} 条记录，总绩点 ${(
-            totalCredit === 0 ? 0 : totalGp / totalCredit
-          ).toFixed(2)}，总学分 ${totalCredit.toFixed(2)}`}
-        style={{ marginTop: 20 }}
-        loading={loading}
-      />
+  return <Workspace headerless title="成绩" panel={<>
+    <div className="panel-heading"><h2>成绩查询</h2></div>
+    <div className="panel-controls score-panel-controls">
+      <div className="score-summary"><span>平均绩点</span><strong>{(totalCredit ? totalGp / totalCredit : 0).toFixed(2)}</strong><span>总学分</span><strong>{totalCredit.toFixed(2)}</strong></div>
     </div>
-  )
+    <div className="panel-bottom">
+      <div className="setting-line"><span>自动同步并提醒</span><Switch disabled={loading} checked={notify} onChange={handleSwitch} /></div>
+      <p>成绩更新时发送提醒。钉钉通知可在设置中配置。</p>
+      <p>最后同步 · {lastSync || '未同步'}</p>
+    </div>
+  </>}
+    footer={<span>{selectedKeys.length ? `已选 ${selectedKeys.length} 门 · 平均绩点 ${(selectedTotalCredit ? selectedTotalGp / selectedTotalCredit : 0).toFixed(2)} · 学分 ${selectedTotalCredit.toFixed(2)}` : `共 ${score.length} 门课程 · 选择课程可计算加权绩点`}</span>}>
+    <div className="score-content">
+      <div className="resource-toolbar"><div className="resource-heading"><h2>成绩列表</h2><span>{results.filtered ? `${results.count} / ${score.length}` : score.length}</span></div>
+        <div className="resource-toolbar-actions"><ActionButton variant="secondary" aria-busy={loading} disabled={loading} onClick={handleSync}><SyncOutlined spin={loading} />{loading ? '正在同步' : '立即同步'}</ActionButton></div>
+      </div>
+      <div className="score-table-region" aria-busy={loading}>
+        <SearchTable<ScoreItem> onResultsChange={handleResultsChange} fixedBody interactionDisabled={loading} rowSelection={{ selectedRowKeys: selectedKeys, onChange: keys => setSelectedXkkh(keys) }} columns={columns} dataSource={score} rowKey="xkkh"
+          selectionStatus={loading && score.length ? <FetchState inline label="正在更新…" /> : undefined}
+          pagination={false} tableLayout="fixed" size="middle" loading={false}
+          locale={{ emptyText: null }} emptyContent={(clearFilters, filtered) => loading ? <FetchState label="正在获取成绩…" /> : <EmptyState icon={score.length ? <SearchOutlined aria-hidden="true" /> : <FileSearchOutlined aria-hidden="true" />} action={filtered && <button className="text-button" onClick={clearFilters}>清除筛选</button>}>{score.length ? '没有匹配的结果' : '暂无成绩，可点击“立即同步”重新获取'}</EmptyState>} />
+      </div>
+    </div>
+  </Workspace>
 }

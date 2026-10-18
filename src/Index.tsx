@@ -1,23 +1,24 @@
-import React, { useEffect, useState } from 'react'
-import { FloatButton, Modal, App, Typography } from 'antd';
+import { useDesktopApp } from './context/NotificationContext';
+import { useEffect, useState } from 'react'
+import { Modal, Typography } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
-import { QuestionCircleOutlined } from '@ant-design/icons';
-import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core'
+import { getVersion, invoke, shell } from './bridge';
+
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Markdown from 'react-markdown';
 import { convertUrlsToMarkdown } from './utils';
-import * as shell from "@tauri-apps/plugin-shell"
+
 import { VersionInfo } from './model';
+import ActionButton from './components/ActionButton';
 dayjs.locale('zh-cn')
 
 const { Paragraph, Text } = Typography
 
 function Index() {
 
-  const { notification } = App.useApp()
+  const { notification } = useDesktopApp()
 
   const [isLogin, setIsLogin] = useState(false)
   const [autoLoginUsername, setAutoLoginUsername] = useState('')
@@ -35,7 +36,7 @@ function Index() {
         if (!data.version) throw new Error(JSON.stringify(data))
         if (data.version !== 'v' + v) {
           notification.info({
-            message: '发现新版本',
+            title: '发现新版本',
             description: `当前版本：${'v' + v}，最新版本：${data.version}`
           })
         }
@@ -52,7 +53,7 @@ function Index() {
     })
     invoke('test_connection').catch((err) => {
       notification.error({
-        message: '连接失败',
+        title: '连接失败',
         description: String(err.message || err)
       })
     })
@@ -78,30 +79,19 @@ function Index() {
           setOpenVersionModal={setOpenVersionModal}
         />
       }
-      <FloatButton
-        icon={<QuestionCircleOutlined />}
-        onClick={() => {
-          shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch((err) => {
-            notification.error({
-              message: '打开帮助失败',
-              description: String(err.message || err)
-            })
-          })
-        }}
-        tooltip='查看帮助'
-        type='primary'
-      />
 
       <Modal
+        className="desktop-modal version-modal"
+        width={520}
         centered
         open={openVersionModal}
         onCancel={() => setOpenVersionModal(false)}
-        footer={null}
-        title={'ZJU Learning Assistant ' + currentVersion}
+        footer={<ActionButton variant="primary" onClick={() => setOpenVersionModal(false)}>完成</ActionButton>}
+        title="版本信息"
         zIndex={1001}
       >
         <Markdown components={{
-          a({ node, href, ...props }) {
+          a({ node: _node, href, ...props }) {
             return <a
               {...props}
               onClick={(e) => {
@@ -109,7 +99,7 @@ function Index() {
                 if (href) {
                   shell.open(href).catch((err) => {
                     notification.error({
-                      message: '打开链接失败',
+                      title: '打开链接失败',
                       description: String(err)
                     })
                   })
@@ -117,14 +107,12 @@ function Index() {
               }}
             />
           },
-          // @ts-ignore
-          pre({ node, ...props }) {
+          pre({ node: _node, ...props }) {
             return <Paragraph>
               <pre {...props} />
             </Paragraph>
           },
-          // @ts-ignore
-          code({ node, ...props }) {
+          code({ node: _node, ...props }) {
             return <Text code {...props} />
           }
         }}>

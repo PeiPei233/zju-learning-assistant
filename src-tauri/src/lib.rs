@@ -1,6 +1,10 @@
 mod controller;
+#[cfg(target_os = "linux")]
+mod linux_chrome;
 mod model;
 mod utils;
+#[cfg(target_os = "windows")]
+mod windows_chrome;
 mod wps;
 mod zju_assist;
 
@@ -18,6 +22,104 @@ use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 use zju_assist::ZjuAssist;
+
+#[tauri::command]
+fn set_window_chrome_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    return windows_chrome::set_theme(&window, dark);
+    #[cfg(target_os = "linux")]
+    return window
+        .run_on_main_thread(move || linux_chrome::theme(dark))
+        .map_err(|e| e.to_string());
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        let _ = (window, dark);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn set_window_chrome_layout(
+    window: tauri::WebviewWindow,
+    left: i32,
+    width: i32,
+    height: i32,
+    opaque: bool,
+    color: u32,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as usize;
+        window
+            .run_on_main_thread(move || unsafe {
+                windows_chrome::set_layout(hwnd, left, width, height, opaque, color);
+            })
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, left, width, height, opaque, color);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn set_native_navigation(
+    window: tauri::WebviewWindow,
+    visible: bool,
+    collapsed: bool,
+    peek: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    return window
+        .run_on_main_thread(move || linux_chrome::navigation(visible, collapsed, peek))
+        .map_err(|e| e.to_string());
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (window, visible, collapsed, peek);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn has_native_backdrop() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        windows_chrome::has_native_backdrop()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
+fn get_native_chrome_height() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        linux_chrome::height()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        0
+    }
+}
+
+// Called after React has committed its first frame. The Windows window starts
+// hidden so its standard caption is never shown before the native hook exists.
+#[tauri::command]
+fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        static SHOWN: AtomicBool = AtomicBool::new(false);
+        if !SHOWN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            window.show().map_err(|error| error.to_string())?;
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    let _ = window;
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -46,6 +148,10 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            linux_chrome::install(&app.get_webview_window("main").expect("main window"))?;
+            #[cfg(target_os = "windows")]
+            windows_chrome::install(&app.get_webview_window("main").expect("main window"))?;
             #[cfg(desktop)]
             match app.cli().matches() {
                 Ok(matches) => {
@@ -239,6 +345,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            show_main_window,
+            set_window_chrome_theme,
+            set_native_navigation,
+            get_native_chrome_height,
+            has_native_backdrop,
+            set_window_chrome_layout,
             controller::login,
             controller::get_auto_login_info,
             controller::check_login,
