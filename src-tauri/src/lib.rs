@@ -1,6 +1,5 @@
 mod controller;
 mod model;
-mod upload_integrity;
 mod utils;
 mod wps;
 mod zju_assist;

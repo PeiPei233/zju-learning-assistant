@@ -766,15 +766,11 @@ pub async fn start_download_upload(
         .await;
     let (res, is_preview) = match res {
         Ok(res) => (res, false),
-        Err(download_error) if upload.allow_private_wps_office_view => {
-            info!(
-                "常规原文件接口失败，尝试 WPS 原文件接口：{}",
-                download_error
-            );
+        Err(_) if upload.allow_private_wps_office_view => {
             let activity_id = upload
                 .activity_id
                 .ok_or_else(|| "缺少课件所属活动，请刷新课件列表后重试".to_string())?;
-            match crate::wps::download(
+            if let Ok(res) = crate::wps::download(
                 &zju_assist,
                 upload.id,
                 activity_id,
@@ -782,36 +778,29 @@ pub async fn start_download_upload(
             )
             .await
             {
-                Ok(res) => (res, false),
-                Err(original_error) => {
-                    info!("WPS 原文件下载失败，尝试打印导出：{}", original_error);
-                    if download_state.load(std::sync::atomic::Ordering::SeqCst) {
-                        let _ = window.emit(
-                            "download-progress",
-                            Progress {
-                                id: id.clone(),
-                                status: "downloading".to_string(),
-                                file_name: crate::wps::preview_file_name(&upload.file_name),
-                                msg: "正在导出预览版 PDF".to_string(),
-                                ..Progress::default()
-                            },
-                        );
-                    }
-                    let res = crate::wps::download(
-                        &zju_assist,
-                        upload.id,
-                        activity_id,
-                        crate::wps::DownloadMode::PreviewPdf,
-                    )
-                    .await
-                    .map_err(|preview_error| {
-                        format!(
-                            "{}；WPS 原文件下载失败：{}；预览版 PDF 导出失败：{}",
-                            download_error, original_error, preview_error
-                        )
-                    })?;
-                    (res, true)
+                (res, false)
+            } else {
+                if download_state.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = window.emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "downloading".to_string(),
+                            file_name: crate::wps::preview_file_name(&upload.file_name),
+                            msg: "正在导出预览版 PDF".to_string(),
+                            ..Progress::default()
+                        },
+                    );
                 }
+                let res = crate::wps::download(
+                    &zju_assist,
+                    upload.id,
+                    activity_id,
+                    crate::wps::DownloadMode::PreviewPdf,
+                )
+                .await
+                .map_err(|err| err.to_string())?;
+                (res, true)
             }
         }
         Err(err) => return Err(err.to_string()),
@@ -912,16 +901,22 @@ pub async fn start_download_upload(
     tokio::task::spawn(async move {
         let mut current_size: u64 = 0;
         let mut stream = res.bytes_stream();
-        let mut integrity =
-            crate::upload_integrity::UploadIntegrity::new(response_length, is_preview);
+        let mut signature = Vec::new();
         loop {
             let res = stream.try_next().await.map_err(|e| e.to_string());
             let res = res.and_then(|item| {
-                match &item {
-                    Some(chunk) => integrity.push(chunk),
-                    None => integrity.finish(),
+                if is_preview {
+                    if let Some(chunk) = &item {
+                        signature.extend(chunk.iter().take(5 - signature.len()).copied());
+                    }
+                    if (signature.len() == 5 && signature != b"%PDF-")
+                        || (item.is_none()
+                            && (signature != b"%PDF-"
+                                || response_length.is_some_and(|size| size != current_size)))
+                    {
+                        return Err("下载文件无效或不完整".to_string());
+                    }
                 }
-                .map_err(|error| error.to_string())?;
                 Ok(item)
             });
             let res = if matches!(&res, Ok(None)) {
@@ -939,7 +934,7 @@ pub async fn start_download_upload(
                             file_name: file_name.clone(),
                             downloaded_size: current_size,
                             total_size: content_length,
-                            msg: format!("下载失败：{}", err),
+                            msg: "下载失败".to_string(),
                         },
                     )
                     .unwrap();
@@ -1033,7 +1028,11 @@ pub async fn start_download_upload(
                 .unwrap();
         }
         drop(file);
-        let content_length = current_size;
+        let content_length = if is_preview {
+            current_size
+        } else {
+            content_length
+        };
         window
             .emit(
                 "download-progress",

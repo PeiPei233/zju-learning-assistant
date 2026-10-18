@@ -52,7 +52,6 @@ export class Task {
         this.msg = progress.msg || ''
         let currentTime = Date.now()
         if (this.status === 'done') {
-            this.downloadedSize = progress.downloaded_size
             this.progress = 1
             this.speed = 0
             this.remainingTime = 0
@@ -131,7 +130,7 @@ export class LearningTask extends Task {
     }
 
     async openFile(folder: boolean): Promise<string> {
-        // Keep source metadata unchanged for retries.
+        // Keep the original file name for retries.
         return invoke('open_file_upload', { upload: { ...this.upload, file_name: this.name }, folder })
     }
 

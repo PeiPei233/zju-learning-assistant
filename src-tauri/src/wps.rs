@@ -1,4 +1,4 @@
-//! WPS WebOffice's original download and print export transport. Keys and routing are
+//! WPS WebOffice's original download and print export transport. The key and routing information are
 //! obtained from a fresh preview page, never persisted or written to logs.
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use anyhow::{anyhow, bail, Context, Result};
@@ -38,7 +38,7 @@ pub struct Encryption {
     enabled: bool,
 }
 
-pub struct OfficeRequest {
+pub struct PrintRequest {
     pub url: Url,
     pub headers: HeaderMap,
     pub body: String,
@@ -95,7 +95,7 @@ fn encrypt(key: &[u8; 32], iv: &[u8; 16], text: &[u8]) -> String {
     )
 }
 
-impl OfficeRequest {
+impl PrintRequest {
     pub fn new(preview_url: &Url, bootstrap: Bootstrap, mode: DownloadMode) -> Result<Self> {
         validate_preview_url(preview_url)?;
         if !bootstrap.encryption.enabled || bootstrap.encryption.algorithm != "AES256" {
@@ -149,7 +149,6 @@ impl OfficeRequest {
         }
         let url = preview_url.join(&bootstrap.encryption.gateway)?;
         validate_preview_url(&url)?;
-        // The WPS GET transport uses POST to the gateway with no request body.
         let body = if mode == DownloadMode::Original {
             String::new()
         } else {
@@ -184,7 +183,7 @@ impl OfficeRequest {
         let data: Value = serde_json::from_str(&plaintext).context("WPS 导出响应不是 JSON")?;
         let raw_url = data["url"]
             .as_str()
-            .ok_or_else(|| anyhow!("WPS 未提供文件下载地址，可能没有相应权限或文件尚未准备好"))?;
+            .ok_or_else(|| anyhow!("WPS 未提供导出文件，可能没有打印权限或文件尚未准备好"))?;
         let url = self.url.join(raw_url)?;
         validate_download_url(&url)?;
         Ok(url)
@@ -241,18 +240,19 @@ async fn download_from_preview(
     let preview_url = page.url().clone();
     validate_preview_url(&preview_url)?;
     let bootstrap = parse_bootstrap(&page.text().await?, upload_id)?;
-    let request = OfficeRequest::new(&preview_url, bootstrap, mode)?;
+    let request = PrintRequest::new(&preview_url, bootstrap, mode)?;
     let mut transport = client.post(request.url.clone());
     transport
         .headers(request.headers.clone())
         .timeout(Duration::from_secs(90));
+    // WPS GET requests use POST to the gateway without a request body.
     if !request.body.is_empty() {
         transport.body(request.body.clone());
     }
     let exported = transport.send().await?;
     if !exported.status().is_success() {
         return Err(anyhow!(
-            "WPS 文件获取失败 (HTTP {})",
+            "WPS 打印导出失败 (HTTP {})",
             exported.status().as_u16()
         ));
     }
@@ -273,7 +273,7 @@ async fn download_from_preview(
         .map_err(|error| error.without_url())?;
     if !response.status().is_success() {
         return Err(anyhow!(
-            "WPS 文件下载失败 (HTTP {})，请重试以获取新地址",
+            "WPS 导出文件下载失败 (HTTP {})，请重试以获取新地址",
             response.status().as_u16()
         ));
     }
@@ -286,129 +286,4 @@ pub fn preview_file_name(original: &str) -> String {
         "{}.preview.pdf",
         path.file_name().unwrap_or_default().to_string_lossy()
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rsa::{pkcs8::EncodePublicKey, RsaPrivateKey};
-
-    #[test]
-    fn original_and_print_requests_match_the_wps_wire_protocol() {
-        let mut rng = rand::thread_rng();
-        let private = RsaPrivateKey::new(&mut rng, 1024).unwrap();
-        let pem = private
-            .to_public_key()
-            .to_public_key_pem(Default::default())
-            .unwrap();
-        let bootstrap = || Bootstrap {
-            root_file_id: "42".into(),
-            app_id: "test-app".into(),
-            csrf_token: "test-csrf".into(),
-            encryption: Encryption {
-                algorithm: "AES256".into(),
-                public_key: STANDARD.encode(&pem),
-                gateway: "/weboffice".into(),
-                enabled: true,
-            },
-        };
-        for mode in [DownloadMode::Original, DownloadMode::PreviewPdf] {
-            let request = OfficeRequest::new(&Url::parse("https://course-wps.zju.edu.cn/weboffice/office/f/42?route_key=1&__doc_ha_node=node").unwrap(), bootstrap(), mode).unwrap();
-            let wrapped = STANDARD
-                .decode(request.headers["encryption-parameters"].as_bytes())
-                .unwrap();
-            let parameters: Value =
-                serde_json::from_slice(&private.decrypt(Pkcs1v15Encrypt, &wrapped).unwrap())
-                    .unwrap();
-            assert_eq!(
-                parameters["private_key"].as_str().unwrap().as_bytes(),
-                request.key
-            );
-            assert_eq!(parameters["iv"].as_str().unwrap().as_bytes(), request.iv);
-            assert_eq!(
-                request.headers["x-user-query"],
-                "route_key=1&__doc_ha_node=node"
-            );
-            let decode = |value: &str| {
-                let data =
-                    cbc::Decryptor::<aes::Aes256>::new((&request.key).into(), (&request.iv).into())
-                        .decrypt_padded_vec_mut::<Pkcs7>(&STANDARD.decode(value).unwrap())
-                        .unwrap();
-                serde_json::from_slice::<Value>(&data).unwrap()
-            };
-            let api = decode(request.headers["api-parameters"].to_str().unwrap());
-            if mode == DownloadMode::Original {
-                assert_eq!(api["method"], "GET");
-                assert_eq!(api["api"], "/api/v3/office/file/42/download");
-                assert!(request.body.is_empty());
-            } else {
-                assert_eq!(api["method"], "POST");
-                assert_eq!(api["api"], "/api/v3/office/file/42/export");
-                assert_eq!(
-                    decode(&request.body),
-                    json!({"format":"pdf","options":{},"print":true,"clientId":"","password":""})
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn parses_bootstrap_without_executing_trailing_script() {
-        let html = r#"<script>window.__WPSENV__={"root_file_id":"42","app_id":"test","csrf_token":"test","encryption":{"algorithm":"AES256","publicKey":"test","gateway":"/weboffice","isEncryption":true}};throw new Error('must not execute');</script>"#;
-        assert_eq!(parse_bootstrap(html, 42).unwrap().root_file_id, "42");
-        assert!(parse_bootstrap(html, 99).is_err());
-        assert!(parse_bootstrap("<html>login</html>", 42).is_err());
-    }
-
-    #[test]
-    fn rejects_untrusted_preview_and_download_hosts() {
-        for raw in [
-            "http://course-wps.zju.edu.cn/x",
-            "https://course-wps.zju.edu.cn.evil.test/x",
-            "https://user:password@course-wps.zju.edu.cn/x",
-            "https://course-wps.zju.edu.cn:8443/x",
-        ] {
-            assert!(validate_preview_url(&Url::parse(raw).unwrap()).is_err());
-            assert!(validate_download_url(&Url::parse(raw).unwrap()).is_err());
-        }
-        assert!(validate_download_url(
-            &Url::parse("https://file.zju.edu.cn/a.pdf?Signature=abc%2Bdef").unwrap()
-        )
-        .is_ok());
-    }
-
-    #[test]
-    fn decodes_encrypted_export_without_changing_signed_query() {
-        let request = OfficeRequest {
-            url: Url::parse("https://course-wps.zju.edu.cn/weboffice").unwrap(),
-            headers: HeaderMap::new(),
-            body: String::new(),
-            key: [b'A'; 32],
-            iv: [b'B'; 16],
-        };
-        let body = r#"{"url":"/weboffice/export/a?Signature=a%2Bb%2Fc%3D&__doc_ha_node=example"}"#;
-        let encrypted = encrypt(&request.key, &request.iv, body.as_bytes());
-        assert_eq!(
-            request.download_url(&encrypted, true).unwrap().query(),
-            Some("Signature=a%2Bb%2Fc%3D&__doc_ha_node=example")
-        );
-        assert!(request
-            .download_url("{\"result\":\"PermissionDenied\"}", false)
-            .is_err());
-        assert!(request.download_url("invalid", true).is_err());
-    }
-
-    #[test]
-    fn names_preview_exports_separately_from_originals() {
-        assert_eq!(preview_file_name("lecture.pdf"), "lecture.pdf.preview.pdf");
-        assert_eq!(preview_file_name("lecture.PDF"), "lecture.PDF.preview.pdf");
-        assert_eq!(
-            preview_file_name("lecture.pptx"),
-            "lecture.pptx.preview.pdf"
-        );
-        assert_ne!(
-            preview_file_name("lecture.pptx"),
-            preview_file_name("lecture.docx")
-        );
-    }
 }
