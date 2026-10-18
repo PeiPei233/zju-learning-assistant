@@ -49,7 +49,7 @@ export default function Downloads({ taskList, downloadManager }: DownloadsProps)
               <OverflowText className="download-task-name" text={item.name} />
               <div className={`download-task-detail ${item.status === 'failed' ? 'is-error' : ''}`}>
                 <span className="download-status">{item.status === 'writing' || (item.status === 'downloading' && item.totalSize <= 0)
-                  ? <><LoadingOutlined spin /> {item.status === 'writing' ? item.getDescription() : (item.msg || '正在准备下载')}</>
+                  ? <><LoadingOutlined spin /> {item.status === 'writing' ? item.getDescription() : (item.msg || (item.downloadedSize > 0 ? item.getDescription() : '正在准备下载'))}</>
                   : (statusLabels[item.status] || item.status)}</span>
                 {item.getDescription() !== statusLabels[item.status] && item.status !== 'done' && item.status !== 'writing' && !(item.status === 'downloading' && item.totalSize <= 0) && <span>{item.getDescription()}</span>}
               </div>

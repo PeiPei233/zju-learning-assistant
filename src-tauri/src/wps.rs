@@ -1,4 +1,4 @@
-//! WPS WebOffice's print export transport. The key and routing information are
+//! WPS WebOffice's original download and print export transport. The key and routing information are
 //! obtained from a fresh preview page, never persisted or written to logs.
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use anyhow::{anyhow, bail, Context, Result};
@@ -13,6 +13,12 @@ use std::time::Duration;
 use url::Url;
 
 use crate::zju_assist::ZjuAssist;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DownloadMode {
+    Original,
+    PreviewPdf,
+}
 
 #[derive(Deserialize)]
 pub struct Bootstrap {
@@ -90,7 +96,7 @@ fn encrypt(key: &[u8; 32], iv: &[u8; 16], text: &[u8]) -> String {
 }
 
 impl PrintRequest {
-    pub fn new(preview_url: &Url, bootstrap: Bootstrap) -> Result<Self> {
+    pub fn new(preview_url: &Url, bootstrap: Bootstrap, mode: DownloadMode) -> Result<Self> {
         validate_preview_url(preview_url)?;
         if !bootstrap.encryption.enabled || bootstrap.encryption.algorithm != "AES256" {
             bail!("WPS 加密协议已变化，请更新 ZLA");
@@ -112,9 +118,13 @@ impl PrintRequest {
         let wrapped_key = public_key
             .encrypt(&mut rng, Pkcs1v15Encrypt, &serde_json::to_vec(&parameters)?)
             .context("无法生成 WPS 导出请求")?;
+        let (method, action) = match mode {
+            DownloadMode::Original => ("GET", "download"),
+            DownloadMode::PreviewPdf => ("POST", "export"),
+        };
         let api = json!({
-            "method": "POST",
-            "api": format!("/api/v3/office/file/{}/export", bootstrap.root_file_id),
+            "method": method,
+            "api": format!("/api/v3/office/file/{}/{}", bootstrap.root_file_id, action),
             "query_string": "", "schema": "https",
         });
         let mut headers = HeaderMap::new();
@@ -139,14 +149,18 @@ impl PrintRequest {
         }
         let url = preview_url.join(&bootstrap.encryption.gateway)?;
         validate_preview_url(&url)?;
-        let body = encrypt(
-            &key,
-            &iv,
-            &serde_json::to_vec(&json!({
-                "format": "pdf", "options": {}, "print": true,
-                "clientId": "", "password": "",
-            }))?,
-        );
+        let body = if mode == DownloadMode::Original {
+            String::new()
+        } else {
+            encrypt(
+                &key,
+                &iv,
+                &serde_json::to_vec(&json!({
+                    "format": "pdf", "options": {}, "print": true,
+                    "clientId": "", "password": "",
+                }))?,
+            )
+        };
         Ok(Self {
             url,
             headers,
@@ -176,7 +190,12 @@ impl PrintRequest {
     }
 }
 
-pub async fn download(client: &ZjuAssist, upload_id: i64, activity_id: i64) -> Result<Response> {
+pub async fn download(
+    client: &ZjuAssist,
+    upload_id: i64,
+    activity_id: i64,
+    mode: DownloadMode,
+) -> Result<Response> {
     let mut endpoint = Url::parse(&format!(
         "https://courses.zju.edu.cn/api/uploads/{}/preview/private-wps",
         upload_id
@@ -199,13 +218,14 @@ pub async fn download(client: &ZjuAssist, upload_id: i64, activity_id: i64) -> R
             .as_str()
             .ok_or_else(|| anyhow!("此课件未提供 WPS 预览地址"))?,
     )?;
-    download_from_preview(client, upload_id, preview_url).await
+    download_from_preview(client, upload_id, preview_url, mode).await
 }
 
 async fn download_from_preview(
     client: &ZjuAssist,
     upload_id: i64,
     preview_url: Url,
+    mode: DownloadMode,
 ) -> Result<Response> {
     validate_preview_url(&preview_url)?;
     let page = client
@@ -220,14 +240,16 @@ async fn download_from_preview(
     let preview_url = page.url().clone();
     validate_preview_url(&preview_url)?;
     let bootstrap = parse_bootstrap(&page.text().await?, upload_id)?;
-    let request = PrintRequest::new(&preview_url, bootstrap)?;
-    let exported = client
-        .post(request.url.clone())
+    let request = PrintRequest::new(&preview_url, bootstrap, mode)?;
+    let mut transport = client.post(request.url.clone());
+    transport
         .headers(request.headers.clone())
-        .body(request.body.clone())
-        .timeout(Duration::from_secs(90))
-        .send()
-        .await?;
+        .timeout(Duration::from_secs(90));
+    // WPS GET requests use POST to the gateway without a request body.
+    if !request.body.is_empty() {
+        transport.body(request.body.clone());
+    }
+    let exported = transport.send().await?;
     if !exported.status().is_success() {
         return Err(anyhow!(
             "WPS 打印导出失败 (HTTP {})",
