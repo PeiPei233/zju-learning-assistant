@@ -4,9 +4,9 @@ import SettingsSwitch from './SettingsSwitch';
 import { useDelayedBusy } from '../../hooks/useDelayedBusy';
 import Workspace from '../Workspace';
 import { useState, useEffect } from 'react';
-import { List, Typography, Input, InputNumber, Select, Tooltip } from 'antd';
+import { Card, Input, InputNumber, Select, Tooltip } from 'antd';
 import ActionButton from '../ActionButton';
-import { EditOutlined, SendOutlined, SettingOutlined, LoadingOutlined } from '@ant-design/icons';
+import { EditOutlined, SendOutlined, LoadingOutlined } from '@ant-design/icons';
 import { invoke, dialog } from '../../bridge';
 
 import { useConfig } from '../../context/ConfigContext';
@@ -16,7 +16,12 @@ import { VersionInfo } from '../../model';
 import { useConfigAutosave } from '../../hooks/useConfigAutosave';
 import { normalizeFileExtensions } from '../../utils';
 
-const { Text } = Typography;
+import SettingField from './SettingField';
+import type { ReactNode } from 'react';
+
+function SettingsGroup({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return <section className="settings-group"><h2>{title}</h2>{description && <p className="settings-group-description">{description}</p>}<Card className="settings-card">{children}</Card></section>;
+}
 
 interface SettingsProps {
   currentVersion: string;
@@ -33,8 +38,6 @@ export default function Settings({
   const savingSettings = useDelayedBusy(isSaving());
   const { notification } = useDesktopApp();
   const [dingUrlInput, setDingUrlInput] = useState('');
-  const [subtitleModalOpen, setSubtitleModalOpen] = useState(false);
-  const [llmModalOpen, setLlmModalOpen] = useState(false);
 
   const [testingDing, setTestingDing] = useState(false);
   const [dingError, setDingError] = useState('');
@@ -100,198 +103,60 @@ export default function Settings({
         key: 'llm-config-required',
         title: '请先完成 AI 总结配置',
         description: '填写 API 地址、API Key 和模型名称后即可开启。',
-        actions: <ActionButton onClick={() => { notification.destroy('llm-config-required'); setLlmModalOpen(true); }}>去配置</ActionButton>,
+        actions: <ActionButton onClick={() => { notification.destroy('llm-config-required'); setSection('classroom'); requestAnimationFrame(() => document.getElementById('llm_api_base')?.focus()); }}>去配置</ActionButton>,
       });
       return;
     }
     updateConfigField('llm_enabled', checked);
   };
 
-  const handleLlmModalCancel = () => setLlmModalOpen(false);
-
-  return (
-    <>
-      <Workspace title={sections.find(item => item.key === section)!.label} panel={<>
-        <div className="panel-heading"><h2>设置</h2></div>
-        <nav className="context-navigation" aria-label="设置分类">{sections.map(item => <button key={item.key}
-          className={`settings-category ${section === item.key ? 'active' : ''}`} aria-current={section === item.key ? 'page' : undefined}
-          onClick={() => setSection(item.key)}>{item.label}{item.key === 'app' && !!latestVersionData && latestVersionData.version !== currentVersion && <Tooltip title="有新版本"><span className="settings-update-dot" role="img" aria-label="有新版本" /></Tooltip>}</button>)}</nav>
-        <div className="panel-bottom">设置修改后自动保存</div>
-      </>}>
-        <div className="settings-content">
-          {section === 'downloads' && <List itemLayout='horizontal'><List.Item>
-            <List.Item.Meta
-              title={<Text style={{ fontWeight: 'normal' }}>下载/同步位置</Text>}
-              description={<div>
-                <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>{config.save_path}</Text>
-              </div>}
-            />
-            <IconAction disabled={savingSettings} label="修改下载/同步位置" onClick={updatePath}><EditOutlined /></IconAction>
-          </List.Item>
-            <List.Item>
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>课件更新时自动下载</Text>}
-                description={<div>
-                  <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>开启学在浙大课件自动同步后，若开启该选项，则检测到新课件时会自动下载。否则仅会加入课件列表。</Text>
-                </div>}
-              />
-              <SettingsSwitch field="auto_download" checked={config.auto_download} onChange={(checked) => updateConfigField('auto_download', checked)} />
-            </List.Item>
-            <List.Item className="settings-field-row">
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>批量下载排除文件类型</Text>}
-                description={<div>
-                  <Text type="secondary" style={{ display: 'block', fontWeight: 'normal', fontSize: 12 }}>匹配的文件不会被默认选中，也不会自动下载；仍可在课件列表中手动勾选。</Text>
-
-                </div>}
-              />
-              <Select disabled={savingSettings}
-                mode="tags"
-                value={config.excluded_upload_extensions}
-                placeholder="不排除"
-                tokenSeparators={[',', '，', ' ']}
-                maxTagCount="responsive"
-                className="settings-extension-control"
-                aria-label="批量下载排除文件类型"
-                options={['mp4', 'mp3', 'mov', 'm4a', 'wav'].map((extension) => ({
-                  label: extension,
-                  value: extension
-                }))}
-                onChange={(extensions) => updateConfigField(
-                  'excluded_upload_extensions',
-                  normalizeFileExtensions(extensions)
-                )}
-              />
-            </List.Item>
-            <List.Item>
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>下载开始时切换到下载页面</Text>}
-                description={<div>
-                  <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>开启后，添加下载任务时自动进入下载页面</Text>
-                </div>}
-              />
-              <SettingsSwitch field="auto_open_download_list" checked={config.auto_open_download_list} onChange={(checked) => updateConfigField('auto_open_download_list', checked)} />
-            </List.Item>
-            <List.Item>
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>最大并行下载任务数</Text>}
-                description={<div>
-                  <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>同时进行下载的最大任务数量</Text>
-                </div>}
-              />
-              <InputNumber disabled={savingSettings} min={1} precision={0} step={1} value={config.max_concurrent_tasks} changeOnWheel
-                onChange={(value) => {
-                  if (!value || value < 1) value = 1;
-                  // InputNumber can emit a fractional draft before applying precision on blur.
-                  if (!Number.isInteger(value)) return;
-                  updateConfigField('max_concurrent_tasks', value);
-                }}
-              />
-            </List.Item></List>}
-          {section === 'classroom' && <List itemLayout='horizontal'><List.Item>
-            <List.Item.Meta
-              title={<Text style={{ fontWeight: 'normal' }}>自动导出为 PDF</Text>}
-              description={<div>
-                <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>开启后，从智云课堂下载的课件将自动导出为 PDF</Text>
-              </div>}
-            />
-            <SettingsSwitch field="to_pdf" checked={config.to_pdf} onChange={(checked) => updateConfigField('to_pdf', checked)} />
-          </List.Item>
-            <List.Item>
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>下载语音识别文本</Text>}
-                description={
-                  <div>
-                    <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>
-                      下载智云课堂课件时，同时下载语音识别文本。
-                    </Text>
-
-                  </div>
-                }
-              />
-              <div className="settings-control-group">
-                <IconAction disabled={savingSettings} label="字幕高级设置" onClick={() => setSubtitleModalOpen(true)}><SettingOutlined /></IconAction>
-                <SettingsSwitch field="download_subtitle"
-                  checked={config.download_subtitle}
-                  onChange={(checked) => updateConfigField('download_subtitle', checked)}
-                />
-              </div>
-            </List.Item>
-            <List.Item>
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>AI 课程总结</Text>}
-                description={
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>调用大模型自动生成课程纪要</Text>
-
-                  </div>
-                }
-              />
-              <div className="settings-control-group">
-                <IconAction disabled={savingSettings} label="AI 总结配置" onClick={() => setLlmModalOpen(true)}><SettingOutlined /></IconAction>
-                <SettingsSwitch field="llm_enabled"
-                  checked={config.llm_enabled}
-                  onChange={handleLlmSwitchChange}
-                />
-              </div>
-            </List.Item></List>}
-          {section === 'notifications' && <List itemLayout='horizontal'><List.Item className="settings-field-row settings-webhook-row">
-            <List.Item.Meta
-              title={<Text style={{ fontWeight: 'normal' }}>钉钉机器人 Webhook</Text>}
-              description="检测到成绩更新后，通过钉钉机器人 Webhook 发送通知。留空则不启用钉钉通知。"
-            />
-            <div className="settings-webhook-control"><div className="settings-webhook-input-row">
-              <Input disabled={testingDing || savingSettings} status={dingError ? 'error' : undefined} aria-describedby={dingError || dingSave.failed ? "ding-save-status" : undefined} aria-label="钉钉机器人 Webhook" placeholder="输入完整的 Webhook 地址" value={dingUrlInput} onBlur={() => dingSave.save()} onChange={(e) => { setDingUrlInput(e.target.value); setDingError(''); dingSave.change({ ding_url: e.target.value }); }} />
-              <div className="settings-webhook-actions">
-                <IconAction label={testingDing ? "正在发送" : "发送测试消息"} disabled={testingDing || savingSettings || !dingUrlInput.trim() || !!validateDing(dingUrlInput)} aria-busy={testingDing} onClick={handleTestDing}>{testingDing ? <LoadingOutlined spin /> : <SendOutlined />}</IconAction>
-
-              </div></div>
-              {(dingError || dingSave.failed) && <div id="ding-save-status" className="autosave-status" role="status">{dingError || dingSave.status}
-                {dingSave.failed && <ActionButton onClick={() => dingSave.save()}>重试</ActionButton>}
-              </div>}
-            </div>
-          </List.Item></List>}
-          {section === 'app' && <List itemLayout='horizontal'><List.Item>
-            <List.Item.Meta
-              title={<Text style={{ fontWeight: 'normal' }}>关闭应用后保持后台运行</Text>}
-              description={<div>
-                <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>若开启，关闭应用窗口后应用会保持后台运行，并保留托盘图标。</Text>
-              </div>}
-            />
-            <SettingsSwitch field="tray" checked={config.tray} onChange={(checked) => updateConfigField('tray', checked)} />
-          </List.Item>
-            <List.Item>
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>开机自启</Text>}
-                description={<div>
-                  <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 12 }}>若开启，应用会在开机时自动启动。</Text>
-                </div>}
-              />
-              <SettingsSwitch field="auto_start" checked={config.auto_start} onChange={(checked) => updateConfigField('auto_start', checked)} />
-            </List.Item>
-            <List.Item>
-              <List.Item.Meta
-                title={<Text style={{ fontWeight: 'normal' }}>应用版本</Text>}
-              />
-              <ActionButton className="version-details" aria-label="查看版本更新详情" onClick={() => setOpenVersionModal(true)}>
-                <span>{currentVersion}</span>
-                {!!latestVersionData && latestVersionData.version !== currentVersion && <><span className="version-arrow" aria-hidden="true">→</span><span className="version-latest">{latestVersionData.version}</span></>}
-              </ActionButton>
-            </List.Item></List>}
-
-          {section === 'app' && <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', marginTop: 20 }}>
-            <Text type='secondary' style={{ fontSize: 12 }}>Made by PeiPei</Text>
-            <Text type='secondary' style={{ fontSize: 12 }}>此软件仅供学习交流使用，严禁用于商业用途</Text>
-          </div>}
-        </div>
-      </Workspace>
-
-      <SubtitleSettingsModal open={subtitleModalOpen} onCancel={() => setSubtitleModalOpen(false)} />
-
-      <LlmSettingsModal
-        open={llmModalOpen}
-        onCancel={handleLlmModalCancel}
-      />
-    </>
-  )
+  return <Workspace title={sections.find(item => item.key === section)!.label} panel={<>
+    <div className="panel-heading"><h2>设置</h2></div>
+    <nav className="context-navigation" aria-label="设置分类">{sections.map(item => <button key={item.key}
+      className={`settings-category ${section === item.key ? 'active' : ''}`} aria-current={section === item.key ? 'page' : undefined}
+      onClick={() => setSection(item.key)}>{item.label}{item.key === 'app' && !!latestVersionData && latestVersionData.version !== currentVersion && <Tooltip title="有新版本"><span className="settings-update-dot" role="img" aria-label="有新版本" /></Tooltip>}</button>)}</nav>
+    <div className="panel-bottom">设置修改后自动保存</div>
+  </>}>
+    <div className="settings-content settings-grouped">
+      <div hidden={section !== 'downloads'}>
+        <SettingsGroup title="下载">
+          <SettingField label="保存位置" description={config.save_path}><IconAction disabled={savingSettings} label="修改下载/同步位置" onClick={updatePath}><EditOutlined /></IconAction></SettingField>
+          <SettingField label="最大并行下载任务数" description="同时进行下载的最大任务数量。"><InputNumber aria-label="最大并行下载任务数" disabled={savingSettings} min={1} precision={0} step={1} value={config.max_concurrent_tasks} onChange={value => { const next = value || 1; if (Number.isInteger(next) && next >= 1) void updateConfigField('max_concurrent_tasks', next); }} /></SettingField>
+          <SettingField label="添加任务后切换到下载页面" description="手动添加下载任务后跳转，后台自动下载不会打断当前页面。"><SettingsSwitch field="auto_open_download_list" aria-label="添加任务后切换到下载页面" checked={config.auto_open_download_list} onChange={value => updateConfigField('auto_open_download_list', value)} /></SettingField>
+        </SettingsGroup>
+        <SettingsGroup title="学在浙大 · 课件选择与同步">
+          <SettingField label="排除文件类型" description="匹配的文件不会默认勾选或自动下载，仍可手动选择。"><Select className="settings-extension-control" aria-label="批量下载排除文件类型" disabled={savingSettings} mode="tags" value={config.excluded_upload_extensions} placeholder="不排除" tokenSeparators={[',', '，', ' ']} maxTagCount="responsive" options={['mp4', 'mp3', 'mov', 'm4a', 'wav'].map(value => ({value, label:value}))} onChange={values => updateConfigField('excluded_upload_extensions', normalizeFileExtensions(values))} /></SettingField>
+          <SettingField label="课件更新时自动下载" description="开启页面内的自动同步后，新课件直接下载；关闭则留在待下载列表。"><SettingsSwitch aria-label="课件更新时自动下载" field="auto_download" checked={config.auto_download} onChange={value => updateConfigField('auto_download', value)} /></SettingField>
+        </SettingsGroup>
+      </div>
+      <div hidden={section !== 'classroom'}>
+        <SettingsGroup title="课件导出"><SettingField label="自动导出为 PDF" description="将下载的课件图片合并为 PDF 文件。"><SettingsSwitch aria-label="自动导出为 PDF" field="to_pdf" checked={config.to_pdf} onChange={value => updateConfigField('to_pdf', value)} /></SettingField></SettingsGroup>
+        <SettingsGroup title="语音识别文本">
+          <SettingField label="下载语音识别文本" description="下载课件时，同时保存课程字幕。"><SettingsSwitch aria-label="下载语音识别文本" field="download_subtitle" checked={config.download_subtitle} onChange={value => updateConfigField('download_subtitle', value)} /></SettingField>
+          <SubtitleSettingsModal inline open onCancel={() => {}} />
+        </SettingsGroup>
+        <SettingsGroup title="AI 课程总结">
+          <SettingField label="生成课程总结" description="使用课程字幕生成总结，支持 OpenAI 兼容接口。"><SettingsSwitch aria-label="生成课程总结" field="llm_enabled" checked={config.llm_enabled} onChange={handleLlmSwitchChange} /></SettingField>
+          <LlmSettingsModal inline open onCancel={() => {}} />
+        </SettingsGroup>
+      </div>
+      <div hidden={section !== 'notifications'}><SettingsGroup title="钉钉通知">
+        <SettingField className="settings-webhook-field" label="机器人 Webhook" htmlFor="ding-webhook" description="检测到成绩更新后发送通知，留空则不启用。">
+          <div className="settings-webhook-input-row"><Input id="ding-webhook" disabled={testingDing || savingSettings} status={dingError ? 'error' : undefined} aria-describedby={dingError || dingSave.failed ? 'ding-save-status' : undefined} aria-label="钉钉机器人 Webhook" placeholder="输入完整的 Webhook 地址" value={dingUrlInput} onBlur={() => dingSave.save()} onChange={event => {setDingUrlInput(event.target.value); setDingError(''); dingSave.change({ding_url:event.target.value});}} />
+          <IconAction label={testingDing ? '正在发送' : '发送测试消息'} disabled={testingDing || savingSettings || !dingUrlInput.trim() || !!validateDing(dingUrlInput)} aria-busy={testingDing} onClick={handleTestDing}>{testingDing ? <LoadingOutlined spin /> : <SendOutlined />}</IconAction></div>
+          {(dingError || dingSave.failed) && <div id="ding-save-status" className="autosave-status" role="status">{dingError || dingSave.status}{dingSave.failed && <ActionButton onClick={() => dingSave.save()}>重试</ActionButton>}</div>}
+        </SettingField>
+      </SettingsGroup></div>
+      <div hidden={section !== 'app'}>
+        <SettingsGroup title="运行方式">
+          <SettingField label="关闭应用后保持后台运行" description="关闭窗口后继续运行，并保留托盘图标。"><SettingsSwitch aria-label="关闭应用后保持后台运行" field="tray" checked={config.tray} onChange={value => updateConfigField('tray', value)} /></SettingField>
+          <SettingField label="开机自启" description="登录系统时自动启动应用。"><SettingsSwitch aria-label="开机自启" field="auto_start" checked={config.auto_start} onChange={value => updateConfigField('auto_start', value)} /></SettingField>
+        </SettingsGroup>
+        <SettingsGroup title="关于">
+          <SettingField label="应用版本"><ActionButton className="version-details" aria-label="查看版本更新详情" onClick={() => setOpenVersionModal(true)}><span>{currentVersion}</span>{!!latestVersionData && latestVersionData.version !== currentVersion && <><span className="version-arrow" aria-hidden="true">→</span><span className="version-latest">{latestVersionData.version}</span></>}</ActionButton></SettingField>
+        </SettingsGroup>
+        <div className="settings-about">Made by PeiPei<p>此软件仅供学习交流使用，严禁用于商业用途</p></div>
+      </div>
+    </div>
+  </Workspace>;
 }
