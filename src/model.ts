@@ -35,6 +35,7 @@ export class Config {
   excluded_upload_extensions!: string[]
   ding_url!: string
   auto_open_download_list!: boolean
+  auto_select_all_courseware!: boolean
   tray!: boolean
   max_concurrent_tasks!: number
   auto_start!: boolean
@@ -52,7 +53,7 @@ export class Config {
   llm_hide_think_tag!: boolean
 
   constructor(config?: Partial<Config>) {
-    Object.assign(this, { excluded_upload_extensions: [] }, config);
+    Object.assign(this, { excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true }, config);
   }
 
   clone(): Config {

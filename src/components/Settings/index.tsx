@@ -124,9 +124,12 @@ export default function Settings({
           <SettingField label="最大并行下载任务数" description="同时进行下载的最大任务数量。"><InputNumber aria-label="最大并行下载任务数" disabled={savingSettings} min={1} precision={0} step={1} value={config.max_concurrent_tasks} onChange={value => { const next = value || 1; if (Number.isInteger(next) && next >= 1) void updateConfigField('max_concurrent_tasks', next); }} /></SettingField>
           <SettingField label="添加任务后切换到下载页面" description="手动添加下载任务后跳转，后台自动下载不会打断当前页面。"><SettingsSwitch field="auto_open_download_list" aria-label="添加任务后切换到下载页面" checked={config.auto_open_download_list} onChange={value => updateConfigField('auto_open_download_list', value)} /></SettingField>
         </SettingsGroup>
-        <SettingsGroup title="学在浙大 · 课件选择与同步">
-          <SettingField label="排除文件类型" description="匹配的文件不会默认勾选或自动下载，仍可手动选择。"><Select className="settings-extension-control" aria-label="批量下载排除文件类型" disabled={savingSettings} mode="tags" value={config.excluded_upload_extensions} placeholder="不排除" tokenSeparators={[',', '，', ' ']} maxTagCount="responsive" options={['mp4', 'mp3', 'mov', 'm4a', 'wav'].map(value => ({value, label:value}))} onChange={values => updateConfigField('excluded_upload_extensions', normalizeFileExtensions(values))} /></SettingField>
-          <SettingField label="课件更新时自动下载" description="开启页面内的自动同步后，新课件直接下载；关闭则留在待下载列表。"><SettingsSwitch aria-label="课件更新时自动下载" field="auto_download" checked={config.auto_download} onChange={value => updateConfigField('auto_download', value)} /></SettingField>
+        <SettingsGroup title="课件选择">
+          <SettingField label="刷新课件后自动全选" description="适用于学在浙大和智云课堂。关闭后仅保留仍有效的已有选择。"><SettingsSwitch field="auto_select_all_courseware" aria-label="刷新课件后自动全选" checked={config.auto_select_all_courseware} onChange={value => updateConfigField('auto_select_all_courseware', value)} /></SettingField>
+          <SettingField label="全选时排除文件类型" description="仅适用于学在浙大的自动全选和后台自动下载，仍可手动选择。"><Select className="settings-extension-control" aria-label="全选时排除文件类型" disabled={savingSettings} mode="tags" value={config.excluded_upload_extensions} placeholder="不排除" tokenSeparators={[',', '，', ' ']} maxTagCount="responsive" options={['mp4', 'mp3', 'mov', 'm4a', 'wav'].map(value => ({value, label:value}))} onChange={values => updateConfigField('excluded_upload_extensions', normalizeFileExtensions(values))} /></SettingField>
+        </SettingsGroup>
+        <SettingsGroup title="课件同步">
+          <SettingField label="自动下载新课件" description="仅适用于学在浙大。开启页面内的自动同步后，新课件按排除规则自动下载；关闭则留在待下载列表。"><SettingsSwitch aria-label="自动下载新课件" field="auto_download" checked={config.auto_download} onChange={value => updateConfigField('auto_download', value)} /></SettingField>
         </SettingsGroup>
       </div>
       <div hidden={section !== 'classroom'}>

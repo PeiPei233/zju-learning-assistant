@@ -1,7 +1,7 @@
 import { useTodos } from '../../hooks/useTodos';
 import Todo from '../Todo';
 import type { ScoreItem } from '../../model';
-import { calculateScoreTotals } from '../../utils';
+import { calculateScoreTotals, refreshedSelection } from '../../utils';
 import PreviewMenu from "../../components/PreviewMenu";
 import ActionButton from '../../components/ActionButton';
 import { useDesktopApp } from '../../context/NotificationContext';
@@ -372,21 +372,22 @@ export default function Home({
     uploadRequestInFlight.current = true
     setLoadingUploadList(true)
     invoke<Upload[]>('get_uploads_list', { courses, syncUpload: syncingUpload }).then((res) => {
-      const selectedKeys = getDefaultSelectedUploadKeys(res, config.excluded_upload_extensions)
+      const selectedKeys = getDefaultSelectedUploadKeys(res, configRef.current.excluded_upload_extensions)
       if (syncingUpload) {
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
         if (config.auto_download) {
           res.filter((item) => selectedKeys.includes(item.reference_id))
             .forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
-          setUploadList(res.filter((item) => !selectedKeys.includes(item.reference_id)))
-          setSelectedUploadKeys([])
+          const remaining = res.filter(item => !selectedKeys.includes(item.reference_id))
+          setUploadList(remaining)
+          setSelectedUploadKeys(previous => refreshedSelection(previous, remaining.map(item => item.reference_id), configRef.current.auto_select_all_courseware, []))
         } else {
           setUploadList(res)
-          setSelectedUploadKeys(selectedKeys)
+          setSelectedUploadKeys(previous => refreshedSelection(previous, res.map(item => item.reference_id), configRef.current.auto_select_all_courseware, selectedKeys))
         }
       } else {
         setUploadList(res)
-        setSelectedUploadKeys(selectedKeys)
+        setSelectedUploadKeys(previous => refreshedSelection(previous, res.map(item => item.reference_id), configRef.current.auto_select_all_courseware, selectedKeys))
       }
     }).catch((err) => {
       notification.error({ title: '获取课件列表失败', description: String(err) })
@@ -415,11 +416,12 @@ export default function Home({
         if (configRef.current.auto_download) {
           uploads.filter((item) => selectedKeys.includes(item.reference_id))
             .forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
-          setUploadList(uploads.filter((item) => !selectedKeys.includes(item.reference_id)))
-          setSelectedUploadKeys([])
+          const remaining = uploads.filter(item => !selectedKeys.includes(item.reference_id))
+          setUploadList(remaining)
+          setSelectedUploadKeys(previous => refreshedSelection(previous, remaining.map(item => item.reference_id), configRef.current.auto_select_all_courseware, []))
         } else {
           setUploadList(uploads)
-          setSelectedUploadKeys(selectedKeys)
+          setSelectedUploadKeys(previous => refreshedSelection(previous, uploads.map(item => item.reference_id), configRef.current.auto_select_all_courseware, selectedKeys))
         }
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
       }).catch((err) => {

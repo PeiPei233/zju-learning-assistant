@@ -82,3 +82,10 @@ export function calculateScoreTotals(rows: readonly { cj: string; jd: string; xf
     return total;
   }, { gp: 0, credit: 0 });
 }
+
+/** Refresh selection without letting filters or sorting select additional rows. */
+export function refreshedSelection<K>(previous: readonly K[], available: readonly K[], autoSelect: boolean, defaults: readonly K[] = available): K[] {
+  if (autoSelect) return [...defaults];
+  const valid = new Set(available);
+  return previous.filter(key => valid.has(key));
+}

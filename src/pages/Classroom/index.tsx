@@ -1,3 +1,4 @@
+import { refreshedSelection } from '../../utils';
 import SelectionCheck from '../../components/SelectionCheck';
 import PlatformIcon from '../../components/PlatformIcon';
 import { useDesktopApp } from '../../context/NotificationContext';
@@ -26,6 +27,8 @@ export default function Classroom() {
   const { config } = useConfig();
   const addDownloadTasks = useAddDownloadTasks();
   const toPdf = config.to_pdf;
+  const configRef = useRef(config);
+  configRef.current = config;
 
   const [selectedDateMethod, setSelectedDateMethod] = useState<'day' | 'week' | 'month'>('week')
   const [selectedCourseRange, setSelectedCourseRange] = useState<'my' | 'all'>('my')
@@ -99,7 +102,7 @@ export default function Classroom() {
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
       setRightSubList(res)
-      setSelectedRightKeys(res.map((item) => item.sub_id))
+      setSelectedRightKeys(previous => refreshedSelection(previous, res.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
       notification.error({
         title: '获取课程列表失败',
@@ -126,7 +129,7 @@ export default function Classroom() {
     invoke<Subject[]>('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
       const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
       setRightSubList(subs)
-      setSelectedRightKeys(subs.map((item) => item.sub_id))
+      setSelectedRightKeys(previous => refreshedSelection(previous, subs.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
       notification.error({
         title: '获取课件列表失败',

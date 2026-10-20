@@ -53,7 +53,7 @@ export function makePreviewScores(count: number) {
 }
 export const defaultConfig = new Config({
   save_path: '/preview/Downloads/ZJU Learning Assistant', to_pdf: true, auto_download: false,
-  excluded_upload_extensions: ['mp4', 'mp3'], ding_url: '', auto_open_download_list: true, tray: true, max_concurrent_tasks: 3,
+  excluded_upload_extensions: ['mp4', 'mp3'], ding_url: '', auto_open_download_list: false, auto_select_all_courseware: true, tray: true, max_concurrent_tasks: 3,
   auto_start: false, download_subtitle: true, subtitle_language: ['zh'], subtitle_format: 'srt', subtitle_with_timestamps: true,
   llm_enabled: false, llm_api_base: 'https://example.invalid/v1', llm_api_key: '', llm_model: 'preview-model', llm_temperature: 0.7,
   llm_prompt: '请总结课程内容。', llm_hide_think_tag: true
