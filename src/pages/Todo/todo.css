@@ -1,5 +1,4 @@
 .todo-actions { gap: 8px; }
-.todo-hint { min-height: 18px; }
 .todo-course-list { height: auto; }
 .resource-list-compact .resource-row.todo-course { grid-template-columns: minmax(0, 1fr) auto; }
 .resource-row.todo-row { grid-template-columns: minmax(0, 1fr) auto; }

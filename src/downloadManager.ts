@@ -284,8 +284,8 @@ export class DownloadManager {
   }
 
   set maxConcurrentTasks(value: number) {
-    if (value <= 0) {
-      throw new Error('maxConcurrentTasks must be greater than 0')
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error('maxConcurrentTasks must be a positive integer')
     }
     this._maxConcurrentTasks = value
     this._adjustQueue()

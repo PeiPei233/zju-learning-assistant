@@ -12,7 +12,7 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
       {
         type: 'group', label: '异常场景（首次失败，重试恢复）', children: [
           { key: 'failure-none', label: '正常请求' }, { key: 'failure-save', label: '配置保存失败' },
-          { key: 'failure-ai', label: 'AI 连接失败' }, { key: 'failure-download', label: '下载失败' },
+          { key: 'failure-ai', label: 'AI 连接失败' }, { key: 'failure-ding', label: '钉钉通知失败' }, { key: 'failure-download', label: '下载失败' },
           { key: 'failure-timeout', label: '数据请求超时（5 秒）' },
         ]
       },
@@ -23,7 +23,7 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
       { type: 'divider' },
       { type: 'group', label: '成绩条数', children: [0, 6, 30, 100, 300].map(count => ({ key: `scores-${count}`, label: `${count} 条${count === 6 ? '（默认）' : ''}` })) },
       { type: 'divider' },
-      { type: 'group', label: '待办事项', children: [{ key: 'todos-normal', label: '正常待办' }, { key: 'todos-empty', label: '暂无待办' }] },
+      { type: 'group', label: '待办事项', children: [{ key: 'todos-normal', label: '正常待办' }, { key: 'todos-empty', label: '暂无待办' }, { key: 'todos-due', label: '待办即将截止（10 分钟）' }] },
       { type: 'divider' },
       { type: 'group', label: '版本更新', children: [{ key: 'update-available', label: '有新版本' }, { key: 'update-none', label: '已是最新版本' }] },
       { type: 'divider' },

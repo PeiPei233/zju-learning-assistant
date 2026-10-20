@@ -1,4 +1,6 @@
+mod config_store;
 mod controller;
+mod dingtalk;
 #[cfg(target_os = "linux")]
 mod linux_chrome;
 mod model;
@@ -224,14 +226,18 @@ pub fn run() {
                 config.save_path = download_dir.to_str().unwrap().to_string();
             }
 
-            if let Ok(config_dir) = app.path().app_config_dir() {
-                if let Ok(config_local) = std::fs::read_to_string(config_dir.join("config.json")) {
-                    if let Ok(config_local) = serde_json::from_str::<model::Config>(&config_local) {
-                        info!("Loaded config from file");
-                        config = config_local;
-                    }
-                }
+            let config_store = config_store::ConfigStore::new(
+                app.path()
+                    .app_config_dir()
+                    .map(|dir| dir.join("config.json"))
+                    .map_err(|e| e.to_string()),
+                config.clone(),
+            );
+            match config_store.load() {
+                Ok(saved) => config = saved,
+                Err(error) => log::error!("Failed to load settings: {error}"),
             }
+            app.manage(config_store);
             let config_state = Arc::new(Mutex::new(config));
 
             let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
@@ -381,7 +387,10 @@ pub fn run() {
             controller::check_evaluation_done,
             controller::get_score,
             controller::notify_score,
+            controller::send_ding_notification,
+            controller::get_notification_scope,
             controller::get_config,
+            controller::get_runtime_config,
             controller::set_config,
             controller::test_llm_connection,
         ])

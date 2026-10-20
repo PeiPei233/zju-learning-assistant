@@ -34,6 +34,12 @@ export class Config {
   auto_download!: boolean
   excluded_upload_extensions!: string[]
   ding_url!: string
+  ding_secret!: string
+  score_system_notification!: boolean
+  score_ding_notification!: boolean
+  todo_system_notification!: boolean
+  todo_ding_notification!: boolean
+  todo_reminder_minutes!: number[]
   auto_open_download_list!: boolean
   auto_select_all_courseware!: boolean
   tray!: boolean
@@ -53,7 +59,7 @@ export class Config {
   llm_hide_think_tag!: boolean
 
   constructor(config?: Partial<Config>) {
-    Object.assign(this, { excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true }, config);
+    Object.assign(this, { ding_secret: '', score_system_notification: true, score_ding_notification: false, todo_system_notification: true, todo_ding_notification: false, todo_reminder_minutes: [60], excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true }, config);
   }
 
   clone(): Config {

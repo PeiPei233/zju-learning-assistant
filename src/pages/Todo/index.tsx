@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import dayjs from 'dayjs';
 import { Dropdown, Input, Tooltip } from 'antd';
-import { CloseOutlined, DownloadOutlined, ExportOutlined, ReloadOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { CloseOutlined, DownloadOutlined, ExportOutlined, LoadingOutlined, ReloadOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import Workspace from '../../components/Workspace';
 import ActionButton from '../../components/ActionButton';
 import EmptyState from '../../components/EmptyState';
@@ -13,7 +13,7 @@ import { useDesktopApp } from '../../context/NotificationContext';
 import type { useTodos } from '../../hooks/useTodos';
 import { groupTodos, todoDeadline } from './groupTodos';
 
-export default function Todo({ items, loading, exporting, error, lastSync, refresh, exportTodos }: ReturnType<typeof useTodos>) {
+export default function Todo({ items, loading, exporting, error, configError, lastSync, refresh, exportTodos }: ReturnType<typeof useTodos>) {
   const { notification } = useDesktopApp();
   const [course, setCourse] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -43,7 +43,7 @@ export default function Todo({ items, loading, exporting, error, lastSync, refre
           </button>)}
       </div>
     </div>
-    <div className="panel-bottom"><p>待办来自学在浙大，每分钟自动更新。</p><p>最后同步 · {lastSync || '未同步'}</p></div>
+    <div className="panel-bottom"><p>待办自动更新，通知可在设置中调整。</p><p>最后更新 · {lastSync || '尚未更新'}</p></div>
   </>} footer={<><span className="muted">共 {visible.length} 项待办 · 来源：学在浙大</span><button className="text-button" onClick={() => void open('https://courses.zju.edu.cn')}>打开学在浙大 <ExportOutlined /></button></>}>
     <section className="resource-list todo-list" aria-label="待办列表" aria-busy={loading}>
       <div className="resource-toolbar">
@@ -53,15 +53,15 @@ export default function Todo({ items, loading, exporting, error, lastSync, refre
         <div className="resource-toolbar-actions todo-actions">
           <ActionButton variant="secondary" disabled={busy} aria-busy={loading} onClick={() => void refresh(true)}><ReloadOutlined spin={loading} />{loading ? '正在刷新' : '立即刷新'}</ActionButton>
           <Tooltip title={mac ? "日历和 iCalendar 文件仅包含有截止时间的待办；提醒事项包含全部当前结果" : "仅导出当前结果中设有截止时间的待办"} trigger={['hover', 'focus']}><Dropdown trigger={['click']} disabled={exportDisabled} menu={{ items: exportMenu, onClick: ({ key }) => void exportTodos(key, key === 'reminder' ? visible : exportable) }}>
-            <ActionButton aria-label="导出当前结果" variant="secondary" disabled={exportDisabled} aria-busy={exporting}><DownloadOutlined />{exporting ? '正在导出' : '导出当前结果'}</ActionButton>
+            <ActionButton aria-label="导出当前结果" variant="secondary" disabled={exportDisabled} aria-busy={exporting}>{exporting ? <LoadingOutlined spin /> : <DownloadOutlined />}导出当前结果</ActionButton>
           </Dropdown></Tooltip>
         </div>
       </div>
-      <div className="resource-selection todo-hint">{loading && items.length ? <FetchState inline label="正在更新待办…" /> : <span>点击待办前往学在浙大</span>}</div>
-      {error && items.length > 0 && <p className="resource-hint" role="status">上次同步失败，当前显示上次获取的待办。</p>}
+      <div className="resource-selection">{loading && items.length ? <FetchState inline label="正在更新待办…" /> : <span>点击待办前往学在浙大</span>}</div>
+      {error && items.length > 0 && <p className="resource-hint" role="status">上次刷新失败，当前显示上次获取的待办。</p>}
       <div className="resource-rows">
-        {loading && !items.length ? <FetchState label="正在获取待办…" /> : !visible.length ? <EmptyState icon={normalized || activeCourse ? <SearchOutlined /> : <UnorderedListOutlined />} action={error ? <button className="text-button" onClick={() => void refresh(true)}>重试</button> : (normalized || activeCourse) ? <button className="text-button" onClick={() => { setQuery(''); setCourse(null); }}>清除筛选</button> : undefined}>
-          {error ? `获取待办失败：${error}` : items.length ? '没有匹配的结果' : '暂无待办事项'}
+        {loading && !items.length ? <FetchState label="正在获取待办…" /> : !visible.length ? <EmptyState icon={normalized || activeCourse ? <SearchOutlined /> : <UnorderedListOutlined />} action={configError ? <button className="text-button" onClick={() => void refresh(true)}>重试读取设置</button> : error ? <button className="text-button" onClick={() => void refresh(true)}>重试</button> : (normalized || activeCourse) ? <button className="text-button" onClick={() => { setQuery(''); setCourse(null); }}>清除筛选</button> : undefined}>
+          {configError ? `读取设置失败：${configError}` : error ? `获取待办失败：${error}` : items.length ? '没有匹配的结果' : '暂无待办事项'}
         </EmptyState> : groupTodos(visible).map(group => <section key={group.label} className="todo-group" aria-label={group.label}>
           <h3>{group.label}</h3>
           {group.items.map(item => {

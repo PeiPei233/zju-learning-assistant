@@ -1,9 +1,8 @@
+import { useScores } from '../../hooks/useScores';
 import { useTodos } from '../../hooks/useTodos';
 import Todo from '../Todo';
-import type { ScoreItem } from '../../model';
-import { calculateScoreTotals, refreshedSelection } from '../../utils';
+import { refreshedSelection } from '../../utils';
 import PreviewMenu from "../../components/PreviewMenu";
-import ActionButton from '../../components/ActionButton';
 import { useDesktopApp } from '../../context/NotificationContext';
 import ModuleFrame from '../../components/ModuleFrame';
 import PlatformIcon from '../../components/PlatformIcon';
@@ -64,7 +63,8 @@ export default function Home({
 }: HomeProps) {
 
   const { modal, notification } = useDesktopApp()
-  const { config } = useConfig();
+  const { savedConfig: config, ready } = useConfig();
+  const configReady = useRef(ready); configReady.current = ready;
   const downloadManager = useDownloadManager();
 
   // Destructure tasks and count here
@@ -144,12 +144,7 @@ export default function Home({
     if (pageRequested) { navigate('download'); consumePageRequest(); }
   }, [pageRequested, consumePageRequest, navigate]);
 
-  const [score, setScore] = useState<ScoreItem[]>([])
-  const [loadingScore, setLoadingScore] = useState(false)
-  const [notifyScore, setNotifyScore] = useState(false)
-  const [lastSyncScore, setLastSyncScore] = useState<string | null>(null)
-  const [totalGp, setTotalGp] = useState(0)
-  const [totalCredit, setTotalCredit] = useState(0)
+  const { score, loadingScore, scoreConfigError, lastSyncScore, totalGp, totalCredit, handleSyncScore } = useScores();
 
   const [courseList, setCourseList] = useState<Course[]>(() => getPreviewData()?.courses || [])
   const [selectedCourseKeys, setSelectedCourseKeys] = useState<React.Key[]>(() => getPreviewData()?.courses.map(item => item.id) || [])
@@ -159,14 +154,9 @@ export default function Home({
   const [syncingUpload, setSyncingUpload] = useState(false)
   const [lastSyncUpload, setLastSyncUpload] = useState<string | null>(null)
 
-  const syncScoreTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const syncUploadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const scoreRequestInFlight = useRef(false)
   const uploadRequestInFlight = useRef(false)
-  const scoreRun = useRef(0)
   const uploadRun = useRef(0)
-  const scoreRef = useRef(score)
-  const notifyScoreRef = useRef(false)
   const courseListRef = useRef(courseList)
   courseListRef.current = courseList
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
@@ -179,120 +169,8 @@ export default function Home({
 
   useEffect(() => {
     configRef.current = config
-    downloadManager.maxConcurrentTasks = config.max_concurrent_tasks
-  }, [config, downloadManager])
-
-  function notifyUpdate(item: ScoreItem, oldTotalGp: number, oldTotalCredit: number, totalGp: number, totalCredit: number, dingUrl?: string) {
-    if (!dingUrl) {
-      dingUrl = configRef.current.ding_url
-    }
-    invoke('notify_score', {
-      score: item,
-      oldTotalGp,
-      oldTotalCredit,
-      totalGp,
-      totalCredit,
-      dingUrl
-    }).catch((err) => {
-      notification.error({
-        title: '发送通知失败',
-        description: String(err)
-      })
-    })
-  }
-
-  function updateScore(newScore: ScoreItem[]) {
-    const oldScore = scoreRef.current
-    scoreRef.current = newScore
-    setScore(newScore)
-    setLastSyncScore(dayjs().format('YYYY-MM-DD HH:mm:ss'))
-    const oldTotals = calculateScoreTotals(oldScore)
-    const totals = calculateScoreTotals(newScore)
-    setTotalGp(totals.gp)
-    setTotalCredit(totals.credit)
-    if (notifyScoreRef.current) {
-      const previous = new Map(oldScore.map(item => [item.xkkh, item]))
-      for (const item of newScore) {
-        const old = previous.get(item.xkkh)
-        if (!old || old.cj !== item.cj || old.bkcj !== item.bkcj || old.jd !== item.jd || old.xf !== item.xf) {
-          notifyUpdate(item, oldTotals.gp, oldTotals.credit, totals.gp, totals.credit)
-        }
-      }
-    }
-  }
-
-  const startSyncScore = () => {
-    clearTimeout(syncScoreTimer.current)
-    const run = ++scoreRun.current
-    const scheduleNext = () => {
-      syncScoreTimer.current = setTimeout(syncScoreTask, Math.floor(Math.random() * 60000) + 60000)
-    }
-    const syncScoreTask = () => {
-      if (run !== scoreRun.current) return
-      // Manual refresh takes priority: skip this tick rather than queueing a request.
-      if (scoreRequestInFlight.current) { scheduleNext(); return }
-      scoreRequestInFlight.current = true
-      setLoadingScore(true)
-      invoke<ScoreItem[]>('get_score').then((res) => {
-        if (run !== scoreRun.current) return
-        updateScore(res)
-      }).catch((err) => {
-        if (run !== scoreRun.current) return
-        notification.error({
-          title: '成绩同步失败',
-          description: String(err)
-        })
-      }).finally(() => {
-        scoreRequestInFlight.current = false
-        if (run !== scoreRun.current) return
-        scheduleNext()
-        setLoadingScore(false)
-      })
-    }
-    syncScoreTask()
-  }
-
-  const stopSyncScore = () => {
-    scoreRun.current++
-    notifyScoreRef.current = false
-    clearTimeout(syncScoreTimer.current)
-    syncScoreTimer.current = undefined
-  }
-
-  const handleSyncScore = () => {
-    if (scoreRequestInFlight.current) return
-    scoreRequestInFlight.current = true
-    setLoadingScore(true)
-    invoke<ScoreItem[]>('get_score').then((res) => {
-      updateScore(res)
-      invoke<boolean>('check_evaluation_done').then((evalDone) => {
-        if (!evalDone) {
-          notification.warning({
-            key: 'evaluation-required',
-            title: '教学评价未完成',
-            description: '本学期尚未完成教学评价，请完成后重新同步成绩。',
-            actions: <ActionButton variant="secondary" onClick={() => shell.open('https://alt.zju.edu.cn/studentEvaluationBackend/list').catch(err => notification.error({ title: '打开教学评价失败', description: String(err) }))}>去评价</ActionButton>
-          })
-        } else {
-          notification.success({ title: '成绩同步成功' })
-        }
-      }).catch((err) => {
-        notification.error({ title: '查询教学评价失败', description: String(err) })
-      })
-    }).catch((err) => {
-      notification.error({ title: '成绩同步失败', description: String(err) })
-    }).finally(() => {
-      scoreRequestInFlight.current = false
-      setLoadingScore(false)
-    })
-  }
-
-  const handleSwitchSyncScore = (checked: boolean) => {
-    notifyScoreRef.current = checked
-    setNotifyScore(checked)
-    if (checked) startSyncScore()
-    else stopSyncScore()
-  }
+    if (ready) downloadManager.maxConcurrentTasks = config.max_concurrent_tasks
+  }, [config, ready, downloadManager])
 
   useEffect(() => {
     setAutoLoginUsername('')
@@ -313,7 +191,6 @@ export default function Home({
     })
 
     return () => {
-      stopSyncScore()
       stopSyncUpload()
       // downloadManager.cleanUp() // Do NOT clean up on unmount, as manager is global singleton now
       unlistenProgress.then((fn) => fn())
@@ -340,14 +217,14 @@ export default function Home({
         logoutInFlight.current = false;
       }
     };
-    if (downloadingCount > 0 || syncingUpload || notifyScore) {
+    if (downloadingCount > 0 || syncingUpload) {
       modal.confirm({
         className: 'desktop-modal desktop-confirm',
         width: 400,
         centered: true,
         icon: null,
         title: '停止后台任务并退出登录？',
-        content: `退出后将停止${[syncingUpload && '课件同步', notifyScore && '成绩提醒', downloadingCount > 0 && `${downloadingCount} 项下载任务`].filter(Boolean).join('、')}。`,
+        content: `退出后将停止${[syncingUpload && '课件同步', downloadingCount > 0 && `${downloadingCount} 项下载任务`].filter(Boolean).join('、')}。`,
         okText: '停止并退出',
         cancelText: '取消',
         cancelButtonProps: { autoInsertSpace: false },
@@ -363,7 +240,7 @@ export default function Home({
   }
 
   const updateUploadList = () => {
-    if (uploadRequestInFlight.current) return
+    if (!configReady.current || uploadRequestInFlight.current) return
     const courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
     if (courses.length === 0) {
       notification.error({ title: '请选择课程' })
@@ -372,10 +249,11 @@ export default function Home({
     uploadRequestInFlight.current = true
     setLoadingUploadList(true)
     invoke<Upload[]>('get_uploads_list', { courses, syncUpload: syncingUpload }).then((res) => {
+      if (!configReady.current) return
       const selectedKeys = getDefaultSelectedUploadKeys(res, configRef.current.excluded_upload_extensions)
       if (syncingUpload) {
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
-        if (config.auto_download) {
+        if (configRef.current.auto_download) {
           res.filter((item) => selectedKeys.includes(item.reference_id))
             .forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
           const remaining = res.filter(item => !selectedKeys.includes(item.reference_id))
@@ -406,12 +284,12 @@ export default function Home({
     const syncUploadTask = () => {
       if (run !== uploadRun.current) return
       // Manual refresh takes priority: skip this tick rather than queueing a request.
-      if (uploadRequestInFlight.current) { scheduleNext(); return }
+      if (!configReady.current || uploadRequestInFlight.current) { scheduleNext(); return }
       uploadRequestInFlight.current = true
       const courses = courseListRef.current.filter((item) => selectedCourseKeysRef.current.includes(item.id))
       setLoadingUploadList(true)
       invoke<Upload[]>('get_uploads_list', { courses, syncUpload: true }).then((uploads) => {
-        if (run !== uploadRun.current) return
+        if (run !== uploadRun.current || !configReady.current) return
         const selectedKeys = getDefaultSelectedUploadKeys(uploads, configRef.current.excluded_upload_extensions)
         if (configRef.current.auto_download) {
           uploads.filter((item) => selectedKeys.includes(item.reference_id))
@@ -425,7 +303,7 @@ export default function Home({
         }
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
       }).catch((err) => {
-        if (run !== uploadRun.current) return
+        if (run !== uploadRun.current || !configReady.current) return
         notification.error({ title: '同步课件失败', description: String(err) })
       }).finally(() => {
         uploadRequestInFlight.current = false
@@ -444,6 +322,7 @@ export default function Home({
   }
 
   const handleSwitchSyncUpload = (checked: boolean) => {
+    if (checked && !configReady.current) return
     setSyncingUpload(checked)
     if (checked) startSyncUpload()
     else stopSyncUpload()
@@ -458,7 +337,7 @@ export default function Home({
           {[
             { key: 'learning', label: '学在浙大', icon: <PlatformIcon platform="learning" />, active: syncingUpload },
             { key: 'classroom', label: '智云课堂', icon: <PlatformIcon platform="classroom" />, active: false },
-            { key: 'score', label: '成绩查询', icon: <FileSearchOutlined />, active: notifyScore },
+            { key: 'score', label: '成绩查询', icon: <FileSearchOutlined />, active: false },
             { key: 'todo', label: '待办事项', icon: <UnorderedListOutlined />, active: false },
           ].map(item => <Tooltip key={item.key} title={panelCollapsed ? null : `${item.label}${item.active ? ' · 自动同步已开启' : ''}`} placement="right">
             <button {...railPreview(item.key)} className={`rail-button ${current === item.key ? 'active' : ''}`} aria-label={`${item.label}${item.active ? ' · 自动同步已开启' : ''}`}
@@ -491,13 +370,12 @@ export default function Home({
           /></ModuleFrame>}
           {visited.includes('classroom') && <ModuleFrame name="classroom" current={current}><Classroom /></ModuleFrame>}
           {visited.includes('score') && <ModuleFrame name="score" current={current}><Score
-            notify={notifyScore}
             lastSync={lastSyncScore}
             totalGp={totalGp}
             totalCredit={totalCredit}
             loading={loadingScore}
+            configError={scoreConfigError}
             score={score}
-            handleSwitch={handleSwitchSyncScore}
             handleSync={handleSyncScore}
           /></ModuleFrame>}
           {visited.includes('todo') && <ModuleFrame name="todo" current={current}><Todo {...todos} /></ModuleFrame>}

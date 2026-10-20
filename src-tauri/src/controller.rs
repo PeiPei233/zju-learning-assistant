@@ -2129,6 +2129,8 @@ pub async fn notify_score(
     total_gp: f64,
     total_credit: f64,
     ding_url: String,
+    ding_secret: Option<String>,
+    system_enabled: Option<bool>,
 ) -> Result<(), String> {
     info!("notify_score");
 
@@ -2151,67 +2153,85 @@ pub async fn notify_score(
         total_gp / total_credit
     };
 
-    if !ding_url.is_empty() {
-        let markdown_text = format!(
-            "### 考试成绩通知\n - **选课课号**\t{}\n - **课程名称**\t{}\n - **成绩**\t{}\n - **学分**\t{}\n - **绩点**\t{}\n - **成绩变化**\t{:.2}({:+.2}) / {:.1}({:+.1})",
+    let mut errors = Vec::new();
+    if !ding_url.trim().is_empty() {
+        let text = format!(
+            "### 考试成绩通知\n - **选课课号** {}\n - **课程名称** {}\n - **成绩** {}\n - **学分** {}\n - **绩点** {}\n - **成绩变化** {:.2}({:+.2}) / {:.1}({:+.1})",
             xkkh, kcmc, cj, xf, jd, new_gpa, new_gpa - old_gpa, total_credit, total_credit - old_total_credit
         );
-        info!("notify_score - ding md text: {}", markdown_text);
-        let json = json!({
-            "msgtype": "markdown",
-            "markdown": {
-                "title": "考试成绩通知",
-                "text": markdown_text
-            }
-        });
-        let client = reqwest::Client::new();
-        let res = client
-            .post(&ding_url)
-            .json(&json)
-            .send()
-            .await
-            .map_err(|err| err.to_string())?;
-        info!("notify_score - ding res: {:?}", res);
+        if let Err(error) = crate::dingtalk::send(
+            &ding_url,
+            ding_secret.as_deref().unwrap_or(""),
+            "考试成绩通知",
+            &text,
+        )
+        .await
+        {
+            errors.push(error);
+        }
     }
 
-    // notify_rust::Notification::new()
-    //     .summary(&format!("考试成绩通知 - {}", kcmc))
-    //     .body(&format!(
-    //         "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
-    //         cj,
-    //         xf,
-    //         jd,
-    //         new_gpa,
-    //         new_gpa - old_gpa,
-    //         total_credit,
-    //         total_credit - old_total_credit
-    //     ))
-    //     .show()
-    //     .map_err(|err| err.to_string())?;
-
-    handle
-        .notification()
-        .builder()
-        .title(&format!("考试成绩通知 - {}", kcmc))
-        .body(&format!(
-            "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
-            cj,
-            xf,
-            jd,
-            new_gpa,
-            new_gpa - old_gpa,
-            total_credit,
-            total_credit - old_total_credit
-        ))
-        .show()
-        .unwrap();
-
-    Ok(())
+    if system_enabled.unwrap_or(true) {
+        if let Err(error) = handle
+            .notification()
+            .builder()
+            .title(&format!("考试成绩通知 - {}", kcmc))
+            .body(&format!(
+                "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
+                cj,
+                xf,
+                jd,
+                new_gpa,
+                new_gpa - old_gpa,
+                total_credit,
+                total_credit - old_total_credit
+            ))
+            .show()
+        {
+            errors.push(error.to_string());
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
 }
 
 #[tauri::command]
-pub async fn get_config(config: State<'_, Arc<Mutex<Config>>>) -> Result<Config, String> {
-    info!("get_config");
+pub async fn send_ding_notification(
+    ding_url: String,
+    ding_secret: String,
+    title: String,
+    text: String,
+) -> Result<(), String> {
+    crate::dingtalk::send(&ding_url, &ding_secret, &title, &text).await
+}
+
+#[tauri::command]
+pub async fn get_notification_scope(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+) -> Result<String, String> {
+    Ok(state.lock().await.get_username().to_string())
+}
+
+#[tauri::command]
+pub async fn get_config(
+    config: State<'_, Arc<Mutex<Config>>>,
+    store: State<'_, crate::config_store::ConfigStore>,
+) -> Result<Config, String> {
+    let mut current = config.lock().await;
+    let loaded = store.load()?;
+    *current = loaded.clone();
+    Ok(loaded)
+}
+
+// Startup initializes this snapshot with complete platform defaults and replaces
+// it only after a successful load/save. Reading it never touches the config file.
+#[tauri::command]
+pub async fn get_runtime_config(
+    config: State<'_, Arc<Mutex<Config>>>,
+) -> Result<Config, String> {
     Ok(config.lock().await.clone())
 }
 
@@ -2219,40 +2239,19 @@ pub async fn get_config(config: State<'_, Arc<Mutex<Config>>>) -> Result<Config,
 pub async fn set_config(
     handle: AppHandle,
     config_state: State<'_, Arc<Mutex<Config>>>,
-    config: Config,
-) -> Result<(), String> {
-    info!("set_config");
-    // 检查 llm_temperature 范围
-    if config.llm_temperature < 0.0 || config.llm_temperature > 2.0 {
-        return Err("LLM 温度值必须在 0.0 到 2.0 之间".to_string());
-    }
-    let mut current_config = config_state.lock().await;
-    let origin_auto_start = current_config.auto_start;
-    let new_auto_start = config.auto_start;
-    if origin_auto_start != new_auto_start {
-        if new_auto_start {
-            let autostart_manager = handle.autolaunch();
-            autostart_manager.enable().map_err(|err| err.to_string())?;
+    store: State<'_, crate::config_store::ConfigStore>,
+    patch: serde_json::Map<String, Value>,
+) -> Result<Config, String> {
+    let mut current = config_state.lock().await;
+    store.update(&mut current, patch, |enabled| {
+        let manager = handle.autolaunch();
+        if enabled {
+            manager.enable()
         } else {
-            let autostart_manager = handle.autolaunch();
-            autostart_manager.disable().map_err(|err| err.to_string())?;
+            manager.disable()
         }
-    }
-    *current_config = config.clone();
-    drop(current_config);
-
-    // save config to file
-    if let Ok(config_path) = handle.path().app_config_dir() {
-        // if config path not exists, create it
-        if !config_path.exists() {
-            std::fs::create_dir_all(config_path.clone()).map_err(|err| err.to_string())?;
-        }
-        let config_str = serde_json::to_string_pretty(&config).unwrap();
-        std::fs::write(config_path.join("config.json"), config_str)
-            .map_err(|err| err.to_string())?;
-    }
-
-    Ok(())
+        .map_err(|e| e.to_string())
+    })
 }
 
 async fn summarize_subtitle(

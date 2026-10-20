@@ -6,6 +6,8 @@ export function installPreview() {
   const failed = new Set<string>();
   let config = structuredClone(defaultConfig);
   let loggedIn = new URLSearchParams(window.location.search).get('page') !== 'login';
+  const previewTodos = makePreviewTodos();
+  const nearDeadline = new Date(Date.now() + 10 * 60000).toISOString();
   const downloads = new Map<string, () => void>();
   const listeners = new Map<string, Set<(event: any) => void>>();
   const emit = async (event: string, payload: unknown) => { listeners.get(event)?.forEach(handler => handler({ event, payload, id: 0 })); };
@@ -19,6 +21,7 @@ export function installPreview() {
     }
     const scenario = new URLSearchParams(window.location.search).get('failure');
     const matches = scenario === 'save' ? command === 'set_config'
+      : scenario === 'ding' ? (command === 'send_ding_notification' || command === 'notify_score')
       : scenario === 'ai' ? command === 'test_llm_connection'
         : scenario === 'download' ? command.startsWith('start_download_')
           : scenario === 'timeout' ? ['sync_todo_once', 'get_courses', 'get_score', 'search_courses', 'get_range_subs', 'get_uploads_list', 'get_course_all_sub_ppts'].includes(command)
@@ -26,7 +29,7 @@ export function installPreview() {
     if (matches && !failed.has(scenario!)) {
       failed.add(scenario!);
       if (scenario === 'timeout') await new Promise(resolve => setTimeout(resolve, 5000));
-      throw new Error(scenario === 'timeout' ? '预览：请求超时，请重试。' : `预览：${({ save: '配置保存', ai: 'AI 连接', download: '下载' } as Record<string, string>)[scenario!]}失败，请重试。`);
+      throw new Error(scenario === 'timeout' ? '预览：请求超时，请重试。' : `预览：${({ save: '配置保存', ding: '钉钉通知（模拟签名或机器人校验错误）', ai: 'AI 连接', download: '下载' } as Record<string, string>)[scenario!]}失败，请重试。`);
     }
     switch (command) {
       case 'plugin:app|version': return '0.3.15';
@@ -41,8 +44,20 @@ export function installPreview() {
       case 'logout': loggedIn = false; return null;
       case 'test_connection': return true;
       case 'check_evaluation_done': return new URLSearchParams(window.location.search).get('evaluation') !== 'pending';
+      case 'get_notification_scope': return 'preview';
+      case 'send_ding_notification': return null;
+      case 'get_runtime_config':
       case 'get_config': return structuredClone(config);
-      case 'set_config': config = structuredClone(args.config); return null;
+      case 'set_config': {
+        const next = { ...config, ...structuredClone(args.patch) };
+        if (!next.ding_url.trim()) { next.score_ding_notification = false; next.todo_ding_notification = false; }
+        if (![next.llm_api_base, next.llm_api_key, next.llm_model].every(value => value?.trim())) next.llm_enabled = false;
+        if (next.todo_reminder_minutes.some((value: number) => ![15, 30, 60, 120, 1440].includes(value))) throw new Error('无效的待办提前提醒时间');
+        next.todo_reminder_minutes = [...new Set<number>(next.todo_reminder_minutes)].sort((a, b) => a - b);
+        if (!Number.isFinite(next.llm_temperature) || next.llm_temperature < 0 || next.llm_temperature > 2) throw new Error('LLM 温度值必须在 0.0 到 2.0 之间');
+        config = next;
+        return structuredClone(config);
+      }
       case 'get_courses': return structuredClone(courses);
       case 'get_academic_year_list': return [{ id: 1, name: '2026—2027', sort: 2 }, { id: 2, name: '2025—2026', sort: 1 }];
       case 'get_semester_list': return [{ id: 1, name: '秋冬', sort: 2, academic_year_id: 1 }, { id: 2, name: '春夏', sort: 1, academic_year_id: 1 }];
@@ -51,7 +66,10 @@ export function installPreview() {
         const count = Number(new URLSearchParams(window.location.search).get('scoreCount') ?? scores.length);
         return makePreviewScores(Number.isFinite(count) ? Math.max(0, Math.min(500, Math.floor(count))) : scores.length);
       }
-      case 'sync_todo_once': return new URLSearchParams(window.location.search).get('todos') === 'empty' ? [] : makePreviewTodos();
+      case 'sync_todo_once': {
+        const scenario = new URLSearchParams(window.location.search).get('todos');
+        return scenario === 'empty' ? [] : structuredClone(scenario === 'due' ? [{ ...previewTodos[0], end_time: nearDeadline }] : previewTodos);
+      }
       case 'get_range_subs': return structuredClone(subjects.filter(item => item.sub_name.slice(0, 10) >= args.startAt && item.sub_name.slice(0, 10) <= args.endAt));
       case 'search_courses': return structuredClone(classroomCourses.filter(item => item.course_name.includes((args.courseName || '').trim()) && item.lecturer_name.includes((args.teacherName || '').trim())));
       case 'get_course_all_sub_ppts': return structuredClone([...subjects, ...classroomSubjects].filter(item => args.courseIds.includes(item.course_id)));

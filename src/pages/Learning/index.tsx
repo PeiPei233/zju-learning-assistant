@@ -1,4 +1,5 @@
 import PlatformIcon from '../../components/PlatformIcon';
+import ConfigReadState from '../../components/ConfigReadState';
 import { useDesktopApp } from '../../context/NotificationContext';
 import FileTypeIcon from '../../components/FileTypeIcon';
 import ActionButton from '../../components/ActionButton';
@@ -67,7 +68,7 @@ export default function Learning({
   setCourseList
 }: LearningProps) {
   const { notification } = useDesktopApp()
-  const { config } = useConfig();
+  const { savedConfig: config, ready } = useConfig();
   const addDownloadTasks = useAddDownloadTasks();
   const autoDownload = config.auto_download;
 
@@ -175,18 +176,18 @@ export default function Learning({
     <div className="panel-list"><ResourceList compact title="课程" items={selectedCourses} itemKey={course => course.key}
       selectedKeys={selectedCourseKeys} onSelectionChange={setSelectedCourseKeys} loading={loadingCourseList}
       fields={[{ label: '课程', value: course => course.name }]} renderItem={course => ({ title: course.name })} emptyIcon={<PlatformIcon platform="learning" />} emptyText="暂无课程" /></div>
-    <div className="panel-bottom"><div className="setting-line"><span>自动同步</span><Switch disabled={loadingUploadList} checked={syncing} onChange={handleSwitchSync} /></div>
+    <div className="panel-bottom"><div className="setting-line"><span>自动同步</span><Switch disabled={!ready || loadingUploadList} checked={syncing} onChange={handleSwitchSync} /></div>
       <p>{autoDownload ? '新课件将自动下载，遵循文件排除设置。' : '新课件将添加到待下载列表。'}</p>
       <p>最后同步 · {lastSync || '未同步'}</p></div>
   </>}
     footer={<><span>已选 {selectedUploadKeys.length} 个文件 <span className="muted">· {bytesToSize(uploadList.filter(item => selectedUploadKeys.includes(item.reference_id)).reduce((sum, item) => sum + item.size, 0))}</span></span>
-      <div className="footer-actions"><button className="text-button" onClick={() => setSelectedUploadKeys([])} disabled={loadingUploadList || !selectedUploadKeys.length}>取消选择</button><ActionButton variant="primary" onClick={downloadUploads} disabled={loadingUploadList || !selectedUploadKeys.length}><DownloadOutlined />下载所选课件</ActionButton></div></>}>
+      <div className="footer-actions"><button className="text-button" onClick={() => setSelectedUploadKeys([])} disabled={!ready || loadingUploadList || !selectedUploadKeys.length}>取消选择</button><ActionButton variant="primary" onClick={downloadUploads} disabled={!ready || loadingUploadList || !selectedUploadKeys.length}><DownloadOutlined />下载所选课件</ActionButton></div></>}>
     {syncing && autoDownload && uploadList.length > 0 && <p className="muted">已按设置跳过 {uploadList.length} 个文件，可手动选择下载。</p>}
-    <ResourceList<Upload> actions={<ActionButton variant="secondary" onClick={updateUploadList} disabled={loadingUploadList} aria-busy={loadingUploadList}><ReloadOutlined spin={loadingUploadList} />{loadingUploadList ? (syncing ? '正在同步' : '正在获取') : (syncing ? '立即同步' : '获取课件')}</ActionButton>} title="文件列表" items={uploadList} itemKey={item => item.reference_id}
+    {!ready ? <ConfigReadState icon={<PlatformIcon platform="learning" />} /> : <ResourceList<Upload> actions={<ActionButton variant="secondary" onClick={updateUploadList} disabled={!ready || loadingUploadList} aria-busy={loadingUploadList}><ReloadOutlined spin={loadingUploadList} />{loadingUploadList ? (syncing ? '正在同步' : '正在获取') : (syncing ? '立即同步' : '获取课件')}</ActionButton>} title="文件列表" items={uploadList} itemKey={item => item.reference_id}
       selectedKeys={selectedUploadKeys} onSelectionChange={setSelectedUploadKeys} loading={loadingUploadList}
       fields={[{ label: '文件名', value: item => item.file_name }, { label: '课程', value: item => item.course_name }]}
       sorts={[{ label: '大小升序', compare: (a, b) => a.size - b.size }, { label: '大小降序', compare: (a, b) => b.size - a.size }]}
       renderItem={item => ({ title: item.file_name, subtitle: item.course_name, icon: <FileTypeIcon name={item.file_name} />, meta: bytesToSize(item.size) })}
-      emptyIcon={<PlatformIcon platform="learning" />} emptyText={syncing ? '暂无新的课件' : '选择课程后，点击“获取课件”'} />
+      emptyIcon={<PlatformIcon platform="learning" />} emptyText={syncing ? '暂无新的课件' : '选择课程后，点击“获取课件”'} />}
   </Workspace>
 }

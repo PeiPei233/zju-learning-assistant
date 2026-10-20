@@ -1,5 +1,7 @@
 import { useDesktopApp } from '../../context/NotificationContext';
 import IconAction from '../IconAction';
+import EmptyState from '../EmptyState';
+import FetchState from '../FetchState';
 import SettingsSwitch from './SettingsSwitch';
 import { useDelayedBusy } from '../../hooks/useDelayedBusy';
 import Workspace from '../Workspace';
@@ -14,6 +16,8 @@ import LlmSettingsModal from './LlmSettingsModal';
 import SubtitleSettingsModal from './SubtitleSettingsModal';
 import { VersionInfo } from '../../model';
 import { useConfigAutosave } from '../../hooks/useConfigAutosave';
+import dayjs from 'dayjs';
+import { todoReminderMessage, reminderLabel, reminderOptions } from '../../reminders';
 import { normalizeFileExtensions } from '../../utils';
 
 import SettingField from './SettingField';
@@ -34,12 +38,15 @@ export default function Settings({
   latestVersionData,
   setOpenVersionModal
 }: SettingsProps) {
-  const { config, updateConfigField, isSaving } = useConfig();
+  const { config, updateConfigField, isSaving, ready, loadError, loadingConfig, refreshConfig } = useConfig();
   const savingSettings = useDelayedBusy(isSaving());
   const { notification } = useDesktopApp();
   const [dingUrlInput, setDingUrlInput] = useState('');
+  const [dingSecretInput, setDingSecretInput] = useState('');
+  const secretSave = useConfigAutosave(async () => true);
 
-  const [testingDing, setTestingDing] = useState(false);
+  const [testingDingKind, setTestingDingKind] = useState<'score' | 'todo' | null>(null);
+  const testingDing = testingDingKind !== null;
   const [dingError, setDingError] = useState('');
   const validateDing = (value: string) => {
     if (!value.trim()) return '';
@@ -59,6 +66,7 @@ export default function Settings({
     { key: 'app', label: '应用与版本' },
   ];
   useEffect(() => { if (!dingSave.hasDraft('ding_url')) setDingUrlInput(config.ding_url || ''); }, [config.ding_url, dingSave]);
+  useEffect(() => { if (!secretSave.hasDraft('ding_secret')) setDingSecretInput(config.ding_secret || ''); }, [config.ding_secret, secretSave]);
 
   const updatePath = () => {
     dialog.open({
@@ -77,25 +85,46 @@ export default function Settings({
     })
   }
 
-  const handleTestDing = () => {
-    if (testingDing || !dingUrlInput.trim()) return;
-    const error = validateDing(dingUrlInput);
-    if (error) { setDingError(error); return; }
-    setTestingDing(true);
-    invoke('notify_score', {
-      score: { xkkh: '测试课程', kcmc: '测试课程', cj: '100', jd: '5.0', xf: '3.0' },
-      oldTotalGp: 5,
-      oldTotalCredit: 37,
-      totalGp: 5,
-      totalCredit: 40,
-      dingUrl: dingUrlInput
-    }).then(() => notification.success({ title: '测试消息已发送' })).catch((err) => {
-      notification.error({
-        title: '发送通知失败',
-        description: String(err)
-      })
-    }).finally(() => setTestingDing(false))
-  }
+  const showDingConfigRequired = () => {
+    notification.warning({
+      key: 'ding-config-required',
+      title: '请先配置钉钉机器人',
+      description: '填写机器人 Webhook 后即可开启或发送测试通知。',
+      actions: <ActionButton onClick={() => { notification.destroy('ding-config-required'); setSection('notifications'); requestAnimationFrame(() => document.getElementById('ding-webhook')?.focus()); }}>去配置</ActionButton>,
+    });
+  };
+
+  const handleTestDing = async (kind: 'score' | 'todo') => {
+    if (testingDing) return;
+    if (!dingUrlInput.trim() || validateDing(dingUrlInput)) {
+      showDingConfigRequired();
+      return;
+    }
+    setTestingDingKind(kind);
+    try {
+      if (kind === 'score') {
+        await invoke('notify_score', {
+          score: { xkkh: '测试课程', kcmc: '测试课程', cj: '100', jd: '5.0', xf: '3.0' },
+          oldTotalGp: 148, oldTotalCredit: 37, totalGp: 163, totalCredit: 40,
+          dingUrl: dingUrlInput, dingSecret: dingSecretInput, systemEnabled: false,
+        });
+      } else {
+        const message = todoReminderMessage({ course_name: '测试课程', title: '测试待办', end_time: dayjs().add(1, 'hour').format('YYYY-MM-DD HH:mm:ss') }, 60);
+        await invoke('send_ding_notification', { dingUrl: dingUrlInput, dingSecret: dingSecretInput, title: message.title, text: message.text });
+      }
+      notification.success({ title: `${kind === 'score' ? '成绩' : '待办'}测试通知已发送` });
+    } catch (err) {
+      notification.error({ title: '发送通知失败', description: String(err) });
+    } finally { setTestingDingKind(null); }
+  };
+
+  const handleDingSwitchChange = (field: 'score_ding_notification' | 'todo_ding_notification', checked: boolean) => {
+    if (checked && (!config.ding_url?.trim() || validateDing(config.ding_url))) {
+      showDingConfigRequired();
+      return;
+    }
+    updateConfigField(field, checked);
+  };
 
   const handleLlmSwitchChange = (checked: boolean) => {
     if (checked && (!config.llm_api_base?.trim() || !config.llm_api_key?.trim() || !config.llm_model?.trim())) {
@@ -117,7 +146,10 @@ export default function Settings({
       onClick={() => setSection(item.key)}>{item.label}{item.key === 'app' && !!latestVersionData && latestVersionData.version !== currentVersion && <Tooltip title="有新版本"><span className="settings-update-dot" role="img" aria-label="有新版本" /></Tooltip>}</button>)}</nav>
     <div className="panel-bottom">设置修改后自动保存</div>
   </>}>
-    <div className="settings-content settings-grouped">
+    {!ready ? (loadingConfig ? <FetchState label="正在读取设置…" /> : <EmptyState icon={<EditOutlined />} action={<ActionButton onClick={refreshConfig}>重试读取设置</ActionButton>}>读取设置失败：{loadError}</EmptyState>) : <div className="settings-content settings-grouped">
+      {loadError && <SettingsGroup title="读取设置失败" description="正在使用已有设置或默认设置，原配置文件未被修改。">
+        <SettingField label="重新读取设置" description={loadError}><ActionButton disabled={loadingConfig} onClick={refreshConfig}>{loadingConfig ? '正在读取' : '重试'}</ActionButton></SettingField>
+      </SettingsGroup>}
       <div hidden={section !== 'downloads'}>
         <SettingsGroup title="下载">
           <SettingField label="保存位置" description={config.save_path}><IconAction disabled={savingSettings} label="修改下载/同步位置" onClick={updatePath}><EditOutlined /></IconAction></SettingField>
@@ -143,11 +175,25 @@ export default function Settings({
           <LlmSettingsModal inline open onCancel={() => {}} />
         </SettingsGroup>
       </div>
-      <div hidden={section !== 'notifications'}><SettingsGroup title="钉钉通知">
-        <SettingField className="settings-webhook-field" label="机器人 Webhook" htmlFor="ding-webhook" description="检测到成绩更新后发送通知，留空则不启用。">
+      <div hidden={section !== 'notifications'}>
+        <SettingsGroup title="成绩更新">
+          <SettingField label="系统通知" description="成绩有更新时发送系统通知。"><SettingsSwitch aria-label="成绩更新系统通知" field="score_system_notification" checked={config.score_system_notification} onChange={value => updateConfigField('score_system_notification', value)} /></SettingField>
+          <SettingField label="钉钉通知" description="成绩有更新时发送钉钉通知。"><div className="settings-control-group"><IconAction label={testingDingKind === 'score' ? '正在发送' : '发送成绩测试通知'} disabled={testingDing || savingSettings} aria-busy={testingDingKind === 'score'} onClick={() => void handleTestDing('score')}>{testingDingKind === 'score' ? <LoadingOutlined spin /> : <SendOutlined />}</IconAction><SettingsSwitch aria-label="成绩更新钉钉通知" field="score_ding_notification" checked={config.score_ding_notification} onChange={value => handleDingSwitchChange('score_ding_notification', value)} /></div></SettingField>
+        </SettingsGroup>
+        <SettingsGroup title="待办截止提醒">
+          <SettingField label="提前提醒" description="选择在截止前多久提醒，可多选。请保持应用运行以接收提醒。"><Select className="settings-extension-control" aria-label="待办提前提醒时间" mode="multiple" disabled={savingSettings} value={config.todo_reminder_minutes} placeholder="不提醒" maxTagCount="responsive" options={reminderOptions.map(value => ({value, label: reminderLabel(value)}))} onChange={values => updateConfigField('todo_reminder_minutes', values)} /></SettingField>
+          <SettingField label="系统通知" description="在所选时间发送系统通知。"><SettingsSwitch aria-label="待办截止系统通知" field="todo_system_notification" checked={config.todo_system_notification} onChange={value => updateConfigField('todo_system_notification', value)} /></SettingField>
+          <SettingField label="钉钉通知" description="在所选时间发送钉钉通知。"><div className="settings-control-group"><IconAction label={testingDingKind === 'todo' ? '正在发送' : '发送待办测试通知'} disabled={testingDing || savingSettings} aria-busy={testingDingKind === 'todo'} onClick={() => void handleTestDing('todo')}>{testingDingKind === 'todo' ? <LoadingOutlined spin /> : <SendOutlined />}</IconAction><SettingsSwitch aria-label="待办截止钉钉通知" field="todo_ding_notification" checked={config.todo_ding_notification} onChange={value => handleDingSwitchChange('todo_ding_notification', value)} /></div></SettingField>
+        </SettingsGroup>
+        <SettingsGroup title="钉钉机器人">
+        <SettingField className="settings-webhook-field" label="机器人 Webhook" htmlFor="ding-webhook" description="用于接收成绩和待办通知。清空后将关闭钉钉通知。">
           <div className="settings-webhook-input-row"><Input id="ding-webhook" disabled={testingDing || savingSettings} status={dingError ? 'error' : undefined} aria-describedby={dingError || dingSave.failed ? 'ding-save-status' : undefined} aria-label="钉钉机器人 Webhook" placeholder="输入完整的 Webhook 地址" value={dingUrlInput} onBlur={() => dingSave.save()} onChange={event => {setDingUrlInput(event.target.value); setDingError(''); dingSave.change({ding_url:event.target.value});}} />
-          <IconAction label={testingDing ? '正在发送' : '发送测试消息'} disabled={testingDing || savingSettings || !dingUrlInput.trim() || !!validateDing(dingUrlInput)} aria-busy={testingDing} onClick={handleTestDing}>{testingDing ? <LoadingOutlined spin /> : <SendOutlined />}</IconAction></div>
+</div>
           {(dingError || dingSave.failed) && <div id="ding-save-status" className="autosave-status" role="status">{dingError || dingSave.status}{dingSave.failed && <ActionButton onClick={() => dingSave.save()}>重试</ActionButton>}</div>}
+        </SettingField>
+        <SettingField className="settings-webhook-field" label="加签密钥 Secret" htmlFor="ding-secret" description="如果机器人的安全设置启用了加签，请填写对应密钥。">
+          <Input.Password id="ding-secret" aria-label="钉钉加签密钥 Secret" autoComplete="off" disabled={testingDing || savingSettings} value={dingSecretInput} placeholder="SEC…" onChange={event => { setDingSecretInput(event.target.value); secretSave.change({ ding_secret: event.target.value }); }} onBlur={() => secretSave.save()} />
+          {secretSave.failed && <div className="autosave-status" role="status">{secretSave.status}<ActionButton onClick={() => secretSave.save()}>重试</ActionButton></div>}
         </SettingField>
       </SettingsGroup></div>
       <div hidden={section !== 'app'}>
@@ -160,6 +206,6 @@ export default function Settings({
         </SettingsGroup>
         <div className="settings-about">Made by PeiPei<p>此软件仅供学习交流使用，严禁用于商业用途</p></div>
       </div>
-    </div>
+    </div>}
   </Workspace>;
 }

@@ -5,8 +5,7 @@ import FetchState from '../../components/FetchState';
 import ActionButton from '../../components/ActionButton';
 import Workspace from '../../components/Workspace';
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { Switch } from 'antd';
-import { SyncOutlined, FileSearchOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, FileSearchOutlined, SearchOutlined } from '@ant-design/icons';
 import SearchTable from '../../components/SearchTable'
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -18,24 +17,22 @@ dayjs.locale('zh-cn')
 
 
 interface ScoreProps {
-  notify: boolean;
+  configError?: string | null;
   lastSync: string | null;
   totalGp: number;
   totalCredit: number;
   loading: boolean;
   score: ScoreItem[];
-  handleSwitch: (checked: boolean) => void;
   handleSync: () => void;
 }
 
 export default function Score({
-  notify,
+  configError,
   lastSync,
   totalGp,
   totalCredit,
   loading,
   score,
-  handleSwitch,
   handleSync
 }: ScoreProps) {
 
@@ -54,12 +51,6 @@ export default function Score({
       return retained.length === previous.length ? previous : retained;
     });
   }, [score]);
-
-  useEffect(() => {
-    handleSync()
-    // Initial fetch only; later refreshes are explicitly requested by the user.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const columns: (ColumnType<ScoreItem> & { searchable?: boolean })[] = [
     {
@@ -129,21 +120,20 @@ export default function Score({
       <div className="score-summary"><span>平均绩点</span><strong>{(totalCredit ? totalGp / totalCredit : 0).toFixed(2)}</strong><span>总学分</span><strong>{totalCredit.toFixed(2)}</strong></div>
     </div>
     <div className="panel-bottom">
-      <div className="setting-line"><span>自动同步并提醒</span><Switch disabled={loading} checked={notify} onChange={handleSwitch} /></div>
-      <p>成绩更新时发送提醒。钉钉通知可在设置中配置。</p>
-      <p>最后同步 · {lastSync || '未同步'}</p>
+      <p>成绩自动更新，通知可在设置中调整。</p>
+      <p>最后更新 · {lastSync || '尚未更新'}</p>
     </div>
   </>}
     footer={<span>{selectedKeys.length ? `已选 ${selectedKeys.length} 门 · 平均绩点 ${(selectedTotalCredit ? selectedTotalGp / selectedTotalCredit : 0).toFixed(2)} · 学分 ${selectedTotalCredit.toFixed(2)}` : `共 ${score.length} 门课程 · 选择课程可计算加权绩点`}</span>}>
     <div className="score-content">
       <div className="resource-toolbar"><div className="resource-heading"><h2>成绩列表</h2><span>{results.filtered ? `${results.count} / ${score.length}` : score.length}</span></div>
-        <div className="resource-toolbar-actions"><ActionButton variant="secondary" aria-busy={loading} disabled={loading} onClick={handleSync}><SyncOutlined spin={loading} />{loading ? '正在同步' : '立即同步'}</ActionButton></div>
+        <div className="resource-toolbar-actions"><ActionButton variant="secondary" aria-busy={loading} disabled={loading} onClick={handleSync}><ReloadOutlined spin={loading} />{loading ? '正在刷新' : '立即刷新'}</ActionButton></div>
       </div>
       <div className="score-table-region" aria-busy={loading}>
         <SearchTable<ScoreItem> onResultsChange={handleResultsChange} fixedBody interactionDisabled={loading} rowSelection={{ selectedRowKeys: selectedKeys, onChange: keys => setSelectedXkkh(keys) }} columns={columns} dataSource={score} rowKey="xkkh"
           selectionStatus={loading && score.length ? <FetchState inline label="正在更新…" /> : undefined}
           pagination={false} tableLayout="fixed" size="middle" loading={false}
-          locale={{ emptyText: null }} emptyContent={(clearFilters, filtered) => loading ? <FetchState label="正在获取成绩…" /> : <EmptyState icon={score.length ? <SearchOutlined aria-hidden="true" /> : <FileSearchOutlined aria-hidden="true" />} action={filtered && <button className="text-button" onClick={clearFilters}>清除筛选</button>}>{score.length ? '没有匹配的结果' : '暂无成绩，可点击“立即同步”重新获取'}</EmptyState>} />
+          locale={{ emptyText: null }} emptyContent={(clearFilters, filtered) => loading ? <FetchState label="正在获取成绩…" /> : configError ? <EmptyState icon={<FileSearchOutlined />} action={<button className="text-button" onClick={handleSync}>重试读取设置</button>}>读取设置失败：{configError}</EmptyState> : <EmptyState icon={score.length ? <SearchOutlined aria-hidden="true" /> : <FileSearchOutlined aria-hidden="true" />} action={filtered && <button className="text-button" onClick={clearFilters}>清除筛选</button>}>{score.length ? '没有匹配的结果' : '暂无成绩，可点击“立即刷新”重新获取'}</EmptyState>} />
       </div>
     </div>
   </Workspace>

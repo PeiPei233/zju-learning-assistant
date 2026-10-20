@@ -72,3 +72,6 @@
 .resource-list-compact .resource-filters { flex-direction: column; gap: 10px; padding: 10px; }
 .resource-list-compact .resource-filters .text-button { align-self: flex-end; }
 .resource-list-compact .resource-filters label { grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; }
+
+/* Keep hint baselines aligned, including rows without selection actions. */
+.resource-selection, .selection-toolbar { min-height: 26px; }

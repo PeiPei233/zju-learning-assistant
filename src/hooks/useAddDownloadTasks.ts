@@ -1,4 +1,5 @@
 import { App } from 'antd';
+import { useRef } from 'react';
 import { useDownloadManager, useDownloadNavigation } from '../context/DownloadContext';
 import { Task } from '../downloadManager';
 import { useConfig } from '../context/ConfigContext';
@@ -7,10 +8,11 @@ export function useAddDownloadTasks() {
   const { modal } = App.useApp();
   const downloadManager = useDownloadManager();
   const { requestDownloadPage } = useDownloadNavigation();
-  const { config } = useConfig();
+  const { savedConfig: config, ready } = useConfig();
+  const latest = useRef({ config, ready }); latest.current = { config, ready };
 
   const addTasks = async (tasks: Task[]): Promise<boolean> => {
-    if (tasks.length === 0) return false;
+    if (!latest.current.ready || tasks.length === 0) return false;
 
     let exists = false;
     for (const task of tasks) {
@@ -21,13 +23,15 @@ export function useAddDownloadTasks() {
     }
 
     const doAdd = (reDownload: boolean) => {
+      if (!latest.current.ready) return false;
       tasks.forEach((task) => {
         downloadManager.addTask(task, reDownload);
       });
 
-      if (config.auto_open_download_list) {
+      if (latest.current.config.auto_open_download_list) {
         requestDownloadPage();
       }
+      return true;
     };
 
     if (exists) {
@@ -46,19 +50,17 @@ export function useAddDownloadTasks() {
           cancelButtonProps: {
             autoInsertSpace: false,
             onClick: () => {
-              doAdd(false);
-              resolve(true);
+              resolve(doAdd(false));
               confirmation.destroy();
             },
           },
-          onOk: () => { doAdd(true); resolve(true); },
+          onOk: () => { resolve(doAdd(true)); },
           onCancel: () => resolve(false),
           afterClose: () => resolve(false),
         });
       });
     } else {
-      doAdd(true);
-      return true;
+      return doAdd(true);
     }
   };
 
