@@ -19,6 +19,7 @@ import './global.css'
 import './components/WindowChrome.css'
 import './design/scrollbars.css'
 import './components/ResourceList.css'
+import './pages/Todo/todo.css'
 import { ConfigProvider as AppConfigProvider } from './context/ConfigContext'
 import { DownloadProvider } from './context/DownloadContext'
 

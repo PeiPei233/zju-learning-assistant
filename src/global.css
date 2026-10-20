@@ -172,6 +172,12 @@ a:hover .status-badge .ant-badge-dot, a:hover .status-badge .ant-badge-count { b
 /* The filled square mark needs optical scaling beside the wider outline mark. */
 .platform-icon-learning svg { transform: scale(.84); transform-origin: center; }
 .download-task { display: flex; gap: 14px; align-items: center; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.download-task-content { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; padding: 8px; margin: -8px; border: 0; border-radius: 7px; background: transparent; color: inherit; font: inherit; text-align: left; }
+.download-task-open { cursor: pointer; transition: background-color 160ms ease; }
+.download-task-open:hover { background: var(--hover); }
+.download-task-open:active { background: var(--selected); }
+.download-task-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .download-task-open { transition: none; } }
 .download-file-icon { color: var(--muted); font-size: 21px; }
 .download-task-copy { flex: 1; min-width: 0; }
 .download-task-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -6,7 +6,7 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
   if (!isPreview) return null;
   return <Tooltip title="切换预览场景" trigger={['hover', 'focus']}><Dropdown placement={navigation ? 'topRight' : 'bottomRight'} trigger={['click']} menu={{
     selectable: true,
-    selectedKeys: [`failure-${params.get('failure') || 'none'}`, navigation ? 'session-main' : 'session-login', params.get('evaluation') === 'pending' ? 'pending' : 'normal', params.get('update') === 'none' ? 'update-none' : 'update-available', `theme-${params.get('theme') || 'system'}`, `scores-${params.get('scoreCount') || '6'}`],
+    selectedKeys: [`failure-${params.get('failure') || 'none'}`, navigation ? 'session-main' : 'session-login', params.get('evaluation') === 'pending' ? 'pending' : 'normal', params.get('update') === 'none' ? 'update-none' : 'update-available', `theme-${params.get('theme') || 'system'}`, `todos-${params.get('todos') || 'normal'}`, `scores-${params.get('scoreCount') || '6'}`],
     style: { maxHeight: 'min(440px, 60dvh)', overflowY: 'auto' },
     items: [
       {
@@ -23,6 +23,8 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
       { type: 'divider' },
       { type: 'group', label: '成绩条数', children: [0, 6, 30, 100, 300].map(count => ({ key: `scores-${count}`, label: `${count} 条${count === 6 ? '（默认）' : ''}` })) },
       { type: 'divider' },
+      { type: 'group', label: '待办事项', children: [{ key: 'todos-normal', label: '正常待办' }, { key: 'todos-empty', label: '暂无待办' }] },
+      { type: 'divider' },
       { type: 'group', label: '版本更新', children: [{ key: 'update-available', label: '有新版本' }, { key: 'update-none', label: '已是最新版本' }] },
       { type: 'divider' },
       { type: 'group', label: '外观', children: [{ key: 'theme-system', label: '跟随系统' }, { key: 'theme-light', label: '浅色' }, { key: 'theme-dark', label: '深色' }] },
@@ -37,6 +39,7 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
       else if (key === 'session-main') params.set('page', params.get('evaluation') === 'pending' ? 'score' : 'learning');
       else if (key === 'pending') { params.set('evaluation', 'pending'); params.set('page', 'score'); }
       else if (key === 'normal') params.delete('evaluation');
+      else if (key.startsWith('todos-')) { params.set('todos', key.slice(6)); params.set('page', 'todo'); }
       else if (key.startsWith('scores-')) { params.set('scoreCount', key.slice(7)); params.set('page', 'score'); }
       else if (key.startsWith('update-')) params.set('update', key === 'update-none' ? 'none' : 'available');
       else if (key.startsWith('theme-')) params.set('theme', key.slice(6));

@@ -58,3 +58,11 @@ export const defaultConfig = new Config({
   llm_enabled: false, llm_api_base: 'https://example.invalid/v1', llm_api_key: '', llm_model: 'preview-model', llm_temperature: 0.7,
   llm_prompt: '请总结课程内容。', llm_hide_think_tag: true
 });
+
+export function makePreviewTodos(): import('../model').TodoItem[] {
+  const titles = ['第三次作业：传输层协议与拥塞控制', '实验报告：流水线处理器设计与性能分析', '小组项目阶段汇报：从接口设计到端到端联调的工程实践', '课堂测验：条件概率与贝叶斯公式', '课程论文：从经典算法到大规模系统的设计取舍与实践', '课程学习反馈'];
+  return titles.map((title, index) => ({
+    id: index + 1, course_id: courses[index].id, course_name: courses[index].name, title,
+    end_time: index === 5 ? null : dayjs().add([0, 1, 4, 0, 14][index], 'day').endOf('day').toISOString(),
+  }));
+}

@@ -1,5 +1,5 @@
 import { setPreviewBackend } from '../bridge';
-import { courses, uploads, subjects, classroomCourses, classroomSubjects, scores, makePreviewScores, defaultConfig } from './fixtures';
+import { courses, uploads, subjects, classroomCourses, classroomSubjects, scores, makePreviewScores, makePreviewTodos, defaultConfig } from './fixtures';
 
 /** Only installed by the dev-only bootstrap. Never falls through to the real backend. */
 export function installPreview() {
@@ -21,7 +21,7 @@ export function installPreview() {
     const matches = scenario === 'save' ? command === 'set_config'
       : scenario === 'ai' ? command === 'test_llm_connection'
         : scenario === 'download' ? command.startsWith('start_download_')
-          : scenario === 'timeout' ? ['get_courses', 'get_score', 'search_courses', 'get_range_subs', 'get_uploads_list', 'get_course_all_sub_ppts'].includes(command)
+          : scenario === 'timeout' ? ['sync_todo_once', 'get_courses', 'get_score', 'search_courses', 'get_range_subs', 'get_uploads_list', 'get_course_all_sub_ppts'].includes(command)
             : false;
     if (matches && !failed.has(scenario!)) {
       failed.add(scenario!);
@@ -51,7 +51,7 @@ export function installPreview() {
         const count = Number(new URLSearchParams(window.location.search).get('scoreCount') ?? scores.length);
         return makePreviewScores(Number.isFinite(count) ? Math.max(0, Math.min(500, Math.floor(count))) : scores.length);
       }
-      case 'sync_todo_once': return [];
+      case 'sync_todo_once': return new URLSearchParams(window.location.search).get('todos') === 'empty' ? [] : makePreviewTodos();
       case 'get_range_subs': return structuredClone(subjects.filter(item => item.sub_name.slice(0, 10) >= args.startAt && item.sub_name.slice(0, 10) <= args.endAt));
       case 'search_courses': return structuredClone(classroomCourses.filter(item => item.course_name.includes((args.courseName || '').trim()) && item.lecturer_name.includes((args.teacherName || '').trim())));
       case 'get_course_all_sub_ppts': return structuredClone([...subjects, ...classroomSubjects].filter(item => args.courseIds.includes(item.course_id)));

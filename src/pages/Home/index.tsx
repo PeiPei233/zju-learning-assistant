@@ -1,3 +1,5 @@
+import { useTodos } from '../../hooks/useTodos';
+import Todo from '../Todo';
 import type { ScoreItem } from '../../model';
 import { calculateScoreTotals } from '../../utils';
 import PreviewMenu from "../../components/PreviewMenu";
@@ -11,9 +13,9 @@ import { PanelContext } from '../../context/PanelContext';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { Tooltip, Badge } from 'antd';
-import { invoke, isPermissionGranted, requestPermission, sendNotification, listen, exit, shell } from '../../bridge';
+import { invoke, listen, exit, shell } from '../../bridge';
 
-import { LogoutOutlined, DownloadOutlined, SettingOutlined, FileSearchOutlined } from '@ant-design/icons';
+import { LogoutOutlined, DownloadOutlined, SettingOutlined, FileSearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import Learning from '../Learning'
 import Classroom from '../Classroom'
 import Score from '../Score'
@@ -44,14 +46,6 @@ interface Course {
   name: string;
   semester_id: number;
   academic_year_id: number;
-}
-
-interface TodoItem {
-  id: string;
-  course_id: string;
-  title: string;
-  course_name: string;
-  end_time: string;
 }
 
 const getDefaultSelectedUploadKeys = (uploads: Upload[], excludedExtensions: readonly string[] = []): React.Key[] => (
@@ -91,7 +85,7 @@ export default function Home({
   };
   const [current, setCurrent] = useState(() => {
     const page = isPreview ? new URLSearchParams(location.search).get('page') : null;
-    return page && ['learning', 'classroom', 'score', 'download', 'setting'].includes(page) ? page : 'learning';
+    return page && ['learning', 'classroom', 'score', 'todo', 'download', 'setting'].includes(page) ? page : 'learning';
   })
   const [visited, setVisited] = useState([current]);
   const [peek, setPeek] = useState<string | null>(null);
@@ -177,8 +171,7 @@ export default function Home({
   courseListRef.current = courseList
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
-  const notifiedTodo = useRef<Record<string, boolean>>({})
-  const todoList = useRef<TodoItem[]>([])
+  const todos = useTodos();
 
   useEffect(() => {
     selectedCourseKeysRef.current = selectedCourseKeys
@@ -301,34 +294,6 @@ export default function Home({
     else stopSyncScore()
   }
 
-  const syncTodoTask = () => {
-    invoke<TodoItem[]>('sync_todo_once').then((res) => {
-      if (res && res.length !== 0) {
-        todoList.current = res
-        res.forEach(async (item) => {
-          if (item.end_time) {
-            const key = `${item.course_id}-${item.id}-${item.end_time}`
-            const diffTime = dayjs(item.end_time).diff(dayjs(), 'minute')
-            if (!notifiedTodo.current[key] && diffTime <= 60 && diffTime > 0) {
-              let permissionGranted = await isPermissionGranted();
-              if (!permissionGranted) {
-                const permission = await requestPermission();
-                permissionGranted = permission === 'granted';
-              }
-              if (permissionGranted) {
-                sendNotification({
-                  title: `距离 ${item.title} 截止不足一个小时`,
-                  body: `${item.course_name}-${item.title}: ${dayjs(item.end_time).format('YYYY-MM-DD HH:mm:ss')}`
-                });
-                notifiedTodo.current[key] = true
-              }
-            }
-          }
-        })
-      }
-    })
-  }
-
   useEffect(() => {
     setAutoLoginUsername('')
     setAutoLoginPassword('')
@@ -336,11 +301,8 @@ export default function Home({
       if (!res) setIsLogin(false)
     }).catch(() => setIsLogin(false))
 
-    // Download list polling is now handled by useDownloadList hook inside components that need it (like Downloads)
-    // We only need the count here, which is provided by useDownloadList() called at the top.
+    // DownloadManager publishes list and count changes through useDownloadList.
 
-    syncTodoTask()
-    const syncTodoInterval = setInterval(syncTodoTask, 60000)
 
     const unlistenProgress = listen<any>('download-progress', (res) => {
       downloadManager.updateProgress(res.payload)
@@ -350,25 +312,33 @@ export default function Home({
       if (!configRef.current.tray) exit(0)
     })
 
-    const unlistenExportTodo = listen<string>('export-todo', (res) => {
-      invoke('export_todo', { todoList: todoList.current, location: res.payload })
-    })
-
     return () => {
       stopSyncScore()
       stopSyncUpload()
       // downloadManager.cleanUp() // Do NOT clean up on unmount, as manager is global singleton now
-      clearInterval(syncTodoInterval)
       unlistenProgress.then((fn) => fn())
       unlistenClose.then((fn) => fn())
-      unlistenExportTodo.then((fn) => fn())
     }
   }, [setAutoLoginPassword, setAutoLoginUsername, setIsLogin, downloadManager])
 
+  const logoutInFlight = useRef(false);
   const logout = () => {
-    const doLogout = () => {
-      downloadManager.cleanUp();
-      invoke('logout').then(() => setIsLogin(false)).catch((err) => notification.error({ title: '退出登录失败', description: String(err) }));
+    if (logoutInFlight.current) return;
+    const doLogout = async () => {
+      if (logoutInFlight.current) return;
+      logoutInFlight.current = true;
+      try {
+        if (!await downloadManager.cleanUp()) {
+          notification.error({ title: '退出登录失败', description: '下载任务尚未全部停止，请在下载列表查看任务状态后重试。' });
+          return;
+        }
+        await invoke('logout');
+        setIsLogin(false);
+      } catch (err) {
+        notification.error({ title: '退出登录失败', description: String(err) });
+      } finally {
+        logoutInFlight.current = false;
+      }
     };
     if (downloadingCount > 0 || syncingUpload || notifyScore) {
       modal.confirm({
@@ -487,6 +457,7 @@ export default function Home({
             { key: 'learning', label: '学在浙大', icon: <PlatformIcon platform="learning" />, active: syncingUpload },
             { key: 'classroom', label: '智云课堂', icon: <PlatformIcon platform="classroom" />, active: false },
             { key: 'score', label: '成绩查询', icon: <FileSearchOutlined />, active: notifyScore },
+            { key: 'todo', label: '待办事项', icon: <UnorderedListOutlined />, active: false },
           ].map(item => <Tooltip key={item.key} title={panelCollapsed ? null : `${item.label}${item.active ? ' · 自动同步已开启' : ''}`} placement="right">
             <button {...railPreview(item.key)} className={`rail-button ${current === item.key ? 'active' : ''}`} aria-label={`${item.label}${item.active ? ' · 自动同步已开启' : ''}`}
               aria-current={current === item.key ? 'page' : undefined} onClick={() => navigate(item.key)}>
@@ -527,6 +498,7 @@ export default function Home({
             handleSwitch={handleSwitchSyncScore}
             handleSync={handleSyncScore}
           /></ModuleFrame>}
+          {visited.includes('todo') && <ModuleFrame name="todo" current={current}><Todo {...todos} /></ModuleFrame>}
           {visited.includes('download') && <ModuleFrame name="download" current={current}>
             <Downloads taskList={downloadTasks} downloadManager={downloadManager} />
           </ModuleFrame>}

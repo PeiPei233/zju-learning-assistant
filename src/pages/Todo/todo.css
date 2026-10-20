@@ -1,0 +1,10 @@
+.todo-actions { gap: 8px; }
+.todo-hint { min-height: 18px; }
+.todo-course-list { height: auto; }
+.resource-list-compact .resource-row.todo-course { grid-template-columns: minmax(0, 1fr) auto; }
+.resource-row.todo-row { grid-template-columns: minmax(0, 1fr) auto; }
+.todo-group { margin: 0 0 16px; }
+.todo-group h3 { width: 100cqw; padding: 6px 10px; margin: 0; font-size: 11px; font-weight: 400; color: var(--muted); }
+.todo-deadline { text-align: right; }
+.todo-deadline > span { display: block; margin-top: 3px; }
+.todo-list .resource-empty { width: 100cqw; overflow-wrap: anywhere; padding: 20px; }

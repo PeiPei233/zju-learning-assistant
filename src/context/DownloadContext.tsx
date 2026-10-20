@@ -1,6 +1,6 @@
 import { getPreviewData } from '../previewMode';
-import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react';
-import { DownloadManager, Task, LearningTask } from '../downloadManager';
+import { createContext, useContext, useSyncExternalStore, useRef, useState, useCallback, ReactNode } from 'react';
+import { DownloadManager, LearningTask } from '../downloadManager';
 
 interface DownloadContextType {
   manager: DownloadManager;
@@ -61,22 +61,9 @@ export const useDownloadNavigation = () => {
   };
 }
 
-// 封装轮询逻辑，让 UI 组件傻瓜式使用
+// Share the manager's event-driven snapshot across all consumers.
 export const useDownloadList = () => {
   const manager = useDownloadManager();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [count, setCount] = useState(0);
-
-  useEffect(() => {
-    const update = () => {
-      setTasks([...manager.getTasks()].reverse());
-      setCount(manager.getDownloadingCount());
-    };
-
-    update();
-    const timer = setInterval(update, 1000);
-    return () => clearInterval(timer);
-  }, [manager]);
-
+  const { tasks, count } = useSyncExternalStore(manager.subscribe, manager.getSnapshot);
   return { tasks, count, manager };
 };

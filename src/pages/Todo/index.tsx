@@ -1,0 +1,78 @@
+import { useState } from 'react';
+import dayjs from 'dayjs';
+import { Dropdown, Input, Tooltip } from 'antd';
+import { CloseOutlined, DownloadOutlined, ExportOutlined, ReloadOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import Workspace from '../../components/Workspace';
+import ActionButton from '../../components/ActionButton';
+import EmptyState from '../../components/EmptyState';
+import FetchState from '../../components/FetchState';
+import OverflowText from '../../components/OverflowText';
+import OpenActionButton from '../../components/OpenActionButton';
+import { shell } from '../../bridge';
+import { useDesktopApp } from '../../context/NotificationContext';
+import type { useTodos } from '../../hooks/useTodos';
+import { groupTodos, todoDeadline } from './groupTodos';
+
+export default function Todo({ items, loading, exporting, error, lastSync, refresh, exportTodos }: ReturnType<typeof useTodos>) {
+  const { notification } = useDesktopApp();
+  const [course, setCourse] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const courses = Array.from(new Map(items.map(item => [String(item.course_id), item.course_name])).entries());
+  // If a course disappears after a sync, return to the complete current result.
+  const activeCourse = courses.some(([id]) => id === course) ? course : null;
+  const normalized = query.trim().toLocaleLowerCase();
+  const visible = items.filter(item => (!activeCourse || String(item.course_id) === activeCourse) &&
+    (!normalized || `${item.title}\n${item.course_name}`.toLocaleLowerCase().includes(normalized)));
+  const busy = loading || exporting;
+  const exportable = visible.filter(item => todoDeadline(item));
+  const open = (url: string) => shell.open(url).catch(err => notification.error({ title: '打开学在浙大失败', description: String(err) }));
+  const mac = document.documentElement.dataset.platform === 'macos';
+  const exportDisabled = busy || !(mac ? visible.length : exportable.length);
+  const exportMenu = [
+    { key: 'ics', label: '导出为 iCalendar 文件', disabled: !exportable.length },
+    ...(mac ? [{ key: 'calendar', label: '添加至日历 App', disabled: !exportable.length }, { key: 'reminder', label: '添加至提醒事项 App', disabled: !visible.length }] : []),
+  ];
+  return <Workspace headerless title="待办事项" panel={<>
+    <div className="panel-heading"><h2>待办事项</h2></div>
+    <div className="panel-list todo-course-list resource-list resource-list-compact">
+      <p className="resource-hint">课程</p>
+      <div className="resource-rows">
+        {[{ id: null, name: '全部课程', count: items.length }, ...courses.map(([id, name]) => ({ id, name, count: items.filter(item => String(item.course_id) === id).length }))].map(item =>
+          <button key={item.id ?? 'all'} className={`resource-row todo-course ${activeCourse === item.id ? 'is-selected' : ''}`} aria-pressed={activeCourse === item.id} disabled={busy} onClick={() => setCourse(item.id)}>
+            <OverflowText className="resource-name" text={item.name} /><span className="resource-meta">{item.count}</span>
+          </button>)}
+      </div>
+    </div>
+    <div className="panel-bottom"><p>待办来自学在浙大，每分钟自动更新。</p><p>最后同步 · {lastSync || '未同步'}</p></div>
+  </>} footer={<><span className="muted">共 {visible.length} 项待办 · 来源：学在浙大</span><button className="text-button" onClick={() => void open('https://courses.zju.edu.cn')}>打开学在浙大 <ExportOutlined /></button></>}>
+    <section className="resource-list todo-list" aria-label="待办列表" aria-busy={loading}>
+      <div className="resource-toolbar">
+        <div className="resource-heading"><h2>待办列表</h2><span>{activeCourse || normalized ? `${visible.length} / ${items.length}` : items.length}</span></div>
+        <Input className="resource-search" aria-label="搜索待办或课程" placeholder="搜索待办或课程…" prefix={<SearchOutlined />} disabled={busy} value={query} onChange={event => setQuery(event.target.value)}
+          suffix={query ? <Tooltip title="清除搜索" trigger={['hover', 'focus']}><button className="icon-button" aria-label="清除搜索" disabled={busy} onClick={() => setQuery('')}><CloseOutlined /></button></Tooltip> : null} />
+        <div className="resource-toolbar-actions todo-actions">
+          <ActionButton variant="secondary" disabled={busy} aria-busy={loading} onClick={() => void refresh(true)}><ReloadOutlined spin={loading} />{loading ? '正在刷新' : '立即刷新'}</ActionButton>
+          <Tooltip title={mac ? "日历和 iCalendar 文件仅包含有截止时间的待办；提醒事项包含全部当前结果" : "仅导出当前结果中设有截止时间的待办"} trigger={['hover', 'focus']}><Dropdown trigger={['click']} disabled={exportDisabled} menu={{ items: exportMenu, onClick: ({ key }) => void exportTodos(key, key === 'reminder' ? visible : exportable) }}>
+            <ActionButton aria-label="导出当前结果" variant="secondary" disabled={exportDisabled} aria-busy={exporting}><DownloadOutlined />{exporting ? '正在导出' : '导出当前结果'}</ActionButton>
+          </Dropdown></Tooltip>
+        </div>
+      </div>
+      <div className="resource-selection todo-hint">{loading && items.length ? <FetchState inline label="正在更新待办…" /> : <span>点击待办前往学在浙大</span>}</div>
+      {error && items.length > 0 && <p className="resource-hint" role="status">上次同步失败，当前显示上次获取的待办。</p>}
+      <div className="resource-rows">
+        {loading && !items.length ? <FetchState label="正在获取待办…" /> : !visible.length ? <EmptyState icon={normalized || activeCourse ? <SearchOutlined /> : <UnorderedListOutlined />} action={error ? <button className="text-button" onClick={() => void refresh(true)}>重试</button> : (normalized || activeCourse) ? <button className="text-button" onClick={() => { setQuery(''); setCourse(null); }}>清除筛选</button> : undefined}>
+          {error ? `获取待办失败：${error}` : items.length ? '没有匹配的结果' : '暂无待办事项'}
+        </EmptyState> : groupTodos(visible).map(group => <section key={group.label} className="todo-group" aria-label={group.label}>
+          <h3>{group.label}</h3>
+          {group.items.map(item => {
+            const due = todoDeadline(item);
+            return <OpenActionButton hint="打开待办页面" key={`${item.course_id}-${item.id}`} className="resource-row todo-row" disabled={busy} onClick={() => void open(`https://courses.zju.edu.cn/course/${encodeURIComponent(item.course_id)}/learning-activity#/${encodeURIComponent(item.id)}?view=scores`)} aria-label={`${item.title}，前往学在浙大`}>
+              <span className="resource-copy"><OverflowText className="resource-name" text={item.title} /><OverflowText className="resource-description" text={item.course_name} /></span>
+              <span className="resource-meta todo-deadline">{due ? due.isSame(dayjs(), 'day') ? '今天' : due.format('YYYY-MM-DD') : '未设截止时间'}{due && <span>{due.format('HH:mm')}</span>}</span>
+            </OpenActionButton>;
+          })}
+        </section>)}
+      </div>
+    </section>
+  </Workspace>;
+}

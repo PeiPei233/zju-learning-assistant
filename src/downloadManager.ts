@@ -211,6 +211,66 @@ export class DownloadManager {
   downloading: Task[]
   tasks: Task[]
   private readonly runs = new WeakMap<Task, object>()
+  private readonly cancellations = new WeakMap<Task, { run: object | undefined; promise: Promise<boolean> }>()
+  private readonly listeners = new Set<() => void>()
+  private readonly pendingProgress = new Set<Task>()
+  private progressTimer: ReturnType<typeof setTimeout> | undefined
+  private snapshot: { tasks: Task[]; count: number } | undefined
+
+  // React reads detached task snapshots; live progress cannot leak through other renders.
+  private createSnapshot() {
+    const previous = new Map(this.snapshot?.tasks.map(task => [task.id, task]))
+    const tasks = [...this.tasks].reverse().map(task => {
+      const old = previous.get(task.id)
+      if (old && this.pendingProgress.has(task) && old.status === task.status) return old
+      if (old && Object.getPrototypeOf(old) === Object.getPrototypeOf(task) &&
+        Object.keys(task).every(key => Object.is(Reflect.get(task, key), Reflect.get(old, key)))) return old
+      return Object.freeze(Object.assign(Object.create(Object.getPrototypeOf(task)), task)) as Task
+    })
+    const count = this.getDownloadingCount()
+    if (this.snapshot && count === this.snapshot.count && tasks.length === this.snapshot.tasks.length &&
+      tasks.every((task, index) => task === this.snapshot!.tasks[index])) return this.snapshot
+    return { tasks, count }
+  }
+
+  getSnapshot = () => {
+    if (!this.snapshot) this.snapshot = this.createSnapshot()
+    return this.snapshot
+  }
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+      if (!this.listeners.size && this.progressTimer !== undefined) {
+        clearTimeout(this.progressTimer)
+        this.progressTimer = undefined
+        this.pendingProgress.clear()
+        this.publish()
+      }
+    }
+  }
+
+  private publish = () => {
+    if (!this.pendingProgress.size && this.progressTimer !== undefined) {
+      clearTimeout(this.progressTimer)
+      this.progressTimer = undefined
+    }
+    const next = this.createSnapshot()
+    if (next === this.snapshot) return
+    this.snapshot = next
+    this.listeners.forEach(listener => listener())
+  }
+
+  private publishProgress(task: Task) {
+    if (!this.listeners.size) { this.publish(); return }
+    this.pendingProgress.add(task)
+    if (this.progressTimer === undefined) this.progressTimer = setTimeout(() => {
+      this.progressTimer = undefined
+      this.pendingProgress.clear()
+      this.publish()
+    }, 1000)
+  }
 
   constructor() {
     this._maxConcurrentTasks = 3
@@ -232,6 +292,7 @@ export class DownloadManager {
   }
 
   _adjustQueue(): void {
+    let started = false
     while (this.downloading.length < this._maxConcurrentTasks) {
       const next = this.queue.shift()
       if (!next) {
@@ -239,11 +300,14 @@ export class DownloadManager {
       }
       const task = next
       this.downloading.push(task)
+      started = true
       const run = {}
       this.runs.set(task, run)
+      this.pendingProgress.delete(task)
       task.start().catch(err => {
         if (this.runs.get(task) !== run) return
         console.log(err)
+        this.pendingProgress.delete(task)
         task.status = 'failed'
         task.msg = ''
         task.errorMessage = err.toString()
@@ -252,8 +316,10 @@ export class DownloadManager {
           this.downloading.splice(index, 1)
         }
         this._adjustQueue()
+        this.publish()
       })
     }
+    if (started) this.publish()
   }
 
   addTask(task: Task, reDownload: boolean = false): void {
@@ -278,61 +344,88 @@ export class DownloadManager {
       }
     }
     this._adjustQueue()
+    this.publish()
   }
 
-  cancelTask(id: string): void {
-    let index = this.downloading.findIndex(item => item.id === id)
-    if (index !== -1) {
-      const task = this.downloading[index]
-      const previousStatus = task.status
+  cancelTask(id: string): Promise<boolean> {
+    const task = this.tasks.find(item => item.id === id)
+    if (!task) return Promise.resolve(false)
+    if (this.downloading.includes(task)) {
       const run = this.runs.get(task)
-      task.cancel().then(() => {
-        if (this.runs.get(task) !== run) return
+      const pending = this.cancellations.get(task)
+      if (pending && pending.run === run) return pending.promise
+      this.pendingProgress.delete(task)
+      const previousStatus = task.status
+      const promise = task.cancel().then(() => {
+        if (this.runs.get(task) !== run) return false
         const currentIndex = this.downloading.indexOf(task)
         if (currentIndex !== -1) this.downloading.splice(currentIndex, 1)
         this._adjustQueue()
+        this.publish()
+        return true
       }).catch(error => {
         // A rejected cancel must not free a slot still occupied by the backend.
-        if (this.runs.get(task) === run && this.downloading.includes(task) && task.status === 'canceled') {
-          task.status = previousStatus
+        if (this.runs.get(task) === run && this.downloading.includes(task)) {
+          if (task.status === 'canceled') task.status = previousStatus
           task.msg = String(error)
+          this.publish()
         }
+        return false
+      }).finally(() => {
+        if (this.cancellations.get(task)?.promise === promise) this.cancellations.delete(task)
       })
-    } else {
-      index = this.queue.findIndex(item => item.id === id)
-      if (index !== -1) {
-        this.queue[index].status = 'canceled'
-        this.queue.splice(index, 1)
-      }
-      index = this.tasks.findIndex(item => item.id === id)
-      if (index !== -1) {
-        this.tasks[index].status = 'canceled'
-      }
+      this.cancellations.set(task, { run, promise })
+      this.publish()
+      return promise
     }
-    this._adjustQueue()
+    const index = this.queue.indexOf(task)
+    if (index !== -1) {
+      task.status = 'canceled'
+      this.queue.splice(index, 1)
+    }
+    this.publish()
+    return Promise.resolve(true)
   }
 
   updateProgress(progress: Progress): void {
     let index = this.tasks.findIndex(item => item.id === progress.id)
     if (index !== -1) {
-      this.tasks[index].updateProgress(progress)
+      const task = this.tasks[index]
+      const previousStatus = task.status
+      task.updateProgress(progress)
       if (['done', 'failed', 'canceled'].includes(progress.status)) {
         index = this.downloading.findIndex(item => item.id === progress.id)
         if (index !== -1) {
           this.downloading.splice(index, 1)
         }
       }
+      this._adjustQueue()
+      if (previousStatus !== progress.status || ['done', 'failed', 'canceled'].includes(progress.status)) {
+        this.pendingProgress.delete(task)
+        this.publish()
+      } else this.publishProgress(task)
     }
-    this._adjustQueue()
   }
 
-  cleanUp(): void {
-    this.downloading.forEach(item => {
-      item.cancel()
-    })
-    this.downloading = []
-    this.queue = []
-    this.tasks = []
+  removeTask(id: string): void {
+    const task = this.tasks.find(item => item.id === id)
+    if (!task || !['done', 'failed', 'canceled'].includes(task.status) || this.downloading.includes(task) || this.queue.includes(task)) return
+    this.runs.delete(task)
+    this.pendingProgress.delete(task)
+    this.tasks = this.tasks.filter(item => item !== task)
+    this.publish()
+  }
+
+  async cleanUp(): Promise<boolean> {
+    // Only clear records present when clicked; failed cancellations stay visible.
+    const targets = this.tasks.map(task => ({ task, run: this.runs.get(task) }))
+    const cancellation = this.cancelAllTasks()
+    for (const { task } of targets) this.removeTask(task.id)
+    const canceled = await cancellation
+    for (const { task, run } of targets) {
+      if (this.tasks.includes(task) && this.runs.get(task) === run) this.removeTask(task.id)
+    }
+    return canceled && this.getDownloadingCount() === 0
   }
 
   getTasks(): Task[] {
@@ -366,26 +459,29 @@ export class DownloadManager {
       this.queue.push(this.tasks[index])
     }
     this._adjustQueue()
+    this.publish()
   }
 
-  cancelAllTasks(): void {
-    this.tasks.forEach(item => {
-      if (item.status !== 'done') {
-        item.cancel()
-      }
-    })
-    this.downloading = []
+  async cancelAllTasks(): Promise<boolean> {
+    // Drain queued work first so cancellation acknowledgments cannot start it.
+    const active = [...this.downloading]
+    for (const task of this.queue) task.status = 'canceled'
     this.queue = []
+    this.publish()
+    const results = await Promise.all(active.map(task => this.cancelTask(task.id)))
+    return results.every(Boolean)
   }
 
   reDownloadAllTasks(): void {
     this.tasks.forEach(item => {
-      if (item.status === 'canceled' || item.status === 'failed') {
+      if ((item.status === 'canceled' || item.status === 'failed') &&
+        !this.downloading.includes(item) && !this.queue.includes(item)) {
         item.status = 'pending'
         this.queue.push(item)
       }
     })
     this._adjustQueue()
+    this.publish()
   }
 
   async openTask(id: string, folder: boolean): Promise<string> {

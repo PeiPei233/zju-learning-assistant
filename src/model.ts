@@ -74,3 +74,11 @@ export interface ScoreItem {
   jd: string;
   bkcj: string;
 }
+
+export interface TodoItem {
+  id: number | string;
+  course_id: number | string;
+  title: string;
+  course_name: string;
+  end_time: string | null;
+}
