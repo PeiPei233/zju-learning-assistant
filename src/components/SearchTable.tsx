@@ -2,6 +2,7 @@ import SelectionActions from './SelectionActions';
 import { toggleSelection } from '../utils';
 import ActionButton from './ActionButton';
 import SelectionCheck from './SelectionCheck';
+import OverflowText from './OverflowText';
 import React, { useState, useRef, useLayoutEffect } from 'react'
 import { Table, Input, InputRef } from 'antd';
 import type { ColumnType, TableProps } from 'antd/es/table';
@@ -95,8 +96,8 @@ const SearchTable = <T extends object>({
         if (visible) setTimeout(() => searchInput.current?.select(), 100);
       }
     },
-    render: (text) =>
-      viewFilters.current[filterKey]?.length ? (
+    render: (text) => <OverflowText text={text == null ? '' : String(text)}>
+      {viewFilters.current[filterKey]?.length ? (
         <Highlighter
           highlightStyle={{
             backgroundColor: 'var(--selected)',
@@ -109,7 +110,8 @@ const SearchTable = <T extends object>({
         />
       ) : (
         text
-      ),
+      )}
+    </OverflowText>,
   });
 
   const new_columns = columns.map((col) => {

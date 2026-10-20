@@ -24,7 +24,7 @@ export function installPreview() {
       : scenario === 'ding' ? (command === 'send_ding_notification' || command === 'notify_score')
       : scenario === 'ai' ? command === 'test_llm_connection'
         : scenario === 'download' ? command.startsWith('start_download_')
-          : scenario === 'timeout' ? ['sync_todo_once', 'get_courses', 'get_score', 'search_courses', 'get_range_subs', 'get_uploads_list', 'get_course_all_sub_ppts'].includes(command)
+          : scenario === 'timeout' ? ['sync_todo_once', 'get_courses', 'get_undergraduate_score', 'get_graduate_score', 'search_courses', 'get_range_subs', 'get_uploads_list', 'get_course_all_sub_ppts'].includes(command)
             : false;
     if (matches && !failed.has(scenario!)) {
       failed.add(scenario!);
@@ -43,7 +43,8 @@ export function installPreview() {
         loggedIn = true; return null;
       case 'logout': loggedIn = false; return null;
       case 'test_connection': return true;
-      case 'check_evaluation_done': return new URLSearchParams(window.location.search).get('evaluation') !== 'pending';
+      case 'check_graduate_evaluation_done': return new URLSearchParams(window.location.search).get('graduateEvaluation') !== 'pending';
+      case 'check_undergraduate_evaluation_done': return new URLSearchParams(window.location.search).get('evaluation') !== 'pending';
       case 'get_notification_scope': return 'preview';
       case 'send_ding_notification': return null;
       case 'get_runtime_config':
@@ -62,10 +63,11 @@ export function installPreview() {
       case 'get_academic_year_list': return [{ id: 1, name: '2026—2027', sort: 2 }, { id: 2, name: '2025—2026', sort: 1 }];
       case 'get_semester_list': return [{ id: 1, name: '秋冬', sort: 2, academic_year_id: 1 }, { id: 2, name: '春夏', sort: 1, academic_year_id: 1 }];
       case 'get_uploads_list': return structuredClone(uploads.filter(item => (args.courses || []).some((course: { name: string }) => course.name === item.course_name)));
-      case 'get_score': {
+      case 'get_undergraduate_score': {
         const count = Number(new URLSearchParams(window.location.search).get('scoreCount') ?? scores.length);
         return makePreviewScores(Number.isFinite(count) ? Math.max(0, Math.min(500, Math.floor(count))) : scores.length);
       }
+      case 'get_graduate_score': return [];
       case 'sync_todo_once': {
         const scenario = new URLSearchParams(window.location.search).get('todos');
         return scenario === 'empty' ? [] : structuredClone(scenario === 'due' ? [{ ...previewTodos[0], end_time: nearDeadline }] : previewTodos);

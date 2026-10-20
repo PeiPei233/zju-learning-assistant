@@ -1,3 +1,4 @@
+import { useConfig } from '../../context/ConfigContext';
 import { useState } from 'react';
 import dayjs from 'dayjs';
 import { Dropdown, Input, Tooltip } from 'antd';
@@ -14,6 +15,7 @@ import type { useTodos } from '../../hooks/useTodos';
 import { groupTodos, todoDeadline } from './groupTodos';
 
 export default function Todo({ items, loading, exporting, error, configError, lastSync, refresh, exportTodos }: ReturnType<typeof useTodos>) {
+  const { savedConfig: config } = useConfig();
   const { notification } = useDesktopApp();
   const [course, setCourse] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -43,7 +45,7 @@ export default function Todo({ items, loading, exporting, error, configError, la
           </button>)}
       </div>
     </div>
-    <div className="panel-bottom"><p>待办自动更新，通知可在设置中调整。</p><p>最后更新 · {lastSync || '尚未更新'}</p></div>
+    <div className="panel-bottom"><p>{config.todo_auto_sync ? '待办自动更新，同步与通知可在设置中调整。' : '自动同步已关闭，已有待办仍会按设置提醒。'}</p><p>最后更新 · {lastSync || '尚未更新'}</p></div>
   </>} footer={<><span className="muted">共 {visible.length} 项待办 · 来源：学在浙大</span><button className="text-button" onClick={() => void open('https://courses.zju.edu.cn')}>打开学在浙大 <ExportOutlined /></button></>}>
     <section className="resource-list todo-list" aria-label="待办列表" aria-busy={loading}>
       <div className="resource-toolbar">

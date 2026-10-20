@@ -104,7 +104,7 @@ export default function Settings({
     try {
       if (kind === 'score') {
         await invoke('notify_score', {
-          score: { xkkh: '测试课程', kcmc: '测试课程', cj: '100', jd: '5.0', xf: '3.0' },
+          score: { course_id: '测试课程', course_name: '测试课程', grade: '100', grade_point: '5.0', credits: '3.0' },
           oldTotalGp: 148, oldTotalCredit: 37, totalGp: 163, totalCredit: 40,
           dingUrl: dingUrlInput, dingSecret: dingSecretInput, systemEnabled: false,
         });
@@ -160,8 +160,10 @@ export default function Settings({
           <SettingField label="刷新课件后自动全选" description="适用于学在浙大和智云课堂。关闭后仅保留仍有效的已有选择。"><SettingsSwitch field="auto_select_all_courseware" aria-label="刷新课件后自动全选" checked={config.auto_select_all_courseware} onChange={value => updateConfigField('auto_select_all_courseware', value)} /></SettingField>
           <SettingField label="全选时排除文件类型" description="仅适用于学在浙大的自动全选和后台自动下载，仍可手动选择。"><Select className="settings-extension-control" aria-label="全选时排除文件类型" disabled={savingSettings} mode="tags" value={config.excluded_upload_extensions} placeholder="不排除" tokenSeparators={[',', '，', ' ']} maxTagCount="responsive" options={['mp4', 'mp3', 'mov', 'm4a', 'wav'].map(value => ({value, label:value}))} onChange={values => updateConfigField('excluded_upload_extensions', normalizeFileExtensions(values))} /></SettingField>
         </SettingsGroup>
-        <SettingsGroup title="课件同步">
-          <SettingField label="自动下载新课件" description="仅适用于学在浙大。开启页面内的自动同步后，新课件按排除规则自动下载；关闭则留在待下载列表。"><SettingsSwitch aria-label="自动下载新课件" field="auto_download" checked={config.auto_download} onChange={value => updateConfigField('auto_download', value)} /></SettingField>
+        <SettingsGroup title="同步">
+          <SettingField label="自动下载新课件" description="同步学在浙大课件时，自动下载新文件，跳过已排除的文件类型。"><SettingsSwitch aria-label="自动下载新课件" field="auto_download" checked={config.auto_download} onChange={value => updateConfigField('auto_download', value)} /></SettingField>
+          <SettingField label="自动同步成绩" description="自动更新成绩，关闭后需手动刷新。"><SettingsSwitch aria-label="自动同步成绩" field="score_auto_sync" checked={config.score_auto_sync} onChange={value => updateConfigField('score_auto_sync', value)} /></SettingField>
+          <SettingField label="自动同步待办" description="自动更新待办，关闭后需手动刷新，截止提醒不受影响。"><SettingsSwitch aria-label="自动同步待办" field="todo_auto_sync" checked={config.todo_auto_sync} onChange={value => updateConfigField('todo_auto_sync', value)} /></SettingField>
         </SettingsGroup>
       </div>
       <div hidden={section !== 'classroom'}>

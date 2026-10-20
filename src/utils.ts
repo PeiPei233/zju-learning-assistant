@@ -69,11 +69,11 @@ export function toggleSelection<Key>(selectedKeys: readonly Key[], visibleKeys: 
 }
 
 /** Recompute from the current result, including courses removed or changed to pass/fail. */
-export function calculateScoreTotals(rows: readonly { cj: string; jd: string; xf: string }[]) {
+export function calculateScoreTotals(rows: readonly { grade: string; grade_point: string; credits: string }[]) {
   return rows.reduce((total, row) => {
-    if (!['合格', '不合格', '弃修'].includes(row.cj)) {
-      const gp = Number.parseFloat(row.jd);
-      const credit = Number.parseFloat(row.xf);
+    if (!['合格', '不合格', '弃修'].includes(row.grade)) {
+      const gp = Number.parseFloat(row.grade_point);
+      const credit = Number.parseFloat(row.credits);
       if (Number.isFinite(gp) && Number.isFinite(credit)) {
         total.gp += gp * credit;
         total.credit += credit;
@@ -83,9 +83,32 @@ export function calculateScoreTotals(rows: readonly { cj: string; jd: string; xf
   }, { gp: 0, credit: 0 });
 }
 
+/** Credit-weighted percentage grade; textual and missing grades do not participate. */
+export function calculateAverageGrade(rows: readonly { grade: string; credits: string }[]) {
+  let weightedGrade = 0;
+  let credits = 0;
+  for (const row of rows) {
+    if (!row.grade.trim() || !row.credits.trim()) continue;
+    const grade = Number(row.grade);
+    const credit = Number(row.credits);
+    if (!Number.isFinite(grade) || grade < 0 || grade > 100 || !Number.isFinite(credit) || credit <= 0) continue;
+    weightedGrade += grade * credit;
+    credits += credit;
+  }
+  return credits ? weightedGrade / credits : 0;
+}
+
 /** Refresh selection without letting filters or sorting select additional rows. */
 export function refreshedSelection<K>(previous: readonly K[], available: readonly K[], autoSelect: boolean, defaults: readonly K[] = available): K[] {
   if (autoSelect) return [...defaults];
   const valid = new Set(available);
   return previous.filter(key => valid.has(key));
+}
+
+/** Credits without a GPA still count as credits, regardless of the course's system. */
+export function scoreDisplayCredits(rows: readonly { grade: string; grade_point: string; credits: string }[]) {
+  return calculateScoreTotals(rows).credit + rows.reduce((sum, row) => {
+    const credit = Number.parseFloat(row.credits);
+    return sum + (!String(row.grade_point ?? '').trim() && row.grade !== '弃修' && Number.isFinite(credit) ? credit : 0);
+  }, 0);
 }

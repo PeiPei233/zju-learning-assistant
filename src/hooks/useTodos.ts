@@ -147,7 +147,7 @@ export function useTodos() {
       } catch { /* Keep session deduplication if the account scope cannot be read. */ }
       if (run !== generation.current) return;
       void refresh();
-      timer = setInterval(() => void refresh(), 60000);
+      timer = setInterval(() => { if (configRef.current.todo_auto_sync) void refresh(); }, 60000);
       reminderTimer = setInterval(checkReminders, 60000);
     })();
     const unlisten = listen<string>('export-todo', event => { void exportTodos(event.payload); });

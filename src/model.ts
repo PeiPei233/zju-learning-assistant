@@ -35,6 +35,8 @@ export class Config {
   excluded_upload_extensions!: string[]
   ding_url!: string
   ding_secret!: string
+  score_auto_sync!: boolean
+  todo_auto_sync!: boolean
   score_system_notification!: boolean
   score_ding_notification!: boolean
   todo_system_notification!: boolean
@@ -59,7 +61,7 @@ export class Config {
   llm_hide_think_tag!: boolean
 
   constructor(config?: Partial<Config>) {
-    Object.assign(this, { ding_secret: '', score_system_notification: true, score_ding_notification: false, todo_system_notification: true, todo_ding_notification: false, todo_reminder_minutes: [60], excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true }, config);
+    Object.assign(this, { ding_secret: '', score_auto_sync: true, todo_auto_sync: true, score_system_notification: true, score_ding_notification: false, todo_system_notification: true, todo_ding_notification: false, todo_reminder_minutes: [60], excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true }, config);
   }
 
   clone(): Config {
@@ -74,12 +76,12 @@ export interface VersionInfo {
 }
 
 export interface ScoreItem {
-  xkkh: string;
-  kcmc: string;
-  cj: string;
-  xf: string;
-  jd: string;
-  bkcj: string;
+  course_id: string;
+  course_name: string;
+  grade: string;
+  credits: string;
+  grade_point: string;
+  makeup_grade: string;
 }
 
 export interface TodoItem {

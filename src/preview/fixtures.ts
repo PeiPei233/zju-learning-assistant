@@ -43,12 +43,14 @@ export const classroomSubjects: Subject[] = classroomCourses.flatMap(course => [
   sub_name: `${dayjs().startOf('week').add(index + 1, 'day').format('YYYY-MM-DD')} ${index === 1 ? '13:30' : '09:50'}`,
   path: `${course.path}/${index}`, ppt_image_urls: Array.from({ length: 18 + index * 13 + course.course_id % 7 }, (_, page) => `preview-slide-${page}`),
 })));
-export const scores = courses.map((course, index) => ({ xkkh: `2026-2027-1-${course.id.toString().padStart(5, '0')}`, kcmc: course.name, cj: String(85 + index * 2), xf: String(index % 2 ? 2 : 3), jd: (4 + index / 10).toFixed(1), bkcj: '' }));
+export const scores = courses.map((course, index) => ({ course_id: `2026-2027-1-${course.id.toString().padStart(5, '0')}`, course_name: course.name, grade: String(85 + index * 2), credits: String(index % 2 ? 2 : 3), grade_point: (4 + index / 10).toFixed(1), makeup_grade: '' }));
 export function makePreviewScores(count: number) {
   return Array.from({ length: count }, (_, index) => ({
     ...scores[index % scores.length],
-    xkkh: `${2026 - Math.floor(index / 30)}-${2027 - Math.floor(index / 30)}-1-${String(index + 1).padStart(5, '0')}`,
-    kcmc: courses[index % courses.length].name + (index >= courses.length ? `（专题 ${Math.floor(index / courses.length) + 1}）` : ''),
+    grade: index === 2 ? '免修' : scores[index % scores.length].grade,
+    grade_point: index % 3 === 2 ? '' : scores[index % scores.length].grade_point,
+    course_id: `${2026 - Math.floor(index / 30)}-${2027 - Math.floor(index / 30)}-1-${String(index + 1).padStart(5, '0')}`,
+    course_name: (index === 2 ? '研究生学术英语能力提升' : index % 3 === 2 ? '高级算法分析' : courses[index % courses.length].name) + (index >= courses.length ? `（专题 ${Math.floor(index / courses.length) + 1}）` : ''),
   }));
 }
 export const defaultConfig = new Config({

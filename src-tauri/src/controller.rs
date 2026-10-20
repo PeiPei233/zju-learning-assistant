@@ -2081,15 +2081,15 @@ pub async fn get_course_all_sub_ppts(
 }
 
 #[tauri::command]
-pub async fn check_evaluation_done(
+pub async fn check_undergraduate_evaluation_done(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     handle: AppHandle,
     window: Window,
 ) -> Result<bool, String> {
-    info!("check_evaluation_done");
+    info!("check_undergraduate_evaluation_done");
     let mut zju_assist = state.lock().await;
     let res = zju_assist
-        .check_evaluation_done()
+        .check_undergraduate_evaluation_done()
         .await
         .map_err(|err| err.to_string())?;
 
@@ -2097,27 +2097,78 @@ pub async fn check_evaluation_done(
 
     // if need evaluation, and the window is hide, send notification
     if !res && !window.is_visible().unwrap_or(false) {
-        handle
+        if let Err(error) = handle
             .notification()
             .builder()
             .title("教学评价未完成")
             .body("本学期尚未完成评价，无法查询最新成绩！")
             .show()
-            .map_err(|err| err.to_string())?;
+        {
+            log::warn!("Failed to send evaluation notification: {}", error);
+        }
     }
 
     Ok(res)
 }
 
 #[tauri::command]
-pub async fn get_score(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
-    info!("get_score");
+pub async fn check_graduate_evaluation_done(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    handle: AppHandle,
+    window: Window,
+) -> Result<bool, String> {
+    info!("check_graduate_evaluation_done");
     let mut zju_assist = state.lock().await;
-    let score = zju_assist
-        .get_score()
+    let res = zju_assist
+        .check_graduate_evaluation_done()
         .await
         .map_err(|err| err.to_string())?;
-    Ok(score)
+    drop(zju_assist);
+
+    if !res && !window.is_visible().unwrap_or(false) {
+        if let Err(error) = handle
+            .notification()
+            .builder()
+            .title("研究生教学评价未完成")
+            .body("部分课程需完成评价后才能查看成绩，请完成后重新刷新。")
+            .show()
+        {
+            log::warn!("Failed to send evaluation notification: {}", error);
+        }
+    }
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn get_undergraduate_score(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+) -> Result<Vec<Value>, String> {
+    info!("get_undergraduate_score");
+    let mut zju_assist = state.lock().await;
+    let started = std::time::Instant::now();
+    let result = zju_assist.get_undergraduate_score().await;
+    info!(
+        "get_undergraduate_score: success={}, elapsed={}ms",
+        result.is_ok(),
+        started.elapsed().as_millis()
+    );
+    result.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn get_graduate_score(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+) -> Result<Vec<Value>, String> {
+    info!("get_graduate_score");
+    let mut zju_assist = state.lock().await;
+    let started = std::time::Instant::now();
+    let result = zju_assist.get_graduate_score().await;
+    info!(
+        "get_graduate_score: success={}, elapsed={}ms",
+        result.is_ok(),
+        started.elapsed().as_millis()
+    );
+    result.map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2134,13 +2185,13 @@ pub async fn notify_score(
 ) -> Result<(), String> {
     info!("notify_score");
 
-    // TODO: Add bkcj support
+    // TODO: Add makeup_grade support
 
-    let xkkh = score["xkkh"].as_str().unwrap();
-    let kcmc = score["kcmc"].as_str().unwrap();
-    let cj = score["cj"].as_str().unwrap();
-    let xf = score["xf"].as_str().unwrap();
-    let jd = score["jd"].as_str().unwrap();
+    let course_id = score["course_id"].as_str().unwrap();
+    let course_name = score["course_name"].as_str().unwrap();
+    let grade = score["grade"].as_str().unwrap();
+    let credits = score["credits"].as_str().unwrap();
+    let grade_point = score["grade_point"].as_str().unwrap();
 
     let old_gpa = if old_total_credit == 0.0 {
         0.0
@@ -2155,10 +2206,14 @@ pub async fn notify_score(
 
     let mut errors = Vec::new();
     if !ding_url.trim().is_empty() {
-        let text = format!(
+        let text = if grade_point.trim().is_empty() {
+            format!("### 考试成绩通知\n - **选课课号** {}\n - **课程名称** {}\n - **成绩** {}\n - **学分** {}", course_id, course_name, grade, credits)
+        } else {
+            format!(
             "### 考试成绩通知\n - **选课课号** {}\n - **课程名称** {}\n - **成绩** {}\n - **学分** {}\n - **绩点** {}\n - **成绩变化** {:.2}({:+.2}) / {:.1}({:+.1})",
-            xkkh, kcmc, cj, xf, jd, new_gpa, new_gpa - old_gpa, total_credit, total_credit - old_total_credit
-        );
+            course_id, course_name, grade, credits, grade_point, new_gpa, new_gpa - old_gpa, total_credit, total_credit - old_total_credit
+        )
+        };
         if let Err(error) = crate::dingtalk::send(
             &ding_url,
             ding_secret.as_deref().unwrap_or(""),
@@ -2175,17 +2230,21 @@ pub async fn notify_score(
         if let Err(error) = handle
             .notification()
             .builder()
-            .title(&format!("考试成绩通知 - {}", kcmc))
-            .body(&format!(
-                "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
-                cj,
-                xf,
-                jd,
-                new_gpa,
-                new_gpa - old_gpa,
-                total_credit,
-                total_credit - old_total_credit
-            ))
+            .title(&format!("考试成绩通知 - {}", course_name))
+            .body(&if grade_point.trim().is_empty() {
+                format!("成绩: {}\n学分: {}", grade, credits)
+            } else {
+                format!(
+                    "成绩: {}\n学分: {}\n绩点: {}\n成绩变化: {:.2}({:+.2}) / {:.1}({:+.1})",
+                    grade,
+                    credits,
+                    grade_point,
+                    new_gpa,
+                    new_gpa - old_gpa,
+                    total_credit,
+                    total_credit - old_total_credit
+                )
+            })
             .show()
         {
             errors.push(error.to_string());
@@ -2229,9 +2288,7 @@ pub async fn get_config(
 // Startup initializes this snapshot with complete platform defaults and replaces
 // it only after a successful load/save. Reading it never touches the config file.
 #[tauri::command]
-pub async fn get_runtime_config(
-    config: State<'_, Arc<Mutex<Config>>>,
-) -> Result<Config, String> {
+pub async fn get_runtime_config(config: State<'_, Arc<Mutex<Config>>>) -> Result<Config, String> {
     Ok(config.lock().await.clone())
 }
 
