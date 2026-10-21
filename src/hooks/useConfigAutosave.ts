@@ -4,7 +4,9 @@ import { useConfig } from '../context/ConfigContext';
 
 /** Keep unsaved drafts separate from committed config, including edits made during a save. */
 export function useConfigAutosave(validate: (fields: (keyof Config)[]) => Promise<boolean>) {
-  const { updateConfigBatch } = useConfig();
+  const { updateConfigBatch, setDraftPending } = useConfig();
+  const draftOwner = useRef({});
+  const mounted = useRef(true);
   const dirty = useRef<Partial<Config>>({});
   const timers = useRef(new Map<keyof Config, ReturnType<typeof setTimeout>>());
   const flight = useRef<Promise<boolean> | null>(null);
@@ -16,6 +18,7 @@ export function useConfigAutosave(validate: (fields: (keyof Config)[]) => Promis
   const invalidFields = useRef(new Set<keyof Config>());
   const generation = useRef(0);
   const refreshStatus = () => {
+    if (mounted.current) setDraftPending(draftOwner.current, Object.keys(dirty.current).length > 0);
     setFailed(errors.current.size > 0);
     setErrorDetails([...new Set(errors.current.values())].join('\n\n'));
     setInvalid(invalidFields.current.size > 0);
@@ -26,7 +29,17 @@ export function useConfigAutosave(validate: (fields: (keyof Config)[]) => Promis
   const [saving, setSaving] = useState(false);
   const latest = useRef({ validate, updateConfigBatch });
   latest.current = { validate, updateConfigBatch };
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  useEffect(() => {
+    mounted.current = true;
+    const owner = draftOwner.current;
+    const pendingTimers = timers.current;
+    setDraftPending(owner, Object.keys(dirty.current).length > 0);
+    return () => {
+      mounted.current = false;
+      pendingTimers.forEach(clearTimeout);
+      setDraftPending(owner, false);
+    };
+  }, [setDraftPending]);
 
   const save = (fields?: (keyof Config)[]): Promise<boolean> => {
     const revision = generation.current;

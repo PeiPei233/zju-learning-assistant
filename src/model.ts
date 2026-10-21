@@ -70,6 +70,8 @@ export class Config {
 }
 
 export interface VersionInfo {
+  can_install?: boolean;
+  prepare_error?: string | null;
   version: string;
   notes: string;
   url: string;

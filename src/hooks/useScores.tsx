@@ -112,7 +112,7 @@ export function useScores() {
               key, title: `${check.label}教学评价未完成`,
               description: '部分课程需完成评价后才能查看成绩，请完成后重新刷新。',
               actions: <ActionButton variant="secondary"
-                onClick={() => shell.open(check.url).catch(err => notification.error({ title: '打开教学评价失败', description: String(err) }))}>
+                onClick={() => shell.open(check.url).then(() => notification.destroy(key)).catch(err => notification.error({ title: '打开教学评价失败', description: String(err) }))}>
                 去评价
               </ActionButton>,
             });

@@ -13,6 +13,8 @@ interface ConfigContextType {
   updateConfigBatch: (updates: Partial<Config>, onError?: (error: string) => void) => Promise<boolean>;
   isSaving: (field?: keyof Config) => boolean;
   refreshConfig: () => Promise<void>;
+  setDraftPending: (owner: object, pending: boolean) => void;
+  hasPendingDrafts: () => boolean;
 }
 
 const ConfigContext = createContext<ConfigContextType | undefined>(undefined);
@@ -22,6 +24,11 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
+  const drafts = useRef(new Set<object>());
+  const setDraftPending = useCallback((owner: object, pending: boolean) => {
+    if (pending) drafts.current.add(owner); else drafts.current.delete(owner);
+  }, []);
+  const hasPendingDrafts = useCallback(() => drafts.current.size > 0, []);
   const loadFlight = useRef<Promise<void> | null>(null);
   const committed = useRef(config);
   const loaded = useRef(false);
@@ -118,7 +125,7 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
 
   const displayedConfig = useMemo(() => Object.assign(config.clone(), ...optimistic.map(item => item.patch)), [config, optimistic]);
   return (
-    <ConfigContext.Provider value={{ config: displayedConfig, savedConfig: config, ready, loadError, loadingConfig, updateConfigField, updateConfigBatch, refreshConfig, isSaving }}>
+    <ConfigContext.Provider value={{ config: displayedConfig, savedConfig: config, ready, loadError, loadingConfig, updateConfigField, updateConfigBatch, refreshConfig, isSaving, setDraftPending, hasPendingDrafts }}>
       {children}
     </ConfigContext.Provider>
   );

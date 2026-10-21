@@ -109,6 +109,8 @@ pub struct Subject {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VersionInfo {
+    pub can_install: bool,
+    pub prepare_error: Option<String>,
     pub version: String,
     pub notes: String,
     pub url: String,

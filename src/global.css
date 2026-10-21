@@ -69,11 +69,9 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 a:hover .status-badge .ant-badge-dot, a:hover .status-badge .ant-badge-count { background: var(--status-accent); box-shadow: 0 0 0 1.5px var(--canvas); }
 .settings-update-dot { display: inline-block; flex-shrink: 0; width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: var(--status-accent); }
 .version-update-slot { display: inline-flex; justify-content: flex-end; align-items: center; width: 0; height: 12px; flex-shrink: 0; overflow: hidden; transition: width 220ms cubic-bezier(.2,.8,.2,1); }
-.version-update-slot.is-visible { width: 12px; }
-.version-update-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--status-accent); opacity: 0; transform: scale(.5); transition: opacity 220ms ease, transform 220ms cubic-bezier(.2,.8,.2,1); }
-.version-update-slot.is-visible .version-update-dot { opacity: 1; transform: scale(1); }
+.version-update-slot.is-visible { width: 20px; }
 .action-button.login-version { gap: 0; }
-@media (prefers-reduced-motion: reduce) { .version-update-slot, .version-update-dot { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .version-update-slot { transition: none; } }
 .version-details { font-variant-numeric: tabular-nums; }
 .version-arrow { color: var(--muted); }
 .version-latest { color: var(--status-accent); }
@@ -332,3 +330,10 @@ a:hover .status-badge .ant-badge-dot, a:hover .status-badge .ant-badge-count { b
 /* Opaque tint fallback when the app-local backdrop is unsupported or unavailable. */
 :root[data-platform="windows"][data-native-backdrop="false"] { --rail: rgb(234 234 231 / 95%); }
 :root[data-theme="dark"][data-platform="windows"][data-native-backdrop="false"] { --rail: rgb(32 32 32 / 95%); }
+
+.update-indicator { display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; flex-shrink: 0; color: var(--status-accent); font-size: 12px; line-height: 1; }
+.update-indicator-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--status-accent); }
+.settings-update-icon { display: inline-flex; position: relative; }
+.settings-update-icon > .update-indicator { position: absolute; top: -6px; right: -7px; border-radius: 50%; background: var(--canvas); }
+
+@media (prefers-reduced-motion: reduce) { .update-indicator .anticon-spin { animation: none; } }

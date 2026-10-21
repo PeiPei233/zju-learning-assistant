@@ -14,8 +14,13 @@
 .ant-notification .desktop-notice .ant-notification-notice-actions :is(.action-button, .ant-btn) { height: 28px; padding: 0 6px; border: 0; background: transparent; box-shadow: none; font-size: 12px; font-weight: 500; color: var(--text); }
 .ant-notification .desktop-notice .ant-notification-notice-actions :is(.action-button, .ant-btn):hover { background: var(--hover); }
 .desktop-notice-count { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--muted); }
-@keyframes desktop-notice-in { from { opacity: 0; transform: translate(6px,-8px); } to { opacity: 1; transform: translate(0,0); } }
-@keyframes desktop-notice-out { to { opacity: 0; transform: translateX(12px); } }
-.ant-notification .ant-notification-fade-enter, .ant-notification .ant-notification-fade-appear { animation: desktop-notice-in 220ms cubic-bezier(.2,.8,.2,1) both; }
-.ant-notification .ant-notification-fade-leave { animation: desktop-notice-out 160ms ease both; }
+@keyframes desktop-notice-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes desktop-notice-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(8px); } }
+/* Keep the same animation through rc-motion's start and active phases. */
+.ant-notification .ant-notification-notice-wrapper.ant-notification-fade-enter,
+.ant-notification .ant-notification-notice-wrapper.ant-notification-fade-appear { animation: desktop-notice-in 240ms ease-in-out both paused; }
+.ant-notification.ant-notification-topRight .ant-notification-notice-wrapper.ant-notification-fade-enter.ant-notification-fade-enter-active,
+.ant-notification.ant-notification-topRight .ant-notification-notice-wrapper.ant-notification-fade-appear.ant-notification-fade-appear-active { animation-name: desktop-notice-in; animation-play-state: running; }
+.ant-notification .ant-notification-notice-wrapper.ant-notification-fade-leave { animation: desktop-notice-out 240ms ease-in-out both paused; }
+.ant-notification .ant-notification-notice-wrapper.ant-notification-fade-leave.ant-notification-fade-leave-active { animation-name: desktop-notice-out; animation-play-state: running; }
 @media (prefers-reduced-motion: reduce) { .ant-notification *, .ant-notification *::before { animation-duration: 1ms !important; transition-duration: 0ms !important; } }

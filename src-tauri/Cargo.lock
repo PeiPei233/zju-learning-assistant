@@ -162,6 +162,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rsa",
  "security-framework 2.10.0",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

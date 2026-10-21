@@ -1046,56 +1046,40 @@ pub fn open_file_ppts(handle: AppHandle, subject: Subject, folder: bool) -> Resu
 }
 
 #[tauri::command]
-pub async fn get_latest_version_info() -> Result<VersionInfo, String> {
-    info!("get_latest_version_info");
-
-    let client = ZjuAssist::new();
-
-    let res = client
-        .get("https://api.github.com/repos/PeiPei233/zju-learning-assistant/releases/latest")
-        .send()
-        .await;
-
-    if let Ok(res) = res {
-        let json = res.json::<Value>().await.map_err(|err| err.to_string())?;
-
-        info!("get_latest_version_info: {:?}", json.get("tag_name"));
-
-        if !json.get("tag_name").is_none() {
-            let version_info = VersionInfo {
-                version: json["tag_name"].as_str().unwrap_or("").to_string(),
-                notes: json["body"].as_str().unwrap_or("").to_string(),
-                url: json["html_url"].as_str().unwrap_or("").to_string(),
-            };
-
-            return Ok(version_info);
-        }
-    }
-
-    // try again with gitee
-    let res = client
-        .get("https://gitee.com/api/v5/repos/PeiPeiY/zju-learning-assistant/releases/latest")
-        .send()
+pub async fn get_latest_version_info(
+    handle: AppHandle,
+    state: State<'_, crate::utils::app_update::AppUpdateState>,
+) -> Result<Option<VersionInfo>, String> {
+    crate::utils::app_update::check(&handle, &state)
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(|error| error.to_string())
+}
 
-    let json = res.json::<Value>().await.map_err(|err| err.to_string())?;
+#[tauri::command]
+pub async fn download_app_update(
+    window: Window,
+    state: State<'_, crate::utils::app_update::AppUpdateState>,
+) -> Result<bool, String> {
+    crate::utils::app_update::download(&window, &state)
+        .await
+        .map_err(|error| error.to_string())
+}
 
-    info!(
-        "get_latest_version_info (gitee): {:?}",
-        json.get("tag_name")
-    );
+#[tauri::command]
+pub fn cancel_app_update_download(
+    state: State<'_, crate::utils::app_update::AppUpdateState>,
+) -> Result<(), String> {
+    crate::utils::app_update::cancel_download(&state).map_err(|error| error.to_string())
+}
 
-    let version_info = VersionInfo {
-        version: json["tag_name"].as_str().unwrap_or("").to_string(),
-        notes: json["body"].as_str().unwrap_or("").to_string(),
-        url: format!(
-            "https://gitee.com/PeiPeiY/zju-learning-assistant/releases/tag/{}",
-            json["tag_name"].as_str().unwrap_or("")
-        ),
-    };
-
-    Ok(version_info)
+#[tauri::command]
+pub async fn install_app_update(
+    handle: AppHandle,
+    state: State<'_, crate::utils::app_update::AppUpdateState>,
+) -> Result<(), String> {
+    crate::utils::app_update::install(&handle, &state)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

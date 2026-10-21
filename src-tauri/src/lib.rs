@@ -236,6 +236,7 @@ pub fn run() {
                 Err(error) => log::error!("Failed to load settings: {error}"),
             }
             app.manage(config_store);
+            app.manage(utils::app_update::AppUpdateState::default());
             let config_state = Arc::new(Mutex::new(config));
 
             let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
@@ -377,6 +378,9 @@ pub fn run() {
             controller::open_file_upload,
             controller::open_file_ppts,
             controller::get_latest_version_info,
+            controller::download_app_update,
+            controller::cancel_app_update_download,
+            controller::install_app_update,
             controller::start_download_ppts,
             controller::start_download_playback,
             controller::get_range_subs,

@@ -1,3 +1,4 @@
+import UpdateIndicator, { type UpdateIndicatorState } from '../../components/UpdateIndicator';
 import { useScores } from '../../hooks/useScores';
 import { useTodos } from '../../hooks/useTodos';
 import Todo from '../Todo';
@@ -35,6 +36,7 @@ interface HomeProps {
   setAutoLoginPassword: (password: string) => void;
   currentVersion: string;
   latestVersionData: VersionInfo | null;
+  updateIndicator?: UpdateIndicatorState;
   setOpenVersionModal: (open: boolean) => void;
 }
 
@@ -59,6 +61,7 @@ export default function Home({
   setAutoLoginPassword,
   currentVersion,
   latestVersionData,
+  updateIndicator,
   setOpenVersionModal
 }: HomeProps) {
 
@@ -349,7 +352,7 @@ export default function Home({
           <PreviewMenu navigation />
           <Tooltip title="帮助" placement="right"><button className="rail-button" aria-label="帮助" onClick={() => shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch(err => notification.error({ title: '打开帮助失败', description: String(err) }))}><QuestionCircleOutlined /></button></Tooltip>
           <Tooltip title={panelCollapsed ? null : `下载列表${downloadingCount ? ` · ${downloadingCount} 项进行中` : ''}`} placement="right"><button {...railPreview('download')} className={`rail-button ${current === 'download' ? 'active' : ''}`} aria-current={current === 'download' ? 'page' : undefined} aria-label={`下载列表${downloadingCount ? ` · ${downloadingCount} 项进行中` : ''}`} onClick={() => navigate('download')}><Badge className="status-badge" count={downloadingCount} size="small"><DownloadOutlined /></Badge></button></Tooltip>
-          <Tooltip title={panelCollapsed ? null : `设置${latestVersionData && latestVersionData.version !== currentVersion ? ' · 有新版本' : ''}`} placement="right"><button {...railPreview('setting')} className={`rail-button ${current === 'setting' ? 'active' : ''}`} aria-current={current === 'setting' ? 'page' : undefined} aria-label={`设置${latestVersionData && latestVersionData.version !== currentVersion ? ' · 有新版本' : ''}`} onClick={() => navigate('setting')}><Badge className="status-badge" dot={!!latestVersionData && latestVersionData.version !== currentVersion}><SettingOutlined /></Badge></button></Tooltip>
+          <Tooltip title={latestVersionData ? `设置 · ${updateIndicator?.label ?? '有新版本'}` : panelCollapsed ? null : '设置'} placement="right"><button {...railPreview('setting')} className={`rail-button ${current === 'setting' ? 'active' : ''}`} aria-current={current === 'setting' ? 'page' : undefined} aria-label={`设置${latestVersionData ? ` · ${updateIndicator?.label ?? '有新版本'}` : ''}`} onClick={() => navigate('setting')}>{updateIndicator?.downloading ? <span className="settings-update-icon"><SettingOutlined /><UpdateIndicator state={updateIndicator} /></span> : <Badge className="status-badge" dot={!!latestVersionData && latestVersionData.version !== currentVersion}><SettingOutlined /></Badge>}</button></Tooltip>
           <Tooltip title="退出登录" placement="right"><button className="rail-button" aria-label="退出登录" onClick={() => onMenuClick({ key: 'logout' })}><LogoutOutlined /></button></Tooltip>
         </nav>
         <div className="module-host">

@@ -1,6 +1,8 @@
 import { useDesktopApp } from './context/NotificationContext';
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Modal, Typography } from 'antd';
+import { Modal, Progress, Typography } from 'antd';
+import { CloseCircleOutlined, DownloadOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useAppUpdate } from './hooks/useAppUpdate';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { getVersion, invoke, shell } from './bridge';
@@ -10,8 +12,8 @@ import Home from './pages/Home'
 import Markdown from 'react-markdown';
 import { convertUrlsToMarkdown } from './utils';
 
-import { VersionInfo } from './model';
 import ActionButton from './components/ActionButton';
+import IconAction from './components/IconAction';
 dayjs.locale('zh-cn')
 
 const { Paragraph, Text } = Typography
@@ -29,26 +31,15 @@ function Index() {
   const [autoLoginUsername, setAutoLoginUsername] = useState('')
   const [autoLoginPassword, setAutoLoginPassword] = useState('')
   const [currentVersion, setCurrentVersion] = useState('')
-  const [latestVersionData, setLatestVersionData] = useState<VersionInfo | null>(null)
   const [openVersionModal, setOpenVersionModal] = useState(false)
+  const showVersionModal = useCallback(() => setOpenVersionModal(true), [])
+  const update = useAppUpdate(showVersionModal, openVersionModal)
+  const latestVersionData = update.info
+  const { check: checkUpdate } = update
 
   useEffect(() => {
     getVersion().then((v) => {
       setCurrentVersion('v' + v)
-      invoke<VersionInfo | null>('get_latest_version_info').then((res) => {
-        const data = res
-        if (!data) throw new Error('获取最新版本信息失败')
-        if (!data.version) throw new Error(JSON.stringify(data))
-        if (data.version !== 'v' + v) {
-          notification.info({
-            title: '发现新版本',
-            description: `当前版本：${'v' + v}，最新版本：${data.version}`
-          })
-        }
-        setLatestVersionData(data)
-      }).catch((err) => {
-        console.log(err)
-      })
     })
     invoke<[string, string] | null>('get_auto_login_info').then((res) => {
       if (res) {
@@ -64,6 +55,22 @@ function Index() {
     })
   }, [notification])
 
+  useEffect(() => { void checkUpdate(); }, [checkUpdate]);
+  const updateBusy = ['checking', 'downloading', 'installing'].includes(update.stage);
+  const openManualDownload = () => {
+    if (latestVersionData) void shell.open(latestVersionData.url).catch(err =>
+      notification.error({ title: '打开下载页面失败', description: String(err) }));
+  };
+  const percent = update.progress.total && update.progress.total > 0
+    ? Math.min(100, Math.floor(update.progress.downloaded / update.progress.total * 100)) : undefined;
+
+  const updateIndicator = {
+    downloading: update.stage === 'downloading',
+    percent,
+    label: update.stage === 'downloading' ? `正在下载更新${percent === undefined ? '' : ` · ${percent}%`}` :
+      update.stage === 'ready' ? '更新已就绪' : update.error && latestVersionData ? '更新失败，点击查看' : '有新版本，点击查看',
+  };
+
   return (
     <>
       {isLogin ?
@@ -73,6 +80,7 @@ function Index() {
           setAutoLoginPassword={setAutoLoginPassword}
           currentVersion={currentVersion}
           latestVersionData={latestVersionData}
+          updateIndicator={updateIndicator}
           setOpenVersionModal={setOpenVersionModal}
         /> :
         <Login
@@ -82,6 +90,7 @@ function Index() {
           autoLoginPassword={autoLoginPassword}
           currentVersion={currentVersion}
           latestVersionData={latestVersionData}
+          updateIndicator={updateIndicator}
           setOpenVersionModal={setOpenVersionModal}
         />
       }
@@ -91,9 +100,35 @@ function Index() {
         width={520}
         centered
         open={openVersionModal}
-        onCancel={() => setOpenVersionModal(false)}
-        footer={<ActionButton variant="primary" onClick={() => setOpenVersionModal(false)}>完成</ActionButton>}
-        title="版本信息"
+        onCancel={() => { if (update.stage !== 'installing') setOpenVersionModal(false); }}
+        closable={update.stage !== 'installing'}
+        keyboard={update.stage !== 'installing'}
+        maskClosable={update.stage !== 'installing'}
+        footer={update.stage === 'downloading' ? <div className="version-download" role="status">
+          <div className="version-download-copy">
+            <div className="version-download-label">
+              <span>正在下载更新</span>
+              <span>{(update.progress.downloaded / 1024 / 1024).toFixed(1)} MB{update.progress.total ? ` / ${(update.progress.total / 1024 / 1024).toFixed(1)} MB` : ''}</span>
+            </div>
+            <Progress size="small" percent={percent ?? 0} showInfo={false} status="active" />
+          </div>
+          <IconAction label={update.cancelling ? '正在取消' : '取消下载'} disabled={update.cancelling} onClick={() => void update.cancelDownload()}><CloseCircleOutlined /></IconAction>
+        </div> : <div className="version-actions">
+          {!latestVersionData ? <ActionButton disabled={updateBusy} onClick={() => void update.check(true)}>
+            {update.stage === 'checking' ? <LoadingOutlined spin /> : <ReloadOutlined />}检查更新
+          </ActionButton> : <>
+            <button type="button" className="text-button" disabled={update.stage === 'installing'} onClick={openManualDownload}>手动下载</button>
+            {latestVersionData.prepare_error && <ActionButton variant="primary" disabled={updateBusy} onClick={() => void update.check(true)}>
+              {update.stage === 'checking' ? <LoadingOutlined spin /> : <ReloadOutlined />}重新尝试
+            </ActionButton>}
+            {latestVersionData.can_install && <ActionButton variant="primary" disabled={updateBusy}
+              onClick={() => void (update.stage === 'ready' ? update.install() : update.download())}>
+              {update.stage === 'installing' ? <LoadingOutlined spin /> : <DownloadOutlined />}
+              {update.stage === 'ready' ? '安装并重启' : update.stage === 'installing' ? '正在安装' : update.error ? '重试下载' : '下载更新'}
+            </ActionButton>}
+          </>}
+        </div>}
+        title={latestVersionData ? `发现新版本 ${latestVersionData.version}` : '版本信息'}
         zIndex={1001}
       >
         <Markdown components={{
@@ -123,16 +158,11 @@ function Index() {
           }
         }}>
           {
-            !latestVersionData ? '当前已是最新版本' :
-              latestVersionData.version === currentVersion ? (
-                `当前已是最新版本：[${currentVersion}](${latestVersionData.url})\n\n` +
-                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.notes)}`
-              ) : (
-                `发现新版：[${latestVersionData.version}](${latestVersionData.url})\n\n` +
-                `**更新日志：**\n\n` + `${convertUrlsToMarkdown(latestVersionData.notes)}`
-              )
+            latestVersionData ? convertUrlsToMarkdown(latestVersionData.notes) :
+              update.stage === 'checking' ? '正在检查更新…' : update.error ? '暂时无法检查更新，请重试。' : update.checked ? '暂无可用更新' : '尚未检查更新'
           }
         </Markdown>
+        {update.error && latestVersionData && <p className="version-error" role="alert">{update.error}</p>}
       </Modal>
     </>
   )

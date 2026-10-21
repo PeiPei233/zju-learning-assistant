@@ -4,6 +4,7 @@ import { courses, uploads, subjects, classroomCourses, classroomSubjects, scores
 /** Only installed by the dev-only bootstrap. Never falls through to the real backend. */
 export function installPreview() {
   const failed = new Set<string>();
+  let updateDownloadCancelled = false;
   let config = structuredClone(defaultConfig);
   let loggedIn = new URLSearchParams(window.location.search).get('page') !== 'login';
   const previewTodos = makePreviewTodos();
@@ -33,9 +34,25 @@ export function installPreview() {
     }
     switch (command) {
       case 'plugin:app|version': return '0.3.15';
-      case 'get_latest_version_info': return new URLSearchParams(window.location.search).get('update') === 'none'
-        ? { version: 'v0.3.15', notes: '预览模式：当前已是最新版本。', url: 'https://example.invalid' }
-        : { version: 'v0.3.16-preview', notes: '这是用于检查更新提示样式的模拟版本，并非真实发布。\n\n- 优化侧栏状态标记\n- 改进加载与刷新体验', url: 'https://example.invalid' };
+      case 'get_latest_version_info':
+        if (new URLSearchParams(window.location.search).get('update') === 'check-error') throw new Error('预览：检查更新失败');
+        return new URLSearchParams(window.location.search).get('update') === 'none'
+        ? null
+        : { can_install: !['prepare-error', 'manual-only'].includes(new URLSearchParams(window.location.search).get('update') ?? ''), prepare_error: new URLSearchParams(window.location.search).get('update') === 'prepare-error' ? '暂时无法获取更新包，请稍后重试。' : null, version: 'v0.3.16-preview', notes: '这是用于检查更新提示样式的模拟版本，并非真实发布。\n\n- 优化侧栏状态标记\n- 改进加载与刷新体验', url: 'https://example.invalid' };
+      case 'cancel_app_update_download': updateDownloadCancelled = true; return null;
+      case 'download_app_update': {
+        updateDownloadCancelled = false;
+        for (let step = 0; step <= 100; step++) {
+          if (step > 0) await new Promise(resolve => setTimeout(resolve, 100));
+          if (updateDownloadCancelled) return false;
+          await emit('app-update-progress', { downloaded: step * 1024 * 1024, total: 100 * 1024 * 1024 });
+        }
+        if (new URLSearchParams(window.location.search).get('update') === 'download-error') throw new Error('预览：更新下载失败，请重试。');
+        return true;
+      }
+      case 'install_app_update':
+        if (new URLSearchParams(window.location.search).get('update') === 'install-error') throw new Error('预览：安装失败，请重试。');
+        return null;
       case 'get_auto_login_info': return null;
       case 'check_login': return loggedIn;
       case 'login':

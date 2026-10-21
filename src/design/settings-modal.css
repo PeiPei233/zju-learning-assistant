@@ -98,3 +98,12 @@
 @container (max-width: 480px) {
   .settings-card .settings-webhook-field { grid-template-columns: minmax(0, 1fr); }
 }
+
+.version-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; }
+.version-download { display: flex; align-items: center; gap: 14px; color: var(--muted); text-align: left; }
+.version-download-label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12px; }
+.version-error { margin-top: 16px; color: var(--status-error); }
+
+.version-download-copy { flex: 1; min-width: 0; }
+.version-download-copy > .ant-progress { display: block; margin: 6px 0 0; line-height: 1; }
+.version-download > .action-button { flex-shrink: 0; }

@@ -13,8 +13,25 @@ export interface PreviewBackend {
 let preview: PreviewBackend | undefined;
 // Called only by the dynamically imported development preview entry point.
 export function setPreviewBackend(backend?: PreviewBackend) { preview = backend; }
-export function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  return preview ? preview.invoke<T>(command, args) : nativeInvoke<T>(command, args);
+const activeOperations = new Set<object>();
+let installingUpdate = false;
+const needsUpdateGuard = (command: string) => command.startsWith('start_download_')
+  || ['export_todo', 'export_todo_from_tray', 'set_config', 'get_uploads_list', 'login', 'complete_login_setup'].includes(command);
+
+export function beginUpdateInstallation() {
+  if (installingUpdate) throw new Error('正在安装更新');
+  if (activeOperations.size) throw new Error('请等待正在进行的下载、导出或保存操作完成后再安装更新。');
+  installingUpdate = true;
+}
+export function endUpdateInstallation() { installingUpdate = false; }
+
+export async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const guarded = needsUpdateGuard(command);
+  if (guarded && installingUpdate) throw new Error('正在安装更新，请稍候。');
+  const operation = {};
+  if (guarded) activeOperations.add(operation);
+  try { return await (preview ? preview.invoke<T>(command, args) : nativeInvoke<T>(command, args)); }
+  finally { activeOperations.delete(operation); }
 }
 export function listen<T>(event: string, handler: EventCallback<T>): Promise<UnlistenFn> {
   return preview ? preview.listen(event, handler) : nativeListen(event, handler);

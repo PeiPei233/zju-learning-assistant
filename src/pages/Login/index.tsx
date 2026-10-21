@@ -1,3 +1,4 @@
+import UpdateIndicator, { type UpdateIndicatorState } from '../../components/UpdateIndicator';
 import PreviewMenu from "../../components/PreviewMenu";
 import { useDesktopApp } from '../../context/NotificationContext';
 import AppIcon from '../../components/AppIcon';
@@ -19,6 +20,7 @@ interface LoginProps {
   autoLoginPassword?: string;
   currentVersion: string;
   latestVersionData: VersionInfo | null;
+  updateIndicator?: UpdateIndicatorState;
   setOpenVersionModal: (open: boolean) => void;
 }
 
@@ -29,6 +31,7 @@ export default function Login({
   autoLoginPassword,
   currentVersion,
   latestVersionData,
+  updateIndicator,
   setOpenVersionModal
 }: LoginProps) {
 
@@ -123,10 +126,10 @@ export default function Login({
         <div className="login-footer-actions">
           <PreviewMenu />
           <ActionButton onClick={() => shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch(err => notification.error({ title: '打开帮助失败', description: String(err) }))}><QuestionCircleOutlined />帮助</ActionButton>
-          <Tooltip title={latestVersionData && latestVersionData.version !== currentVersion ? '有新版本，点击查看' : '查看版本信息'}>
-            <ActionButton className="login-version" aria-label={`版本信息 ${currentVersion}${latestVersionData && latestVersionData.version !== currentVersion ? ' · 有新版本' : ''}`} onClick={() => setOpenVersionModal(true)}>
+          <Tooltip title={latestVersionData && latestVersionData.version !== currentVersion ? updateIndicator?.label ?? '有新版本，点击查看' : '查看版本信息'}>
+            <ActionButton className="login-version" aria-label={`版本信息 ${currentVersion}${latestVersionData && latestVersionData.version !== currentVersion ? ` · ${updateIndicator?.label ?? '有新版本'}` : ''}`} onClick={() => setOpenVersionModal(true)}>
               <span>{currentVersion || '版本信息'}</span>
-              <span className={`version-update-slot${latestVersionData && latestVersionData.version !== currentVersion ? ' is-visible' : ''}`} aria-hidden="true"><span className="version-update-dot" /></span>
+              <span className={`version-update-slot${latestVersionData && latestVersionData.version !== currentVersion ? ' is-visible' : ''}`} aria-hidden="true"><UpdateIndicator state={updateIndicator} /></span>
             </ActionButton>
           </Tooltip>
         </div>
