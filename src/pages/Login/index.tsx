@@ -2,7 +2,7 @@ import PreviewMenu from "../../components/PreviewMenu";
 import { useDesktopApp } from '../../context/NotificationContext';
 import AppIcon from '../../components/AppIcon';
 import WindowChrome from '../../components/WindowChrome';
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MutableRefObject } from 'react'
 import { Form, Input, Switch, Tooltip } from 'antd';
 import ActionButton from '../../components/ActionButton';
 import { shell, invoke, listen, exit } from '../../bridge';
@@ -14,6 +14,7 @@ import { VersionInfo } from '../../model';
 
 interface LoginProps {
   setIsLogin: (isLogin: boolean) => void;
+  loginSession: MutableRefObject<number>;
   autoLoginUsername?: string;
   autoLoginPassword?: string;
   currentVersion: string;
@@ -23,6 +24,7 @@ interface LoginProps {
 
 export default function Login({
   setIsLogin,
+  loginSession,
   autoLoginUsername,
   autoLoginPassword,
   currentVersion,
@@ -54,17 +56,35 @@ export default function Login({
     if (!autoLoginUsername || !autoLoginPassword) return;
     setAutoLogin(true);
     notification.destroy('login-error');
-    invoke('login', { username: autoLoginUsername, password: autoLoginPassword, autoLogin: true })
-      .then(() => setIsLogin(true))
+    invoke('login', { username: autoLoginUsername, password: autoLoginPassword })
+      .then(() => {
+        setIsLogin(true);
+        const session = loginSession.current;
+        void invoke('complete_login_setup', { username: autoLoginUsername, autoLogin: true })
+          .catch(err => {
+            if (session === loginSession.current) notification.warning({ title: '无法保存自动登录信息', description: String(err) });
+          });
+      })
       .catch(err => notification.error({ key: 'login-error', title: '自动登录失败', description: String(err) }))
       .finally(() => setAutoLogin(false));
-  }, [autoLoginUsername, autoLoginPassword, setIsLogin, notification]);
+  }, [autoLoginUsername, autoLoginPassword, setIsLogin, loginSession, notification]);
 
   const onFinish = (values: { username: string; password: string; remember: boolean }) => {
     notification.destroy('login-error');
     setLoading(true);
-    invoke('login', { username: values.username, password: values.password, autoLogin: values.remember })
-      .then(() => setIsLogin(true))
+    invoke('login', { username: values.username, password: values.password })
+      .then(() => {
+        setIsLogin(true);
+        const session = loginSession.current;
+        void invoke('complete_login_setup', { username: values.username, autoLogin: values.remember })
+          .catch(err => {
+            if (session !== loginSession.current) return;
+            notification.warning({
+              title: values.remember ? '无法保存自动登录信息' : '无法清除自动登录信息',
+              description: String(err)
+            });
+          });
+      })
       .catch(err => notification.error({ key: 'login-error', title: '登录失败', description: String(err) }))
       .finally(() => setLoading(false));
   };

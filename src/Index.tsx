@@ -1,5 +1,5 @@
 import { useDesktopApp } from './context/NotificationContext';
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal, Typography } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -20,7 +20,12 @@ function Index() {
 
   const { notification } = useDesktopApp()
 
-  const [isLogin, setIsLogin] = useState(false)
+  const [isLogin, setLogin] = useState(false)
+  const loginSession = useRef(0)
+  const setIsLogin = useCallback((loggedIn: boolean) => {
+    if (!loggedIn) loginSession.current += 1
+    setLogin(loggedIn)
+  }, [])
   const [autoLoginUsername, setAutoLoginUsername] = useState('')
   const [autoLoginPassword, setAutoLoginPassword] = useState('')
   const [currentVersion, setCurrentVersion] = useState('')
@@ -72,6 +77,7 @@ function Index() {
         /> :
         <Login
           setIsLogin={setIsLogin}
+          loginSession={loginSession}
           autoLoginUsername={autoLoginUsername}
           autoLoginPassword={autoLoginPassword}
           currentVersion={currentVersion}

@@ -1,13 +1,10 @@
-mod config_store;
 mod controller;
-mod dingtalk;
 #[cfg(target_os = "linux")]
-mod linux_chrome;
+use utils::linux_chrome;
 mod model;
 mod utils;
 #[cfg(target_os = "windows")]
-mod windows_chrome;
-mod wps;
+use utils::windows_chrome;
 mod zju_assist;
 
 use dashmap::DashMap;
@@ -23,6 +20,7 @@ use tauri_plugin_cli::CliExt;
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
+use utils::config_store;
 use zju_assist::ZjuAssist;
 
 #[tauri::command]
@@ -358,12 +356,14 @@ pub fn run() {
             has_native_backdrop,
             set_window_chrome_layout,
             controller::login,
+            controller::complete_login_setup,
             controller::get_auto_login_info,
             controller::check_login,
             controller::test_connection,
             controller::logout,
             controller::sync_todo_once,
             controller::export_todo,
+            controller::export_todo_from_tray,
             controller::get_courses,
             controller::get_academic_year_list,
             controller::get_semester_list,

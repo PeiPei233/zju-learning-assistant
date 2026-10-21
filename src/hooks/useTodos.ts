@@ -27,6 +27,8 @@ export function useTodos() {
   const snapshot = useRef<string | null>(null);
   const inFlight = useRef<{ manual: boolean; foreground: boolean } | null>(null);
   const exportInFlight = useRef(false);
+  const exportGeneration = useRef(0);
+  useEffect(() => () => { exportGeneration.current += 1; }, []);
   const generation = useRef(0);
   const ledger = useRef(new ReminderLedger());
 
@@ -125,13 +127,21 @@ export function useTodos() {
     }
   }, [notification, checkReminders]);
 
-  const exportTodos = useCallback(async (location: string, selection = latest.current) => {
+  const exportTodos = useCallback(async (location: string, selection = latest.current, fromTray = false) => {
     if (exportInFlight.current) return;
     exportInFlight.current = true;
+    const run = exportGeneration.current;
     setExporting(true);
-    try { await invoke('export_todo', { todoList: selection, location }); }
-    catch (err) { notification.error({ title: '导出待办失败', description: String(err) }); }
-    finally { exportInFlight.current = false; setExporting(false); }
+    try {
+      const message = await invoke<string | null>(fromTray ? 'export_todo_from_tray' : 'export_todo', { todoList: selection, location });
+      if (run === exportGeneration.current && !fromTray && message) notification.success({ title: '导出待办成功', description: message });
+    }
+    catch (err) {
+      if (run === exportGeneration.current) notification.error({ title: '导出待办失败', description: String(err) });
+    }
+    finally {
+      if (run === exportGeneration.current) { exportInFlight.current = false; setExporting(false); }
+    }
   }, [notification]);
 
   useEffect(() => {
@@ -150,7 +160,7 @@ export function useTodos() {
       timer = setInterval(() => { if (configRef.current.todo_auto_sync) void refresh(); }, 60000);
       reminderTimer = setInterval(checkReminders, 60000);
     })();
-    const unlisten = listen<string>('export-todo', event => { void exportTodos(event.payload); });
+    const unlisten = listen<string>('export-todo', event => { void exportTodos(event.payload, latest.current, true); });
     return () => {
       generation.current = run + 1;
       inFlight.current = null;

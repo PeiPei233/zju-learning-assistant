@@ -41,6 +41,7 @@ export function installPreview() {
       case 'login':
         if (args.username === 'error') throw new Error('示例：账号或密码不正确，请重新输入。');
         loggedIn = true; return null;
+      case 'complete_login_setup': return null;
       case 'logout': loggedIn = false; return null;
       case 'test_connection': return true;
       case 'check_graduate_evaluation_done': return new URLSearchParams(window.location.search).get('graduateEvaluation') !== 'pending';
@@ -94,7 +95,9 @@ export function installPreview() {
       case 'plugin:notification|is_permission_granted': return true;
       case 'plugin:notification|request_permission': return 'granted';
       case 'test_llm_connection': return '预览模式：连接测试成功（未调用模型）';
-      case 'notify_score': case 'export_todo': case 'open_file': case 'open_file_upload': case 'open_file_ppts': return null;
+      case 'export_todo': return '示例待办已导出';
+      case 'export_todo_from_tray': return null;
+      case 'notify_score': case 'open_file': case 'open_file_upload': case 'open_file_ppts': return null;
       default:
         if (command.startsWith('plugin:')) return null;
         throw new Error(`预览模式尚未实现接口：${command}`);

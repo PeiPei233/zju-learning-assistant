@@ -1,5 +1,8 @@
 use crate::model::{Config, Progress, Subject, Upload, VersionInfo};
-use crate::utils::{export_todo_ics, images_to_pdf, save_subtitle};
+use crate::utils::{
+    export_todo_to_destination, images_to_pdf, normalize_llm_api_url, save_subtitle,
+    summarize_subtitle,
+};
 use crate::zju_assist::{SubtitleContent, ZjuAssist};
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
@@ -8,28 +11,20 @@ use futures::TryStreamExt;
 use keyring::Entry;
 use log::{debug, info};
 use percent_encoding::percent_decode_str;
-use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-#[cfg(target_os = "macos")]
-use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tauri_plugin_autostart::ManagerExt;
-use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
-use tauri_plugin_opener::OpenerExt;
 #[cfg(not(desktop))]
 use tauri_plugin_shell::ShellExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-
-#[cfg(target_os = "macos")]
-use crate::utils::macos::add_event;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -37,76 +32,93 @@ use std::os::windows::process::CommandExt;
 #[tauri::command]
 pub async fn login(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
-    handle: AppHandle,
     username: String,
     password: String,
-    auto_login: bool,
 ) -> Result<(), String> {
-    info!("login: {} auto_login: {}", username, auto_login);
+    info!("login");
     let mut zju_assist = state.lock().await;
     zju_assist
         .login(&username, &password)
         .await
         .map_err(|err| err.to_string())?;
 
-    #[cfg(desktop)]
-    let res = handle
-        .app_handle()
-        .tray_by_id("main")
-        .unwrap()
-        .set_menu(Some(
-            Menu::with_items(
-                &handle,
-                &[
-                    &MenuItem::with_id(
-                        &handle,
-                        "id",
-                        format!("已登录：{}", username),
-                        false,
-                        None::<&str>,
-                    )
-                    .map_err(|err| err.to_string())?,
-                    &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
-                    &MenuItem::with_id(
-                        &handle,
-                        "open",
-                        "打开 ZJU Learning Assistant",
-                        true,
-                        None::<&str>,
-                    )
-                    .map_err(|err| err.to_string())?,
-                    &MenuItem::with_id(
-                        &handle,
-                        "quit",
-                        "退出 ZJU Learning Assistant",
-                        true,
-                        None::<&str>,
-                    )
-                    .map_err(|err| err.to_string())?,
-                ],
-            )
-            .map_err(|err| err.to_string())?,
-        ));
-    #[cfg(desktop)]
-    if let Err(e) = res {
-        return Err(e.to_string());
-    }
-
-    if auto_login {
-        let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
-        entry
-            .set_password(&format!("{}\n{}", username, password))
-            .map_err(|err| err.to_string())?;
-    } else {
-        let entry = Entry::new("zju-assist", "auto-login");
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => return Ok(()),
-        };
-        let _ = entry.delete_password();
-    }
-
+    let background = zju_assist.clone();
+    drop(zju_assist);
+    tauri::async_runtime::spawn(async move {
+        background.connect_services().await;
+    });
     Ok(())
+}
+
+// Called after the UI has entered Home. These failures must not undo authentication.
+#[tauri::command]
+pub async fn complete_login_setup(
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    handle: AppHandle,
+    username: String,
+    auto_login: bool,
+) -> Result<(), String> {
+    let current_session = state.lock().await;
+    let zju_assist = current_session.clone();
+    if !zju_assist.is_login() || zju_assist.get_username() != username {
+        return Ok(());
+    }
+    #[cfg(desktop)]
+    let update_tray = || -> Result<(), String> {
+        let res = handle
+            .app_handle()
+            .tray_by_id("main")
+            .ok_or_else(|| "托盘不可用".to_string())?
+            .set_menu(Some(
+                Menu::with_items(
+                    &handle,
+                    &[
+                        &MenuItem::with_id(
+                            &handle,
+                            "id",
+                            format!("已登录：{}", username),
+                            false,
+                            None::<&str>,
+                        )
+                        .map_err(|err| err.to_string())?,
+                        &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+                        &MenuItem::with_id(
+                            &handle,
+                            "open",
+                            "打开 ZJU Learning Assistant",
+                            true,
+                            None::<&str>,
+                        )
+                        .map_err(|err| err.to_string())?,
+                        &MenuItem::with_id(
+                            &handle,
+                            "quit",
+                            "退出 ZJU Learning Assistant",
+                            true,
+                            None::<&str>,
+                        )
+                        .map_err(|err| err.to_string())?,
+                    ],
+                )
+                .map_err(|err| err.to_string())?,
+            ));
+        res.map_err(|error| error.to_string())
+    };
+    #[cfg(desktop)]
+    if let Err(error) = update_tray() {
+        log::warn!("Update login tray failed: {}", error);
+    }
+
+    drop(current_session);
+    let storage_session = zju_assist.clone();
+    let result = tokio::task::spawn_blocking(move || storage_session.save_auto_login(auto_login))
+        .await
+        .map_err(|error| error.to_string())
+        .and_then(|result| result);
+    if !zju_assist.is_login() {
+        return Ok(());
+    }
+    result
 }
 
 #[tauri::command]
@@ -133,7 +145,7 @@ pub async fn check_login(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<bool
 #[tauri::command]
 pub async fn test_connection(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<(), String> {
     info!("test_connection");
-    let mut zju_assist = state.lock().await;
+    let mut zju_assist = state.lock().await.clone();
     zju_assist
         .test_connection()
         .await
@@ -187,11 +199,11 @@ pub async fn logout(
 
 #[tauri::command]
 pub async fn sync_todo_once(
-    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
     handle: AppHandle,
 ) -> Result<Vec<Value>, String> {
     info!("sync_todo_once");
-    let zju_assist = zju_assist.lock().await.clone();
+    let zju_assist = state.lock().await.clone();
     let todo_list = zju_assist
         .get_todo_list()
         .await
@@ -375,6 +387,12 @@ pub async fn sync_todo_once(
     ])
     .unwrap();
 
+    // Keep logout/account changes from interleaving with the final tray update.
+    let _current_session = state.lock().await;
+    if !zju_assist.is_login() {
+        return Err("Not login".to_string());
+    }
+
     #[cfg(desktop)]
     handle
         .tray_by_id("main")
@@ -386,204 +404,37 @@ pub async fn sync_todo_once(
 }
 
 #[tauri::command]
-pub fn export_todo(
+pub async fn export_todo(
     handle: AppHandle,
     window: Window,
     todo_list: Vec<Value>,
     location: String,
-) -> Result<(), String> {
-    info!("export_todo to {}", location);
+) -> Result<Option<String>, String> {
+    export_todo_to_destination(handle, window, todo_list, location).await
+}
 
-    if location == "help" {
-        let res = handle.opener().open_url(
-            "https://github.com/PeiPei233/zju-learning-assistant?tab=readme-ov-file#导出学在浙大待办事项",
-            None::<&str>,
-        )
-        .map_err(|err| err.to_string());
-        if let Err(err) = res {
-            handle
-                .notification()
-                .builder()
-                .title("打开帮助页面失败")
-                .body(&err)
-                .show()
-                .unwrap();
-        }
-
-        return Ok(());
-    } else if location.starts_with("ics") {
-        #[cfg(desktop)]
-        window.set_focus().unwrap();
-        #[cfg(desktop)]
-        handle
-            .dialog()
-            .file()
-            .add_filter("iCalendar", &[&"ics"])
-            .set_file_name("Todo")
-            .set_parent(&window)
-            .save_file(move |ics_path| {
-                let ics_path = match ics_path {
-                    Some(ics_path) => ics_path,
-                    None => return,
-                };
-                let res = export_todo_ics(todo_list, &ics_path.to_string())
-                    .map_err(|err| err.to_string());
-                match res {
-                    Ok(_) => {
-                        handle
-                            .notification()
-                            .builder()
-                            .title("导出待办事项成功")
-                            .body(&format!("文件已保存至：{}", ics_path.to_string()))
-                            .show()
-                            .unwrap();
-                    }
-                    Err(err) => {
-                        handle
-                            .notification()
-                            .builder()
-                            .title("导出待办事项失败")
-                            .body(&err)
-                            .show()
-                            .unwrap();
-                    }
-                }
-            });
-        return Ok(());
-    }
-
-    #[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn export_todo_from_tray(
+    handle: AppHandle,
+    window: Window,
+    todo_list: Vec<Value>,
+    location: String,
+) {
+    let result = export_todo_to_destination(handle.clone(), window, todo_list, location).await;
+    let (title, description) = match result {
+        Ok(Some(description)) => ("导出待办成功", description),
+        Ok(None) => return,
+        Err(error) => ("导出待办失败", error),
+    };
+    if let Err(error) = handle
+        .notification()
+        .builder()
+        .title(title)
+        .body(description)
+        .show()
     {
-        let mut todo_list_with_end_time = todo_list
-            .iter()
-            .filter(|todo| !todo["end_time"].is_null())
-            .map(|todo| todo.clone())
-            .collect::<Vec<_>>();
-
-        todo_list_with_end_time.sort_by(|a, b| {
-            let a = a["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
-            let b = b["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
-
-            let a = a
-                .parse::<DateTime<Utc>>()
-                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
-            let b = b
-                .parse::<DateTime<Utc>>()
-                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
-
-            a.cmp(&b)
-        });
-
-        let app_name = match location.as_str() {
-            "calendar" => "日历 App ",
-            "reminder" => "提醒事项 App ",
-            _ => return Err("Invalid location".to_string()),
-        };
-        let script_path = match location.as_str() {
-            "calendar" => "scripts/export_todo_calendar.applescript",
-            "reminder" => "scripts/export_todo_reminder.applescript",
-            _ => return Err("Invalid location".to_string()),
-        };
-        let script_path = handle
-            .path()
-            .resolve(script_path, BaseDirectory::Resource)
-            .expect("Failed to resolve script path");
-
-        for todo in todo_list_with_end_time.iter() {
-            let end_time = todo["end_time"]
-                .as_str()
-                .unwrap_or("1970-01-01T00:00:00Z")
-                .parse::<DateTime<Utc>>()
-                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
-            let course_name = todo["course_name"].as_str().unwrap();
-            let title = todo["title"].as_str().unwrap();
-            let url = format!(
-                "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
-                todo["course_id"].as_i64().unwrap(),
-                todo["id"].as_i64().unwrap()
-            );
-
-            let mut use_apple_script = true;
-            if location == "calendar" {
-                let res = add_event(title, course_name, &url, end_time, end_time)
-                    .map_err(|err| err.to_string());
-                if let Err(err) = res {
-                    println!("export_todo: add_event failed {}", err);
-                } else {
-                    use_apple_script = false; // skip apple script if add_event success
-                }
-            }
-            if use_apple_script {
-                let end_time = end_time
-                    .with_timezone(&Local)
-                    .format("%Y-%m-%d %H:%M:%S")
-                    .to_string();
-                let res = Command::new("osascript")
-                    .arg(&script_path)
-                    .arg(&title)
-                    .arg(&end_time)
-                    .arg(&course_name)
-                    .arg(&url)
-                    .output()
-                    .map_err(|err| err.to_string());
-                if let Err(err) = res {
-                    println!("export_todo: {}", err);
-                    handle
-                        .notification()
-                        .builder()
-                        .title(&format!("添加待办事项到{}失败", app_name))
-                        .body(&err)
-                        .show()
-                        .unwrap();
-                    return Err(err);
-                }
-            }
-        }
-
-        if location == "reminder" {
-            // add those with no end time to reminder
-            for todo in todo_list.iter() {
-                if todo["end_time"].is_null() {
-                    let course_name = todo["course_name"].as_str().unwrap();
-                    let title = todo["title"].as_str().unwrap();
-                    let url = format!(
-                        "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
-                        todo["course_id"].as_i64().unwrap(),
-                        todo["id"].as_i64().unwrap()
-                    );
-
-                    let res = Command::new("osascript")
-                        .arg(&script_path)
-                        .arg(&title)
-                        .arg("None")
-                        .arg(&course_name)
-                        .arg(&url)
-                        .output()
-                        .map_err(|err| err.to_string());
-                    if let Err(err) = res {
-                        println!("export_todo: {}", err);
-                        handle
-                            .notification()
-                            .builder()
-                            .title(&format!("添加待办事项到{}失败", app_name))
-                            .body(&err)
-                            .show()
-                            .unwrap();
-                        return Err(err);
-                    }
-                }
-            }
-        }
-
-        handle
-            .notification()
-            .builder()
-            .title(&format!("添加待办事项到{}", app_name))
-            .body("添加成功")
-            .show()
-            .unwrap();
+        log::warn!("Show export notification failed: {}", error);
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -775,11 +626,11 @@ pub async fn start_download_upload(
             let activity_id = upload
                 .activity_id
                 .ok_or_else(|| "缺少课件所属活动，请刷新课件列表后重试".to_string())?;
-            let res = crate::wps::download(
+            let res = crate::utils::wps::download(
                 &zju_assist,
                 upload.id,
                 activity_id,
-                crate::wps::DownloadMode::Original,
+                crate::utils::wps::DownloadMode::Original,
             )
             .await;
             match res {
@@ -792,17 +643,17 @@ pub async fn start_download_upload(
                             Progress {
                                 id: id.clone(),
                                 status: "downloading".to_string(),
-                                file_name: crate::wps::preview_file_name(&upload.file_name),
+                                file_name: crate::utils::wps::preview_file_name(&upload.file_name),
                                 msg: "正在导出预览版 PDF".to_string(),
                                 ..Progress::default()
                             },
                         );
                     }
-                    let res = crate::wps::download(
+                    let res = crate::utils::wps::download(
                         &zju_assist,
                         upload.id,
                         activity_id,
-                        crate::wps::DownloadMode::PreviewPdf,
+                        crate::utils::wps::DownloadMode::PreviewPdf,
                     )
                     .await
                     .map_err(|err| err.to_string())?;
@@ -856,7 +707,7 @@ pub async fn start_download_upload(
     let mut file_name = upload.file_name.clone();
     let url = res.url().to_string();
     if is_preview {
-        file_name = crate::wps::preview_file_name(&upload.file_name);
+        file_name = crate::utils::wps::preview_file_name(&upload.file_name);
     } else if let Some(start) = url.find("name=") {
         let start = start + 5;
         let end = url[start..].find("&").unwrap_or(url.len() - start);
@@ -1262,16 +1113,14 @@ pub async fn start_download_ppts(
         id, subject.course_name, subject.sub_name
     );
 
-    let mut zju_assist_mut = zju_assist.lock().await;
-    zju_assist_mut
+    let mut zju_assist = zju_assist.lock().await.clone();
+    zju_assist
         .keep_classroom_alive()
         .await
         .map_err(|err| err.to_string())?;
-    drop(zju_assist_mut);
 
     // state -> true: downloading, false: cancel
     let download_state = Arc::new(AtomicBool::new(true));
-    let zju_assist = zju_assist.lock().await.clone();
     let config = config_state.lock().await.clone();
     state.insert(id.clone(), download_state.clone());
 
@@ -1690,14 +1539,12 @@ pub async fn start_download_playback(
         id, subject.course_name, subject.sub_name
     );
 
-    let mut zju_assist_mut = zju_assist.lock().await;
-    zju_assist_mut
+    let mut zju_assist = zju_assist.lock().await.clone();
+    zju_assist
         .keep_classroom_alive()
         .await
         .map_err(|err| err.to_string())?;
-    drop(zju_assist_mut);
 
-    let zju_assist = zju_assist.lock().await.clone();
     // state -> true: downloading, false: cancel
     let download_state = Arc::new(AtomicBool::new(true));
     state.insert(id.clone(), download_state.clone());
@@ -1892,13 +1739,11 @@ pub async fn get_sub_ppt_urls(
     subs: Vec<Subject>,
 ) -> Result<Vec<Subject>, String> {
     info!("get_sub_ppt_urls");
-    let mut zju_assist_mut = zju_assist.lock().await;
-    zju_assist_mut
+    let mut zju_assist = zju_assist.lock().await.clone();
+    zju_assist
         .keep_classroom_alive()
         .await
         .map_err(|err| err.to_string())?;
-    drop(zju_assist_mut);
-    let zju_assist = zju_assist.lock().await.clone();
     let mut new_subs = Vec::new();
     let save_path = config.lock().await.save_path.clone();
 
@@ -1955,13 +1800,11 @@ pub async fn get_range_subs(
     end_at: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_range_subs: {} {}", start_at, end_at);
-    let mut zju_assist_mut = state.lock().await;
-    zju_assist_mut
+    let mut zju_assist = state.lock().await.clone();
+    zju_assist
         .keep_classroom_alive()
         .await
         .map_err(|err| err.to_string())?;
-    drop(zju_assist_mut);
-    let zju_assist = state.lock().await.clone();
     let mut subs = Vec::new();
     let mut tasks: Vec<JoinHandle<Result<Vec<Subject>, String>>> = Vec::new();
     let start = NaiveDate::parse_from_str(&start_at, "%Y-%m-%d").unwrap();
@@ -1995,13 +1838,11 @@ pub async fn get_month_subs(
     month: String,
 ) -> Result<Vec<Subject>, String> {
     info!("get_month_subs: {}", month);
-    let mut zju_assist_mut = state.lock().await;
-    zju_assist_mut
+    let mut zju_assist = state.lock().await.clone();
+    zju_assist
         .keep_classroom_alive()
         .await
         .map_err(|err| err.to_string())?;
-    drop(zju_assist_mut);
-    let zju_assist = state.lock().await.clone();
     let subs = zju_assist
         .get_month_subs(&month)
         .await
@@ -2016,13 +1857,11 @@ pub async fn search_courses(
     teacher_name: String,
 ) -> Result<Vec<Subject>, String> {
     info!("search_courses: {} {}", course_name, teacher_name);
-    let mut zju_assist_mut = state.lock().await;
-    zju_assist_mut
+    let mut zju_assist = state.lock().await.clone();
+    zju_assist
         .keep_classroom_alive()
         .await
         .map_err(|err| err.to_string())?;
-    drop(zju_assist_mut);
-    let zju_assist = state.lock().await.clone();
     let courses = zju_assist
         .search_courses(&course_name, &teacher_name)
         .await
@@ -2062,13 +1901,11 @@ pub async fn get_course_all_sub_ppts(
     course_ids: Vec<i64>,
 ) -> Result<Vec<Subject>, String> {
     info!("get_course_subs");
-    let mut zju_assist_mut = state.lock().await;
-    zju_assist_mut
+    let mut zju_assist = state.lock().await.clone();
+    zju_assist
         .keep_classroom_alive()
         .await
         .map_err(|err| err.to_string())?;
-    drop(zju_assist_mut);
-    let zju_assist = state.lock().await.clone();
     let mut subs = Vec::new();
     for course_id in course_ids {
         let sub = zju_assist
@@ -2087,7 +1924,7 @@ pub async fn check_undergraduate_evaluation_done(
     window: Window,
 ) -> Result<bool, String> {
     info!("check_undergraduate_evaluation_done");
-    let mut zju_assist = state.lock().await;
+    let mut zju_assist = state.lock().await.clone();
     let res = zju_assist
         .check_undergraduate_evaluation_done()
         .await
@@ -2118,7 +1955,7 @@ pub async fn check_graduate_evaluation_done(
     window: Window,
 ) -> Result<bool, String> {
     info!("check_graduate_evaluation_done");
-    let mut zju_assist = state.lock().await;
+    let mut zju_assist = state.lock().await.clone();
     let res = zju_assist
         .check_graduate_evaluation_done()
         .await
@@ -2144,7 +1981,7 @@ pub async fn get_undergraduate_score(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
 ) -> Result<Vec<Value>, String> {
     info!("get_undergraduate_score");
-    let mut zju_assist = state.lock().await;
+    let mut zju_assist = state.lock().await.clone();
     let started = std::time::Instant::now();
     let result = zju_assist.get_undergraduate_score().await;
     info!(
@@ -2160,7 +1997,7 @@ pub async fn get_graduate_score(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
 ) -> Result<Vec<Value>, String> {
     info!("get_graduate_score");
-    let mut zju_assist = state.lock().await;
+    let mut zju_assist = state.lock().await.clone();
     let started = std::time::Instant::now();
     let result = zju_assist.get_graduate_score().await;
     info!(
@@ -2214,7 +2051,7 @@ pub async fn notify_score(
             course_id, course_name, grade, credits, grade_point, new_gpa, new_gpa - old_gpa, total_credit, total_credit - old_total_credit
         )
         };
-        if let Err(error) = crate::dingtalk::send(
+        if let Err(error) = crate::utils::dingtalk::send(
             &ding_url,
             ding_secret.as_deref().unwrap_or(""),
             "考试成绩通知",
@@ -2264,7 +2101,7 @@ pub async fn send_ding_notification(
     title: String,
     text: String,
 ) -> Result<(), String> {
-    crate::dingtalk::send(&ding_url, &ding_secret, &title, &text).await
+    crate::utils::dingtalk::send(&ding_url, &ding_secret, &title, &text).await
 }
 
 #[tauri::command]
@@ -2277,7 +2114,7 @@ pub async fn get_notification_scope(
 #[tauri::command]
 pub async fn get_config(
     config: State<'_, Arc<Mutex<Config>>>,
-    store: State<'_, crate::config_store::ConfigStore>,
+    store: State<'_, crate::utils::config_store::ConfigStore>,
 ) -> Result<Config, String> {
     let mut current = config.lock().await;
     let loaded = store.load()?;
@@ -2296,7 +2133,7 @@ pub async fn get_runtime_config(config: State<'_, Arc<Mutex<Config>>>) -> Result
 pub async fn set_config(
     handle: AppHandle,
     config_state: State<'_, Arc<Mutex<Config>>>,
-    store: State<'_, crate::config_store::ConfigStore>,
+    store: State<'_, crate::utils::config_store::ConfigStore>,
     patch: serde_json::Map<String, Value>,
 ) -> Result<Config, String> {
     let mut current = config_state.lock().await;
@@ -2309,131 +2146,6 @@ pub async fn set_config(
         }
         .map_err(|e| e.to_string())
     })
-}
-
-async fn summarize_subtitle(
-    contents: &Vec<SubtitleContent>,
-    base_path: &Path,
-    file_stem: &str,
-    config: &Config,
-    window: &Window,
-    id: &str,
-) -> Result<(), String> {
-    // 1. 检查开关和 API Key
-    if !config.llm_enabled {
-        return Ok(());
-    }
-    if config.llm_api_key.is_empty() {
-        info!("LLM enabled but no API Key provided, skipping summary.");
-        // 可以选择在这里给前端发个提示，或者静默跳过
-        return Ok(());
-    }
-
-    info!("summarize_subtitle: 开始 AI 总结 - {}", file_stem);
-
-    // 发送进度提示：正在总结
-    let _ = window.emit(
-        "download-progress",
-        Progress {
-            id: id.to_string(),
-            status: "downloading".to_string(),
-            file_name: format!("{}-AI总结", file_stem),
-            downloaded_size: 60,
-            total_size: 100,
-            msg: "正在进行 AI 总结...".to_string(),
-        },
-    );
-
-    // 2. 准备 Prompt 和 上下文
-    let system_prompt = if config.llm_prompt.trim().is_empty() {
-        "你是一个专业的课程助教。请根据提供的课程字幕内容，总结课程的核心知识点、重点和难点。输出格式要求清晰、结构化，使用 Markdown 格式。"
-    } else {
-        &config.llm_prompt
-    };
-
-    // 拼接所有字幕文本（使用原文字幕 text，通常比 trans_text 更准确）
-    // 如果需要更精细的控制（比如只总结英文），可以根据 subtitle_language 判断
-    let full_text = contents
-        .iter()
-        .map(|c| c.text.clone())
-        .collect::<Vec<String>>()
-        .join("\n");
-
-    // 3. 构建请求
-    let client = reqwest::Client::new();
-
-    let api_url = normalize_llm_api_url(&config.llm_api_base);
-
-    let payload = json!({
-        "model": config.llm_model,
-        "messages": [
-            { "role": "system", "content": system_prompt },
-            { "role": "user", "content": full_text }
-        ],
-        "temperature": config.llm_temperature,
-        "stream": false
-    });
-
-    // 4. 调用 API
-    let res = client
-        .post(&api_url)
-        .header("Authorization", format!("Bearer {}", config.llm_api_key))
-        .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("LLM 请求失败: {}", e))?;
-
-    if !res.status().is_success() {
-        let status = res.status();
-        let text = res.text().await.unwrap_or_default();
-        return Err(format!("LLM API 返回错误 {}: {}", status, text));
-    }
-
-    let json: Value = res
-        .json()
-        .await
-        .map_err(|e| format!("解析响应失败: {}", e))?;
-
-    // 提取内容
-    let content = json["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or("响应中未找到 content 字段")?;
-
-    let mut summary_text = content.to_string();
-
-    // 5. 过滤 <think> 标签 (针对 DeepSeek R1 等推理模型)
-    if config.llm_hide_think_tag {
-        // 使用 (?s) 开启 dot matches newline 模式
-        if let Ok(re) = Regex::new(r"(?s)<think>.*?</think>") {
-            summary_text = re.replace_all(&summary_text, "").to_string();
-            summary_text = summary_text.trim().to_string();
-        }
-    }
-
-    // 6. 保存为 Markdown 文件
-    let file_name = format!("{}-AI总结.md", file_stem);
-    let file_path = base_path.join(&file_name);
-
-    tokio::fs::write(&file_path, summary_text)
-        .await
-        .map_err(|e| format!("写入总结文件失败: {}", e))?;
-    info!("AI 总结已保存: {:?}", file_path);
-
-    // 发送进度提示：完成
-    let _ = window.emit(
-        "download-progress",
-        Progress {
-            id: id.to_string(),
-            status: "downloading".to_string(), // 保持 downloading，直到整个任务结束
-            file_name: file_name,
-            downloaded_size: 100,
-            total_size: 100,
-            msg: "AI 总结完成".to_string(),
-        },
-    );
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -2474,16 +2186,4 @@ pub async fn test_llm_connection(
     }
 
     Ok(())
-}
-
-// Helper: 规范化 LLM API URL，确保以 /chat/completions 结尾
-fn normalize_llm_api_url(base: &str) -> String {
-    let base_trimmed = base.trim_end_matches('/');
-    if base_trimmed.ends_with("/v1") {
-        format!("{}/chat/completions", base_trimmed)
-    } else if base_trimmed.contains("chat/completions") {
-        base_trimmed.to_string()
-    } else {
-        format!("{}/chat/completions", base_trimmed)
-    }
 }
