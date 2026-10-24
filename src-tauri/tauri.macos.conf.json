@@ -4,6 +4,7 @@
     "windows": [
       {
         "fullscreen": false,
+        "visible": false,
         "height": 760,
         "resizable": true,
         "title": "zju-learning-assistant",

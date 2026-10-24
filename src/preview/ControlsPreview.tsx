@@ -48,6 +48,6 @@ export default function ControlsPreview() {
     <section className="control-examples-list"><ResourceList title="课程文件" items={[{ id: 1, name: '课程导论.pdf' }, { id: 2, name: '实验指导.pdf' }]}
       itemKey={item => item.id} fields={[{ label: '文件名', value: item => item.name }, { label: '课程', value: () => '计算机网络' }]}
       sorts={[{ label: '名称排序', compare: (a, b) => a.name.localeCompare(b.name) }]} selectedKeys={selected} onSelectionChange={setSelected}
-      renderItem={item => ({ title: item.name, subtitle: '计算机网络' })} /></section>
+      renderItem={item => ({ title: item.name, titleField: '文件名', subtitle: [{ text: '计算机网络', field: '课程' }] })} /></section>
   </main>;
 }

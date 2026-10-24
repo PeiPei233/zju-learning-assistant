@@ -6,9 +6,8 @@ use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
 use num::BigUint;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
 use regex::Regex;
-use reqwest::Client;
 use serde_json::{json, Value};
-use std::{io::Write, path::Path, time::Instant};
+use std::{io::Write, path::Path};
 
 use tauri::{AppHandle, Emitter, Window};
 use tauri_plugin_dialog::DialogExt;
@@ -133,13 +132,6 @@ pub fn rsa_no_padding(src: &str, modulus: &str, exponent: &str) -> String {
         .iter()
         .map(|byte| format!("{:02x}", byte))
         .collect()
-}
-
-pub async fn measure_latency(client: Client, url: &str) -> Result<u128, reqwest::Error> {
-    let start = Instant::now();
-    info!("GET {}", url);
-    client.get(url).send().await?;
-    Ok(start.elapsed().as_millis())
 }
 
 pub fn export_todo_ics(

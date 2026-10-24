@@ -81,7 +81,7 @@ a:hover .status-badge .ant-badge-dot, a:hover .status-badge .ant-badge-count { b
 .rail-button:hover, .rail-button.active { background: var(--selected); color: var(--text); }
 .rail-spacer { flex: 1; min-height: 20px; }
 .module-host { flex: 1; min-width: 0; }
-.workspace { --content-inset: 22px; position: relative; height: 100%; display: grid; grid-template-columns: var(--panel-width, 250px) minmax(0, 1fr); }
+.workspace { --content-inset: 22px; position: relative; height: 100%; display: grid; grid-template-columns: var(--panel-width, 280px) minmax(0, 1fr); }
 .workspace.panel-collapsed { grid-template-columns: minmax(0, 1fr); }
 .context-panel { --panel-inset: 18px; background: var(--panel); border-right: 1px solid var(--line); border-radius: 12px 0 0 12px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .context-panel[hidden] { display: none; }
@@ -91,6 +91,10 @@ a:hover .status-badge .ant-badge-dot, a:hover .status-badge .ant-badge-count { b
 .panel-controls { display: flex; flex-direction: column; gap: 12px; padding: 0 var(--panel-inset) 16px; }
 .panel-controls label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--muted); }
 .panel-controls .ant-select { width: 100%; }
+.course-filter-retry.ant-btn { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; height: var(--control-height); padding: 0 11px; border: 1px solid transparent; border-radius: var(--control-radius); background: var(--field-bg); color: var(--muted); box-shadow: none; font-size: var(--control-font-size); }
+.course-filter-retry.ant-btn:hover:not(:disabled) { background: var(--field-hover); border-color: transparent; color: var(--text); }
+.course-filter-retry > .anticon { flex-shrink: 0; font-size: 10px; }
+.course-filter-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .course-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .panel-list { flex: 1; min-height: 0; padding: 0 var(--panel-inset); }
 .panel-bottom { margin-top: auto; padding: 14px var(--panel-inset); border-top: 1px solid var(--line); line-height: 1.6; }
@@ -221,10 +225,10 @@ a:hover .status-badge .ant-badge-dot, a:hover .status-badge .ant-badge-count { b
 
 /* Animate a real zero-width grid track so the workspace follows the sidebar. */
 .module-host { position: relative; }
-.workspace { grid-template-columns: var(--panel-width, 250px) minmax(0, 1fr); transition: grid-template-columns 220ms cubic-bezier(.2,.8,.2,1); }
+.workspace { grid-template-columns: var(--panel-width, 280px) minmax(0, 1fr); transition: grid-template-columns 220ms cubic-bezier(.2,.8,.2,1); }
 .workspace.panel-collapsed { grid-template-columns: 0px minmax(0, 1fr); }
 .workspace-main { grid-column: 2; }
-.context-panel { position: absolute; inset: 0 auto 0 0; width: var(--panel-width, 250px); z-index: 3; transition: transform 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease, visibility 0s; }
+.context-panel { position: absolute; inset: 0 auto 0 0; width: var(--panel-width, 280px); z-index: 3; transition: transform 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease, visibility 0s; }
 .panel-collapsed .context-panel { transform: translateX(-16px); opacity: 0; visibility: hidden; pointer-events: none; transition: transform 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease, visibility 0s 220ms; }
 .panel-floating .context-panel { inset: 6px auto 6px 6px; max-width: calc(100vw - 70px); transform: translateX(0); opacity: 1; visibility: visible; pointer-events: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); box-shadow: 0 12px 40px #0002, 0 2px 8px #0001; transition-delay: 0s; }
 .module-peeking { position: absolute; inset: 0; z-index: 25; pointer-events: none; }
@@ -281,6 +285,9 @@ a:hover .status-badge .ant-badge-dot, a:hover .status-badge .ant-badge-count { b
 .table-empty-region > .fetch-state, .table-empty-region > .resource-empty { flex: 1; height: auto; }
 
 .fetch-state { flex: 1; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px; color: var(--muted); font-size: 12px; line-height: 20px; }
+.fetch-state-retry { border: 0; background: transparent; font-family: inherit; cursor: pointer; }
+.fetch-state-retry:hover { color: var(--text); }
+.fetch-state-retry:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 7px; }
 .fetch-state > .anticon { font-size: 20px; }
 .fetch-state-inline { flex: none; min-height: 0; padding: 0; flex-direction: row; justify-content: flex-start; gap: 6px; font-size: 11px; }
 .fetch-state-inline > .anticon { font-size: 12px; }

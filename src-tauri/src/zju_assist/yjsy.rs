@@ -4,18 +4,15 @@ use log::info;
 use regex::Regex;
 use reqwest::{cookie::CookieStore, header::HeaderMap, Method};
 use serde_json::Value;
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use url::Url;
 
 impl ZjuAssist {
-    pub(super) async fn login_graduate(&self) -> Result<String> {
-        match self.login_graduate_once().await {
+    pub(super) async fn login_yjsy(&self) -> Result<String> {
+        match self.login_yjsy_once().await {
             Ok(token) => Ok(token),
             Err(error) => {
                 let retryable = error.downcast_ref::<reqwest::Error>().is_some_and(|error| {
@@ -33,14 +30,14 @@ impl ZjuAssist {
                 alternate.proxy_first =
                     Arc::new(AtomicBool::new(!self.proxy_first.load(Ordering::Relaxed)));
                 alternate
-                    .login_graduate_once()
+                    .login_yjsy_once()
                     .await
                     .map_err(|error| anyhow!("{error:#}"))
             }
         }
     }
 
-    async fn login_graduate_once(&self) -> Result<String> {
+    async fn login_yjsy_once(&self) -> Result<String> {
         const SERVICE: &str = "https://yjsy.zju.edu.cn/";
         let has_sso_cookie = self
             .jar
@@ -57,7 +54,6 @@ impl ZjuAssist {
         let response = self
             .request_without_redirects(Method::GET, "https://zjuam.zju.edu.cn/cas/login")
             .query(&[("service", SERVICE)])
-            .timeout(Duration::from_secs(15))
             .send_once()
             .await
             .map_err(|e| e.without_url())
@@ -105,7 +101,6 @@ impl ZjuAssist {
                 format!("{SERVICE}dataapi/sys/cas/client/validateLogin"),
             )
             .query(&[("ticket", ticket.as_str()), ("service", SERVICE)])
-            .timeout(Duration::from_secs(15))
             .send_once()
             .await
             .map_err(|e| e.without_url())
@@ -127,7 +122,7 @@ impl ZjuAssist {
             .ok_or_else(|| anyhow!("研究生系统登录响应缺少 token"))
     }
 
-    fn graduate_auth_expired(status: u16, body: &str) -> bool {
+    fn yjsy_auth_expired(status: u16, body: &str) -> bool {
         if matches!(status, 401 | 403 | 901) {
             return true;
         }
@@ -164,12 +159,12 @@ impl ZjuAssist {
             || (lower.contains("name=\"username\"") && lower.contains("name=\"password\""))
     }
 
-    async fn graduate_api(&mut self, method: Method, path: &str) -> Result<Value> {
+    async fn yjsy_api(&mut self, method: Method, path: &str) -> Result<Value> {
         if !self.is_login() {
             return Err(anyhow!("Not login"));
         }
         for attempt in 0..2 {
-            let token = self.ensure_service(Service::Graduate, false).await?;
+            let token = self.ensure_service(Service::Yjsy, false).await?;
             let mut headers = HeaderMap::new();
             headers.insert("X-Access-Token", token.parse()?);
             let response = self
@@ -178,7 +173,6 @@ impl ZjuAssist {
                     format!("https://yjsy.zju.edu.cn/dataapi{path}"),
                 )
                 .headers(headers)
-                .timeout(Duration::from_secs(15))
                 .send()
                 .await
                 .map_err(|e| anyhow!("请求研究生接口失败：{}", e.without_url()))?;
@@ -195,9 +189,9 @@ impl ZjuAssist {
                 .text()
                 .await
                 .map_err(|e| anyhow!("读取研究生响应失败：{}", e.without_url()))?;
-            if auth_redirect || Self::graduate_auth_expired(status.as_u16(), &body) {
+            if auth_redirect || Self::yjsy_auth_expired(status.as_u16(), &body) {
                 if attempt == 0 {
-                    self.ensure_service(Service::Graduate, true).await?;
+                    self.ensure_service(Service::Yjsy, true).await?;
                     continue;
                 }
                 return Err(anyhow!("研究生系统登录已失效，请重新登录"));
@@ -218,9 +212,9 @@ impl ZjuAssist {
         Err(anyhow!("研究生系统登录已失效，请重新登录"))
     }
 
-    pub async fn get_graduate_score(&mut self) -> Result<Vec<Value>> {
+    pub async fn get_yjsy_score(&mut self) -> Result<Vec<Value>> {
         let result = self
-            .graduate_api(Method::POST, "/py/pyXsxk/queryXsxkByXnxqXs")
+            .yjsy_api(Method::POST, "/py/pyXsxk/queryXsxkByXnxqXs")
             .await?;
         let text = |value: &Value| match value {
             Value::String(s) => s.clone(),
@@ -277,9 +271,9 @@ impl ZjuAssist {
         Ok(result)
     }
 
-    pub async fn check_graduate_evaluation_done(&mut self) -> Result<bool> {
+    pub async fn check_yjsy_evaluation_done(&mut self) -> Result<bool> {
         let profile = self
-            .graduate_api(Method::POST, "/py/pyXsxk/getXsxkXfInfoByXs")
+            .yjsy_api(Method::POST, "/py/pyXsxk/getXsxkXfInfoByXs")
             .await?;
         let profile = &profile["result"]["xjYjsjbxx"];
         if !profile.is_object() {
@@ -296,7 +290,7 @@ impl ZjuAssist {
         } else {
             "/py/pyXsxk/queryXsxkByXnxqXs"
         };
-        let courses = self.graduate_api(Method::POST, path).await?;
+        let courses = self.yjsy_api(Method::POST, path).await?;
         let result = &courses["result"];
         if !result.is_null() && !result.is_object() && !result.is_array() {
             return Err(anyhow!("研究生课程列表格式错误"));
@@ -319,7 +313,7 @@ impl ZjuAssist {
         }
         if continuing || (profile["xslx"] == "12" && profile["xxfs"] == "1") {
             let config = self
-                .graduate_api(
+                .yjsy_api(
                     Method::GET,
                     "/system/sysCommonControl/getValueByKey?bizKey=XKCS_QRZ_JXZLPJ",
                 )

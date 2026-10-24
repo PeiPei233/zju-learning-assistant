@@ -23,7 +23,7 @@ import Settings from '../../components/Settings'
 import Downloads from '../../components/Downloads';
 import { LearningTask } from '../../downloadManager';
 
-import { Upload, VersionInfo } from '../../model';
+import { LearningCourse, Upload, VersionInfo } from '../../model';
 import dayjs from 'dayjs'
 
 import { useConfig } from '../../context/ConfigContext';
@@ -42,12 +42,6 @@ interface HomeProps {
 
 
 
-interface Course {
-  id: number;
-  name: string;
-  semester_id: number;
-  academic_year_id: number;
-}
 
 const getDefaultSelectedUploadKeys = (uploads: Upload[], excludedExtensions: readonly string[] = []): React.Key[] => (
   uploads
@@ -77,7 +71,7 @@ export default function Home({
   const [panelCollapsed, setPanelCollapsed] = useState(() => localStorage.getItem('context-panel-collapsed') === 'true');
   const [panelWidth, setPanelWidth] = useState(() => {
     const stored = Number(localStorage.getItem('context-panel-width'));
-    return stored >= 200 && stored <= 420 ? stored : 250;
+    return stored >= 200 && stored <= 420 ? stored : 280;
   });
   const resizePanel = (width: number) => { setPanelWidth(width); localStorage.setItem('context-panel-width', String(width)); };
   const togglePanel = () => {
@@ -149,7 +143,7 @@ export default function Home({
 
   const { score, loadingScore, scoreConfigError, lastSyncScore, totalGp, totalCredit, handleSyncScore } = useScores();
 
-  const [courseList, setCourseList] = useState<Course[]>(() => getPreviewData()?.courses || [])
+  const [courseList, setCourseList] = useState<LearningCourse[]>(() => getPreviewData()?.courses || [])
   const [selectedCourseKeys, setSelectedCourseKeys] = useState<React.Key[]>(() => getPreviewData()?.courses.map(item => item.id) || [])
   const [loadingUploadList, setLoadingUploadList] = useState(false)
   const [uploadList, setUploadList] = useState<Upload[]>(() => getPreviewData()?.uploads || [])
@@ -207,6 +201,8 @@ export default function Home({
     const doLogout = async () => {
       if (logoutInFlight.current) return;
       logoutInFlight.current = true;
+      stopSyncUpload();
+      setSyncingUpload(false);
       try {
         if (!await downloadManager.cleanUp()) {
           notification.error({ title: '退出登录失败', description: '下载任务尚未全部停止，请在下载列表查看任务状态后重试。' });
@@ -243,16 +239,18 @@ export default function Home({
   }
 
   const updateUploadList = () => {
-    if (!configReady.current || uploadRequestInFlight.current) return
+    if (logoutInFlight.current || !configReady.current || uploadRequestInFlight.current) return
     const courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
     if (courses.length === 0) {
       notification.error({ title: '请选择课程' })
       return
     }
+    const run = uploadRun.current
     uploadRequestInFlight.current = true
     setLoadingUploadList(true)
     invoke<Upload[]>('get_uploads_list', { courses, syncUpload: syncingUpload }).then((res) => {
-      if (!configReady.current) return
+      if (run !== uploadRun.current || !configReady.current) return
+      notification.destroy('learning-uploads-error')
       const selectedKeys = getDefaultSelectedUploadKeys(res, configRef.current.excluded_upload_extensions)
       if (syncingUpload) {
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
@@ -271,8 +269,10 @@ export default function Home({
         setSelectedUploadKeys(previous => refreshedSelection(previous, res.map(item => item.reference_id), configRef.current.auto_select_all_courseware, selectedKeys))
       }
     }).catch((err) => {
-      notification.error({ title: '获取课件列表失败', description: String(err) })
+      if (run !== uploadRun.current || !configReady.current) return
+      notification.error({ key: 'learning-uploads-error', title: '获取课件列表失败', description: String(err) })
     }).finally(() => {
+      if (run !== uploadRun.current) return
       uploadRequestInFlight.current = false
       setLoadingUploadList(false)
     })
@@ -309,8 +309,8 @@ export default function Home({
         if (run !== uploadRun.current || !configReady.current) return
         notification.error({ title: '同步课件失败', description: String(err) })
       }).finally(() => {
-        uploadRequestInFlight.current = false
         if (run !== uploadRun.current) return
+        uploadRequestInFlight.current = false
         scheduleNext()
         setLoadingUploadList(false)
       })
@@ -322,10 +322,12 @@ export default function Home({
     uploadRun.current++
     clearTimeout(syncUploadTimer.current)
     syncUploadTimer.current = undefined
+    uploadRequestInFlight.current = false
+    setLoadingUploadList(false)
   }
 
   const handleSwitchSyncUpload = (checked: boolean) => {
-    if (checked && !configReady.current) return
+    if (logoutInFlight.current || (checked && !configReady.current)) return
     setSyncingUpload(checked)
     if (checked) startSyncUpload()
     else stopSyncUpload()

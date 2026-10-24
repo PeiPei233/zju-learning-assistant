@@ -99,11 +99,7 @@ const SearchTable = <T extends object>({
     render: (text) => <OverflowText text={text == null ? '' : String(text)}>
       {viewFilters.current[filterKey]?.length ? (
         <Highlighter
-          highlightStyle={{
-            backgroundColor: 'var(--selected)',
-            color: 'var(--text)',
-            padding: 0,
-          }}
+          highlightClassName="search-match"
           searchWords={(viewFilters.current[filterKey] ?? []).map(String)}
           autoEscape
           textToHighlight={text ? text.toString() : ''}

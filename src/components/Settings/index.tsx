@@ -6,7 +6,7 @@ import SettingsSwitch from './SettingsSwitch';
 import { useDelayedBusy } from '../../hooks/useDelayedBusy';
 import Workspace from '../Workspace';
 import { useState, useEffect } from 'react';
-import { Card, Input, InputNumber, Select, Tooltip } from 'antd';
+import { Card, Input, InputNumber, Select, Segmented, Tooltip } from 'antd';
 import ActionButton from '../ActionButton';
 import { EditOutlined, SendOutlined, LoadingOutlined } from '@ant-design/icons';
 import { invoke, dialog } from '../../bridge';
@@ -112,9 +112,10 @@ export default function Settings({
         const message = todoReminderMessage({ course_name: '测试课程', title: '测试待办', end_time: dayjs().add(1, 'hour').format('YYYY-MM-DD HH:mm:ss') }, 60);
         await invoke('send_ding_notification', { dingUrl: dingUrlInput, dingSecret: dingSecretInput, title: message.title, text: message.text });
       }
+      notification.destroy(`ding-test-error:${kind}`);
       notification.success({ title: `${kind === 'score' ? '成绩' : '待办'}测试通知已发送` });
     } catch (err) {
-      notification.error({ title: '发送通知失败', description: String(err) });
+      notification.error({ key: `ding-test-error:${kind}`, title: '发送通知失败', description: String(err) });
     } finally { setTestingDingKind(null); }
   };
 
@@ -199,12 +200,17 @@ export default function Settings({
         </SettingField>
       </SettingsGroup></div>
       <div hidden={section !== 'app'}>
+        <SettingsGroup title="外观">
+          <SettingField label="外观模式" description="跟随系统时，随系统外观自动切换。"><Segmented aria-label="外观模式" disabled={savingSettings} value={config.theme}
+            options={[{ label: '浅色', value: 'light' }, { label: '深色', value: 'dark' }, { label: '跟随系统', value: 'system' }]}
+            onChange={value => void updateConfigField('theme', value)} /></SettingField>
+        </SettingsGroup>
         <SettingsGroup title="运行方式">
           <SettingField label="关闭应用后保持后台运行" description="关闭窗口后继续运行，并保留托盘图标。"><SettingsSwitch aria-label="关闭应用后保持后台运行" field="tray" checked={config.tray} onChange={value => updateConfigField('tray', value)} /></SettingField>
           <SettingField label="开机自启" description="登录系统时自动启动应用。"><SettingsSwitch aria-label="开机自启" field="auto_start" checked={config.auto_start} onChange={value => updateConfigField('auto_start', value)} /></SettingField>
         </SettingsGroup>
         <SettingsGroup title="关于">
-          <SettingField label="应用版本"><ActionButton className="version-details" aria-label="查看版本更新详情" onClick={() => setOpenVersionModal(true)}><span>{currentVersion}</span>{!!latestVersionData && latestVersionData.version !== currentVersion && <><span className="version-arrow" aria-hidden="true">→</span><span className="version-latest">{latestVersionData.version}</span></>}</ActionButton></SettingField>
+          <SettingField label="应用版本"><ActionButton className="version-details" aria-label="查看版本更新详情" onClick={() => setOpenVersionModal(true)}><span>{currentVersion || '版本信息'}</span>{!!latestVersionData && latestVersionData.version !== currentVersion && <><span className="version-arrow" aria-hidden="true">→</span><span className="version-latest">{latestVersionData.version}</span></>}</ActionButton></SettingField>
         </SettingsGroup>
         <div className="settings-about">Made by PeiPei<p>此软件仅供学习交流使用，严禁用于商业用途</p></div>
       </div>

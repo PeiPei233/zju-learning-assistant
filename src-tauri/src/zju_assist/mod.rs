@@ -12,12 +12,12 @@ pub struct ZjuAssist {
 }
 
 mod request;
-mod session;
-use session::{LoginSession, Service};
+mod zjuam;
+use zjuam::{LoginSession, Service};
 mod classroom;
 mod courses;
-mod graduate;
-mod undergraduate;
+mod yjsy;
+mod zdbk;
 pub use classroom::SubtitleContent;
 
 impl ZjuAssist {

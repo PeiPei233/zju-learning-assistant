@@ -97,6 +97,9 @@ fn normalize(config: &mut Config) -> Result<(), String> {
 
 // Validate without changing disk or runtime state, on both reads and writes.
 fn validate(config: &Config) -> Result<(), String> {
+    if !["system", "light", "dark"].contains(&config.theme.as_str()) {
+        return Err("无效的外观模式".into());
+    }
     if config.max_concurrent_tasks == 0 {
         return Err("最大并行下载任务数必须大于零".into());
     }

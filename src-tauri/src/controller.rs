@@ -143,16 +143,6 @@ pub async fn check_login(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<bool
 }
 
 #[tauri::command]
-pub async fn test_connection(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<(), String> {
-    info!("test_connection");
-    let mut zju_assist = state.lock().await.clone();
-    zju_assist
-        .test_connection()
-        .await
-        .map_err(|err| err.to_string())
-}
-
-#[tauri::command]
 pub async fn logout(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     handle: AppHandle,
@@ -552,6 +542,7 @@ pub async fn get_uploads_list(
                     id, reference_id, file_name, path, size
                 );
                 uploads.push(Upload {
+                    course_id,
                     id,
                     reference_id,
                     file_name,
@@ -1902,15 +1893,15 @@ pub async fn get_course_all_sub_ppts(
 }
 
 #[tauri::command]
-pub async fn check_undergraduate_evaluation_done(
+pub async fn check_zdbk_evaluation_done(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     handle: AppHandle,
     window: Window,
 ) -> Result<bool, String> {
-    info!("check_undergraduate_evaluation_done");
+    info!("check_zdbk_evaluation_done");
     let mut zju_assist = state.lock().await.clone();
     let res = zju_assist
-        .check_undergraduate_evaluation_done()
+        .check_zdbk_evaluation_done()
         .await
         .map_err(|err| err.to_string())?;
 
@@ -1933,15 +1924,15 @@ pub async fn check_undergraduate_evaluation_done(
 }
 
 #[tauri::command]
-pub async fn check_graduate_evaluation_done(
+pub async fn check_yjsy_evaluation_done(
     state: State<'_, Arc<Mutex<ZjuAssist>>>,
     handle: AppHandle,
     window: Window,
 ) -> Result<bool, String> {
-    info!("check_graduate_evaluation_done");
+    info!("check_yjsy_evaluation_done");
     let mut zju_assist = state.lock().await.clone();
     let res = zju_assist
-        .check_graduate_evaluation_done()
+        .check_yjsy_evaluation_done()
         .await
         .map_err(|err| err.to_string())?;
     drop(zju_assist);
@@ -1961,15 +1952,13 @@ pub async fn check_graduate_evaluation_done(
 }
 
 #[tauri::command]
-pub async fn get_undergraduate_score(
-    state: State<'_, Arc<Mutex<ZjuAssist>>>,
-) -> Result<Vec<Value>, String> {
-    info!("get_undergraduate_score");
+pub async fn get_zdbk_score(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
+    info!("get_zdbk_score");
     let mut zju_assist = state.lock().await.clone();
     let started = std::time::Instant::now();
-    let result = zju_assist.get_undergraduate_score().await;
+    let result = zju_assist.get_zdbk_score().await;
     info!(
-        "get_undergraduate_score: success={}, elapsed={}ms",
+        "get_zdbk_score: success={}, elapsed={}ms",
         result.is_ok(),
         started.elapsed().as_millis()
     );
@@ -1977,15 +1966,13 @@ pub async fn get_undergraduate_score(
 }
 
 #[tauri::command]
-pub async fn get_graduate_score(
-    state: State<'_, Arc<Mutex<ZjuAssist>>>,
-) -> Result<Vec<Value>, String> {
-    info!("get_graduate_score");
+pub async fn get_yjsy_score(state: State<'_, Arc<Mutex<ZjuAssist>>>) -> Result<Vec<Value>, String> {
+    info!("get_yjsy_score");
     let mut zju_assist = state.lock().await.clone();
     let started = std::time::Instant::now();
-    let result = zju_assist.get_graduate_score().await;
+    let result = zju_assist.get_yjsy_score().await;
     info!(
-        "get_graduate_score: success={}, elapsed={}ms",
+        "get_yjsy_score: success={}, elapsed={}ms",
         result.is_ok(),
         started.elapsed().as_millis()
     );

@@ -24,42 +24,71 @@ function Index() {
 
   const [isLogin, setLogin] = useState(false)
   const loginSession = useRef(0)
-  const setIsLogin = useCallback((loggedIn: boolean) => {
-    if (!loggedIn) loginSession.current += 1
-    setLogin(loggedIn)
-  }, [])
+  const loggedIn = useRef(false)
+  const setIsLogin = useCallback((value: boolean) => {
+    loggedIn.current = value
+    if (!value) {
+      loginSession.current += 1
+      notification.destroy('login-setup-error')
+      notification.destroy('evaluation-required-check_zdbk_evaluation_done')
+      notification.destroy('evaluation-required-check_yjsy_evaluation_done')
+    }
+    else notification.destroy('startup-read-error')
+    setLogin(value)
+  }, [notification])
   const [autoLoginUsername, setAutoLoginUsername] = useState('')
   const [autoLoginPassword, setAutoLoginPassword] = useState('')
   const [currentVersion, setCurrentVersion] = useState('')
   const [openVersionModal, setOpenVersionModal] = useState(false)
   const showVersionModal = useCallback(() => setOpenVersionModal(true), [])
   const update = useAppUpdate(showVersionModal, openVersionModal)
-  const latestVersionData = update.info
+  const latestVersionData = update.info?.update_available ? update.info : null
   const { check: checkUpdate } = update
 
-  useEffect(() => {
-    getVersion().then((v) => {
-      setCurrentVersion('v' + v)
+  const startupFlight = useRef(false)
+  const versionLoaded = useRef(false)
+  const credentialsLoaded = useRef(false)
+  const startupErrors = useRef({ version: '', credentials: '' })
+  const readStartupInfo = useCallback(async (versionOnly = false) => {
+    if (startupFlight.current) return
+    startupFlight.current = true
+    const session = loginSession.current
+    await Promise.all([
+      versionLoaded.current ? Promise.resolve() : getVersion().then(v => {
+        setCurrentVersion('v' + v)
+        versionLoaded.current = true
+        startupErrors.current.version = ''
+      }).catch(err => { startupErrors.current.version = `读取版本信息失败：${String(err)}` }),
+      versionOnly || credentialsLoaded.current || loggedIn.current ? Promise.resolve() : invoke<[string, string] | null>('get_auto_login_info').then(res => {
+        credentialsLoaded.current = true
+        startupErrors.current.credentials = ''
+        if (res && !loggedIn.current && session === loginSession.current) {
+          setAutoLoginUsername(res[0])
+          setAutoLoginPassword(res[1])
+        }
+      }).catch(err => { startupErrors.current.credentials = `读取自动登录信息失败：${String(err)}` }),
+    ])
+    startupFlight.current = false
+    if (session !== loginSession.current) return
+    if (loggedIn.current) startupErrors.current.credentials = ''
+    const errors = Object.values(startupErrors.current).filter(Boolean)
+    if (errors.length) notification.error({
+      key: 'startup-read-error', duration: 0, title: '部分信息未能读取', description: errors.join('；'),
+      actions: <ActionButton onClick={() => void readStartupInfo()}>重试</ActionButton>,
     })
-    invoke<[string, string] | null>('get_auto_login_info').then((res) => {
-      if (res) {
-        setAutoLoginUsername(res[0])
-        setAutoLoginPassword(res[1])
-      }
-    })
-    invoke('test_connection').catch((err) => {
-      notification.error({
-        title: '连接失败',
-        description: String(err.message || err)
-      })
-    })
+    else notification.destroy('startup-read-error')
   }, [notification])
+
+  useEffect(() => { void readStartupInfo() }, [readStartupInfo])
+  useEffect(() => {
+    if (openVersionModal) void readStartupInfo(true)
+  }, [openVersionModal, readStartupInfo])
 
   useEffect(() => { void checkUpdate(); }, [checkUpdate]);
   const updateBusy = ['checking', 'downloading', 'installing'].includes(update.stage);
-  const openManualDownload = () => {
-    if (latestVersionData) void shell.open(latestVersionData.url).catch(err =>
-      notification.error({ title: '打开下载页面失败', description: String(err) }));
+  const openReleasePage = () => {
+    if (update.info?.url) void shell.open(update.info.url).catch(err =>
+      notification.error({ title: '打开发布页失败', description: String(err) }));
   };
   const percent = update.progress.total && update.progress.total > 0
     ? Math.min(100, Math.floor(update.progress.downloaded / update.progress.total * 100)) : undefined;
@@ -114,10 +143,10 @@ function Index() {
           </div>
           <IconAction label={update.cancelling ? '正在取消' : '取消下载'} disabled={update.cancelling} onClick={() => void update.cancelDownload()}><CloseCircleOutlined /></IconAction>
         </div> : <div className="version-actions">
-          {!latestVersionData ? <ActionButton disabled={updateBusy} onClick={() => void update.check(true)}>
+          {update.info?.url && <button type="button" className="text-button version-release-link" disabled={update.stage === 'installing'} onClick={openReleasePage}>查看发布页</button>}
+          {!latestVersionData ? <ActionButton variant="primary" disabled={updateBusy} onClick={() => void update.check(true)}>
             {update.stage === 'checking' ? <LoadingOutlined spin /> : <ReloadOutlined />}检查更新
           </ActionButton> : <>
-            <button type="button" className="text-button" disabled={update.stage === 'installing'} onClick={openManualDownload}>手动下载</button>
             {latestVersionData.prepare_error && <ActionButton variant="primary" disabled={updateBusy} onClick={() => void update.check(true)}>
               {update.stage === 'checking' ? <LoadingOutlined spin /> : <ReloadOutlined />}重新尝试
             </ActionButton>}
@@ -128,7 +157,7 @@ function Index() {
             </ActionButton>}
           </>}
         </div>}
-        title={latestVersionData ? `发现新版本 ${latestVersionData.version}` : '版本信息'}
+        title={latestVersionData ? `发现新版本 ${latestVersionData.version}` : `版本信息${update.info ? ` ${update.info.version}` : ''}`}
         zIndex={1001}
       >
         <Markdown components={{
@@ -158,11 +187,11 @@ function Index() {
           }
         }}>
           {
-            latestVersionData ? convertUrlsToMarkdown(latestVersionData.notes) :
+            update.info ? convertUrlsToMarkdown(update.info.notes.trim() || update.info.notes_error || '暂无版本说明') :
               update.stage === 'checking' ? '正在检查更新…' : update.error ? '暂时无法检查更新，请重试。' : update.checked ? '暂无可用更新' : '尚未检查更新'
           }
         </Markdown>
-        {update.error && latestVersionData && <p className="version-error" role="alert">{update.error}</p>}
+        {update.error && update.info && <p className="version-error" role="alert">{update.error}</p>}
       </Modal>
     </>
   )

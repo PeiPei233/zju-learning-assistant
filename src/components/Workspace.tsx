@@ -10,7 +10,7 @@ export default function Workspace({ title, panel, children, actions, footer, hea
   title: string; panel: React.ReactNode; children: React.ReactNode;
   actions?: React.ReactNode; footer?: React.ReactNode; headerless?: boolean;
 }) {
-  const { collapsed, toggle, width = 250, setWidth, peek, module, keepPeek, dismissPeek, activateModule } = useContext(PanelContext);
+  const { collapsed, toggle, width = 280, setWidth, peek, module, keepPeek, dismissPeek, activateModule } = useContext(PanelContext);
   const floating = collapsed && !!module && peek === module;
   const visible = !collapsed || floating;
   const panelRef = useRef<HTMLElement>(null);
@@ -60,7 +60,7 @@ export default function Workspace({ title, panel, children, actions, footer, hea
         onPointerUp={event => { drag.current = null; setResizing(false); event.currentTarget.releasePointerCapture(event.pointerId); }}
         onPointerCancel={() => { drag.current = null; setResizing(false); }}
         onLostPointerCapture={() => { drag.current = null; setResizing(false); }}
-        onDoubleClick={() => resize(250)}
+        onDoubleClick={() => resize(280)}
         onKeyDown={event => {
           const next = event.key === 'ArrowLeft' ? panelWidth - 10 : event.key === 'ArrowRight' ? panelWidth + 10 : event.key === 'Home' ? 200 : event.key === 'End' ? maximum : null;
           if (next !== null) { event.preventDefault(); resize(next); }

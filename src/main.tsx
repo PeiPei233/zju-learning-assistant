@@ -6,7 +6,6 @@ import './pages/Login/login.css';
 import { createControlTheme } from './design/theme';
 import './design/controls.css';
 import { useEffect, useLayoutEffect, useState, lazy, Suspense } from 'react'
-import { isPreview } from './previewMode';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -20,11 +19,22 @@ import './components/WindowChrome.css'
 import './design/scrollbars.css'
 import './components/ResourceList.css'
 import './pages/Todo/todo.css'
-import { ConfigProvider as AppConfigProvider } from './context/ConfigContext'
+import type { Config } from './model';
+import { ConfigProvider as AppConfigProvider, useConfig } from './context/ConfigContext'
 import { DownloadProvider } from './context/DownloadContext'
 
 const ControlsPreview = import.meta.env.DEV && import.meta.env.VITE_UI_PREVIEW === 'true'
   ? lazy(() => import('./preview/ControlsPreview')) : null;
+
+function ConfigTheme({ onChange }: { onChange: (theme: Config['theme']) => void }) {
+  const { config, ready, loadingConfig } = useConfig();
+  useLayoutEffect(() => {
+    // Also release startup when both the disk read and runtime fallback fail,
+    // so the existing error and retry UI remains available.
+    if (ready || !loadingConfig) onChange(config.theme);
+  }, [config.theme, ready, loadingConfig, onChange]);
+  return null;
+}
 
 export function Main() {
   const nativeLinux = isTauri() && /Linux/.test(navigator.platform) && !/Android/.test(navigator.userAgent);
@@ -51,19 +61,12 @@ export function Main() {
   const systemDarkMode = useMediaQuery({
     query: '(prefers-color-scheme: dark)'
   })
-  const previewTheme = isPreview ? new URLSearchParams(location.search).get('theme') : null;
-  const isDarkMode = previewTheme === 'dark' || (previewTheme !== 'light' && systemDarkMode);
+  const [appearance, setAppearance] = useState<Config['theme'] | null>(null);
+  const isDarkMode = appearance === 'dark' || (appearance === 'system' && systemDarkMode);
   useLayoutEffect(() => {
-    document.documentElement.dataset.theme = isDarkMode ? 'dark' : 'light';
-  }, [isDarkMode]);
+    if (appearance !== null) document.documentElement.dataset.theme = isDarkMode ? 'dark' : 'light';
+  }, [appearance, isDarkMode]);
 
-  useEffect(() => {
-    // The translucent rail/titlebar reveal the native macOS material underneath.
-    // Keep its appearance in sync with the preview override, including system reset.
-    if (!isPreview || !isTauri()) return;
-    const theme = previewTheme === 'light' || previewTheme === 'dark' ? previewTheme : null;
-    getCurrentWindow().setTheme(theme).catch(error => console.error('Failed to update preview window theme', error));
-  }, [previewTheme]);
 
   useEffect(() => {
     if (import.meta.env.PROD) {
@@ -81,20 +84,26 @@ export function Main() {
   }, [])
 
   useEffect(() => {
-    if (!isTauri() || !/Win|Linux/.test(navigator.platform)) return;
-    // Hidden WebViews may suspend requestAnimationFrame; React's effect already
-    // runs after the DOM and theme have been committed.
-    void invoke('set_window_chrome_theme', { dark: isDarkMode })
-      .catch(console.error)
-      .then(async () => {
-        if (/Win/.test(navigator.platform)) {
-          const available = await invoke<boolean>('has_native_backdrop');
-          document.documentElement.dataset.nativeBackdrop = available ? 'true' : 'false';
-        }
-        await invoke('show_main_window');
-      })
-      .catch(console.error);
-  }, [isDarkMode]);
+    if (appearance === null || !isTauri()) return;
+    let disposed = false;
+    // Apply both the native material and custom chrome before revealing the
+    // first frame. Hidden WebViews may suspend requestAnimationFrame.
+    void (async () => {
+      await getCurrentWindow().setTheme(appearance === 'system' ? null : appearance).catch(console.error);
+      if (disposed) return;
+      if (/Win|Linux/.test(navigator.platform)) {
+        await invoke('set_window_chrome_theme', { dark: isDarkMode }).catch(console.error);
+      }
+      if (disposed) return;
+      if (/Win/.test(navigator.platform)) {
+        const available = await invoke<boolean>('has_native_backdrop').catch(() => false);
+        if (disposed) return;
+        document.documentElement.dataset.nativeBackdrop = available ? 'true' : 'false';
+      }
+      await invoke('show_main_window');
+    })().catch(console.error);
+    return () => { disposed = true; };
+  }, [appearance, isDarkMode]);
 
   const controls = createControlTheme(isDarkMode);
   return (
@@ -104,13 +113,14 @@ export function Main() {
       theme={controls.theme}
     >
       <style>{controls.css}</style>
-      <App notification={{ placement: 'topRight', top: Math.max(12, 56 - nativeHeaderHeight), maxCount: 3, stack: false, duration: 6, pauseOnHover: true }}>
+      <App notification={{ placement: 'topRight', top: Math.max(12, 56 - nativeHeaderHeight), stack: { threshold: 3 }, duration: 6, pauseOnHover: true }}>
         <NotificationProvider>
           <AppConfigProvider>
-            <DownloadProvider>
+            <ConfigTheme onChange={setAppearance} />
+            {appearance !== null && <DownloadProvider>
               {ControlsPreview && new URLSearchParams(location.search).has('controls')
                 ? <Suspense fallback={null}><ControlsPreview /></Suspense> : <Index />}
-            </DownloadProvider>
+            </DownloadProvider>}
           </AppConfigProvider>
         </NotificationProvider>
       </App>

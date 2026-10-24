@@ -4,8 +4,6 @@ use percent_encoding::percent_decode_str;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
-#[cfg(target_os = "linux")]
-use tauri::Manager;
 use tauri::{AppHandle, Emitter, Window};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Mutex;
@@ -126,22 +124,6 @@ async fn get_release(source: Source, tag: Option<&str>) -> Result<Release> {
     Err(error)
 }
 
-fn supported_installation(app: &AppHandle) -> bool {
-    // Development executables and package-manager installations must not replace themselves.
-    if cfg!(debug_assertions) {
-        return false;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        app.env().appimage.is_some()
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = app;
-        cfg!(any(target_os = "windows", target_os = "macos"))
-    }
-}
-
 async fn prepare(app: &AppHandle, source: Source, release: &Release) -> Result<Update> {
     let endpoint = asset_url(source, release, "latest.json")?;
     let mut error = anyhow!("暂时无法获取更新包信息");
@@ -165,7 +147,7 @@ async fn prepare(app: &AppHandle, source: Source, release: &Release) -> Result<U
                 let name = percent_decode_str(name).decode_utf8()?.into_owned();
                 // Resolve the actual attachment instead of assuming a mirror URL exists.
                 update.download_url = asset_url(source, release, &name)?;
-                update.timeout = Some(Duration::from_secs(300));
+                update.timeout = None;
                 return Ok(update);
             }
             Ok(None) => bail!("当前没有适用的更新包"),
@@ -208,17 +190,55 @@ pub async fn check(app: &AppHandle, state: &AppUpdateState) -> Result<Option<Ver
     };
     if version(&release.tag_name)? <= app.package_info().version {
         *prepared = None;
-        return Ok(None);
+        let current = format!("v{}", app.package_info().version);
+        let mut notes_error = None;
+        let mut release_source = source;
+        let release = if version(&release.tag_name)? == app.package_info().version {
+            Some(release)
+        } else {
+            match get_release(source, Some(&current)).await {
+                Ok(release) => Some(release),
+                Err(first_error) => match get_release(source.alternate(), Some(&current)).await {
+                    Ok(release) => {
+                        release_source = source.alternate();
+                        Some(release)
+                    },
+                    Err(second_error) => {
+                        let not_found = |error: &anyhow::Error| {
+                            error.downcast_ref::<reqwest::Error>()
+                                .and_then(reqwest::Error::status) == Some(reqwest::StatusCode::NOT_FOUND)
+                        };
+                        if !not_found(&first_error) || !not_found(&second_error) {
+                            log::warn!("Current release notes failed: {first_error}; {second_error}");
+                            notes_error = Some("版本说明获取失败，请重新检查更新。".into());
+                        }
+                        None
+                    }
+                },
+            }
+        };
+        return Ok(Some(VersionInfo {
+            update_available: false,
+            version: current,
+            url: release.as_ref().map(|release| format!("{}/releases/tag/{}", release_source.repository(), release.tag_name)).unwrap_or_default(),
+            notes: release.and_then(|release| release.body).unwrap_or_default(),
+            notes_error,
+            can_install: false,
+            prepare_error: None,
+        }));
     }
     let mut info = VersionInfo {
+        update_available: true,
         version: format!("v{}", version(&release.tag_name)?),
         notes: release.body.clone().unwrap_or_default(),
+        notes_error: None,
         url: format!("{}/releases/tag/{}", source.repository(), release.tag_name),
         can_install: false,
         prepare_error: None,
     };
     *prepared = None;
-    if supported_installation(app) {
+    // Development builds must not replace the executable being worked on.
+    if !cfg!(debug_assertions) {
         let result = prepare(app, source, &release).await;
         let result = match result {
             Ok(update) => Ok((source, update)),
@@ -375,8 +395,8 @@ async fn download_inner(window: &Window, state: &AppUpdateState) -> Result<()> {
 }
 
 pub async fn install(app: &AppHandle, state: &AppUpdateState) -> Result<()> {
-    if !supported_installation(app) {
-        bail!("当前安装方式不支持应用内更新，请手动下载安装");
+    if cfg!(debug_assertions) {
+        bail!("开发版本不支持安装更新，请使用正式安装包测试");
     }
     let mut prepared = state
         .prepared

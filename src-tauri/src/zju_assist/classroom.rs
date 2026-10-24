@@ -45,7 +45,7 @@ struct SubtitleResponse {
 impl ZjuAssist {
     pub(super) async fn login_classroom(&self) -> Result<String> {
         let response = self.get("https://tgmedia.cmc.zju.edu.cn/index.php?r=auth/login&auType=cmc&tenant_code=112&forward=https%3A%2F%2Fclassroom.zju.edu.cn%2F")
-            .timeout(Duration::from_secs(15)).send().await.map_err(|error| error.without_url())?
+            .send().await.map_err(|error| error.without_url())?
             .error_for_status().map_err(|error| error.without_url())?;
         let body = response.text().await.map_err(|error| error.without_url())?;
         if body.contains("统一身份认证平台") {
@@ -358,7 +358,7 @@ impl ZjuAssist {
         let phone = json["params"]["phone"].as_str().unwrap();
 
         let url = Self::get_auth_play_url(url, &id, &tenant_id, phone);
-        let res = self.get(url).send().await?;
+        let res = self.get(url).no_timeout().send().await?;
 
         Ok(res)
     }
@@ -420,7 +420,7 @@ impl ZjuAssist {
         };
 
         while retries < MAX_RETRIES {
-            let res = self.get(url).send().await?;
+            let res = self.get(url).no_timeout().send().await?;
             let content = res.bytes().await?;
             if content.is_empty() || image::guess_format(&content).is_err() {
                 retries += 1;

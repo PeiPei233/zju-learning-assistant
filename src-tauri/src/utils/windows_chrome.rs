@@ -27,9 +27,11 @@ mod acrylic_runtime {
     type Init = unsafe extern "C" fn(HWND) -> i32;
     type Theme = unsafe extern "C" fn(HWND, i32) -> i32;
     type Active = unsafe extern "C" fn(i32);
+    type Frame = unsafe extern "C" fn(HWND, i32);
     type Layout = unsafe extern "C" fn(HWND, i32, i32, i32, i32, u32);
     type Close = unsafe extern "C" fn();
     struct Api {
+        frame: Frame,
         layout: Layout,
         theme: Theme,
         active: Active,
@@ -55,12 +57,13 @@ mod acrylic_runtime {
             );
             return;
         }
-        let (Some(init), Some(theme), Some(active), Some(close), Some(layout)) = (
+        let (Some(init), Some(theme), Some(active), Some(close), Some(layout), Some(frame)) = (
             GetProcAddress(dll, b"acrylic_init\0".as_ptr()),
             GetProcAddress(dll, b"acrylic_theme\0".as_ptr()),
             GetProcAddress(dll, b"acrylic_active\0".as_ptr()),
             GetProcAddress(dll, b"acrylic_close\0".as_ptr()),
             GetProcAddress(dll, b"acrylic_layout\0".as_ptr()),
+            GetProcAddress(dll, b"acrylic_frame\0".as_ptr()),
         ) else {
             eprintln!("Acrylic DLL exports missing");
             return;
@@ -70,6 +73,7 @@ mod acrylic_runtime {
         eprintln!("App SDK Acrylic init: {hr:#x}");
         if hr >= 0 {
             let _ = API.set(Api {
+                frame: std::mem::transmute(frame),
                 layout: std::mem::transmute(layout),
                 theme: std::mem::transmute(theme),
                 active: std::mem::transmute(active),
@@ -79,6 +83,14 @@ mod acrylic_runtime {
     }
     pub fn available() -> bool {
         API.get().is_some()
+    }
+    pub unsafe fn frame(hwnd: HWND, top: i32) -> bool {
+        if let Some(api) = API.get() {
+            (api.frame)(hwnd, top);
+            true
+        } else {
+            false
+        }
     }
     pub unsafe fn layout(hwnd: HWND, left: i32, width: i32, height: i32, opaque: bool, color: u32) {
         if let Some(api) = API.get() {
@@ -140,6 +152,7 @@ pub fn install(window: &tauri::WebviewWindow) -> Result<(), Box<dyn std::error::
         }
         extend_frame(hwnd);
         acrylic_runtime::install(hwnd);
+        extend_frame(hwnd);
         SetWindowPos(
             hwnd,
             null_mut(),
@@ -159,6 +172,9 @@ unsafe fn extend_frame(hwnd: HWND) {
     } else {
         0
     };
+    if acrylic_runtime::frame(hwnd, top) {
+        return;
+    }
     let margins = MARGINS {
         cxLeftWidth: 0,
         cxRightWidth: 0,

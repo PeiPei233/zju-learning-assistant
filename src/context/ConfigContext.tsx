@@ -2,6 +2,7 @@ import { useDesktopApp } from './NotificationContext';
 import { createContext, useContext, useEffect, useState, useRef, useMemo, useCallback, ReactNode } from 'react';
 import { invoke } from '../bridge';
 import { Config } from '../model';
+import ActionButton from '../components/ActionButton';
 
 interface ConfigContextType {
   config: Config;
@@ -48,6 +49,7 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         committed.current = new Config(res);
         setConfigState(committed.current);
         setLoadError(null);
+        notification.destroy('config-read-error');
         loaded.current = true;
         setReady(true);
       } catch (err) {
@@ -67,7 +69,7 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
           }
         }
         setLoadError(String(err));
-        notification.error({ title: '读取设置失败', description: loaded.current
+        notification.error({ key: 'config-read-error', title: '读取设置失败', actions: <ActionButton onClick={() => { void refreshConfig(); }}>重试读取设置</ActionButton>, description: loaded.current
           ? `${String(err)}。正在使用已有设置或默认设置，原配置文件未被修改。`
           : String(err) });
       } finally {
@@ -90,6 +92,7 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
     const id = ++sequence.current;
     setOptimistic(previous => [...previous, { id, patch: updates }]);
     const fields = Object.keys(updates);
+    const errorKey = `config-save-error:${fields.slice().sort().join(",")}`;
     const markPending = (delta: number) => setPending(previous => {
       const next = { ...previous };
       fields.forEach(field => { next[field] = Math.max(0, (next[field] || 0) + delta); });
@@ -105,13 +108,15 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         committed.current = next;
         setConfigState(next);
         setLoadError(null);
+        notification.destroy('config-read-error');
+        notification.destroy(errorKey);
         if (previous.llm_enabled && !next.llm_enabled && ['llm_api_base', 'llm_api_key', 'llm_model'].some(field => fields.includes(field))) notification.warning({
           key: 'llm-config-incomplete', title: 'AI 总结配置未完成，已关闭', duration: 6,
         });
         return true;
       } catch (err) {
         if (onError) onError(String(err));
-        else notification.error({ title: '设置失败', description: String(err) });
+        else notification.error({ key: errorKey, title: '设置失败', description: String(err) });
         return false;
       } finally {
         setOptimistic(previous => previous.filter(item => item.id !== id));

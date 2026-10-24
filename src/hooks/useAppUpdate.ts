@@ -36,13 +36,14 @@ export function useAppUpdate(onShowUpdate?: () => void, modalOpen = false) {
     if (busy.current || ready.current) return;
     busy.current = true;
     notification.destroy('app-update-check-error');
+    notification.destroy('app-update-available');
     setStage('checking'); setError('');
     try {
       const next = await invoke<VersionInfo | null>('get_latest_version_info');
       if (!mounted.current) return;
-      setInfo(next); setChecked(true); setStage(next ? 'available' : 'idle');
+      setInfo(next); setChecked(true); setStage(next?.update_available ? 'available' : 'idle');
       setError(next?.prepare_error ?? '');
-      if (next && !manual) notification.info({
+      if (next?.update_available && !manual) notification.info({
         key: 'app-update-available', title: '发现新版本', description: `新版本 ${next.version} 已发布。`,
         actions: createElement(Fragment, null,
           createElement(ActionButton, { onClick: () => { notification.destroy('app-update-available'); showUpdate.current?.(); } }, '查看详情'),

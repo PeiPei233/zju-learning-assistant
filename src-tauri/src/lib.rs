@@ -105,18 +105,18 @@ fn get_native_chrome_height() -> i32 {
     }
 }
 
-// Called after React has committed its first frame. The Windows window starts
-// hidden so its standard caption is never shown before the native hook exists.
+// Called after the saved appearance and native chrome are ready. Desktop
+// windows start hidden to avoid showing the system theme before settings load.
 #[tauri::command]
 fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[cfg(desktop)]
     {
         static SHOWN: AtomicBool = AtomicBool::new(false);
         if !SHOWN.swap(true, std::sync::atomic::Ordering::SeqCst) {
             window.show().map_err(|error| error.to_string())?;
         }
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(not(desktop))]
     let _ = window;
     Ok(())
 }
@@ -360,7 +360,6 @@ pub fn run() {
             controller::complete_login_setup,
             controller::get_auto_login_info,
             controller::check_login,
-            controller::test_connection,
             controller::logout,
             controller::sync_todo_once,
             controller::export_todo,
@@ -388,10 +387,10 @@ pub fn run() {
             controller::get_course_all_sub_ppts,
             controller::get_sub_ppt_urls,
             controller::get_month_subs,
-            controller::check_undergraduate_evaluation_done,
-            controller::check_graduate_evaluation_done,
-            controller::get_undergraduate_score,
-            controller::get_graduate_score,
+            controller::check_zdbk_evaluation_done,
+            controller::check_yjsy_evaluation_done,
+            controller::get_zdbk_score,
+            controller::get_yjsy_score,
             controller::notify_score,
             controller::send_ding_notification,
             controller::get_notification_scope,

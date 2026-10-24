@@ -1,4 +1,13 @@
+export interface LearningCourse {
+  id: number;
+  name: string;
+  semester_id: number;
+  academic_year_id: number;
+  instructors?: { name?: string | null }[] | null;
+}
+
 export interface Upload {
+  course_id: number
   id: number
   reference_id: number
   file_name: string
@@ -44,6 +53,7 @@ export class Config {
   todo_reminder_minutes!: number[]
   auto_open_download_list!: boolean
   auto_select_all_courseware!: boolean
+  theme!: 'system' | 'light' | 'dark'
   tray!: boolean
   max_concurrent_tasks!: number
   auto_start!: boolean
@@ -61,7 +71,7 @@ export class Config {
   llm_hide_think_tag!: boolean
 
   constructor(config?: Partial<Config>) {
-    Object.assign(this, { ding_secret: '', score_auto_sync: true, todo_auto_sync: true, score_system_notification: true, score_ding_notification: false, todo_system_notification: true, todo_ding_notification: false, todo_reminder_minutes: [60], excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true }, config);
+    Object.assign(this, { theme: 'system', ding_secret: '', score_auto_sync: true, todo_auto_sync: true, score_system_notification: true, score_ding_notification: false, todo_system_notification: true, todo_ding_notification: false, todo_reminder_minutes: [60], excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true }, config);
   }
 
   clone(): Config {
@@ -70,10 +80,12 @@ export class Config {
 }
 
 export interface VersionInfo {
+  update_available: boolean;
   can_install?: boolean;
   prepare_error?: string | null;
   version: string;
   notes: string;
+  notes_error?: string | null;
   url: string;
 }
 

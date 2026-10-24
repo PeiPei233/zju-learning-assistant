@@ -3,6 +3,7 @@ import { Config, Upload, Subject } from '../model';
 
 export const courses = ['计算机网络', '计算机体系结构', 'Java 应用技术与企业级分布式系统开发实践（2026 年秋冬学期）', '概率论与数理统计', '数据结构与算法设计：复杂问题求解及工程实践专题', '人工智能导论'].map((name, index) => ({
   id: index + 1, name, semester_id: index < 4 ? 1 : 2, academic_year_id: 1,
+  instructors: index === 5 ? [] : (index === 2 ? ['张老师', '李老师', '王老师'] : [['张老师', '李老师', '王老师'][index % 3]]).map(name => ({ name })),
 }));
 const courseFiles = [
   ['第 01 章 · 计算机网络课程导论与互联网体系结构——协议分层、端到端通信及典型应用案例（2026 秋冬学期修订版，含课后习题与补充阅读）.pdf', '实验报告模板.docx', '第 02 章 · 核心概念.pptx'],
@@ -13,7 +14,7 @@ const courseFiles = [
   ['课程介绍.PPT', '训练数据.XLS', 'DeepLearning_Transformer_Attention_Architecture_Training_Checkpoint_Epoch_100_Validation_Results_2026_Autumn_Final.bin'],
 ];
 export const uploads: Upload[] = courses.flatMap((course, courseIndex) => courseFiles[courseIndex].map((file_name, index) => ({
-  id: course.id * 10 + index, reference_id: course.id * 10 + index, course_name: course.name, file_name,
+  course_id: course.id, id: course.id * 10 + index, reference_id: course.id * 10 + index, course_name: course.name, file_name,
   path: `/preview/course-${course.id}/${file_name}`, size: (index + 1) * 1024 * 1024 + course.id * 1024 * 320,
   activity_id: null, allow_private_wps_office_view: false,
 })));

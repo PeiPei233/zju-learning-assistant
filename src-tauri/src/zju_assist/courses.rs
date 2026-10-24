@@ -1,4 +1,4 @@
-use super::{Service, ZjuAssist};
+use super::{request::ZjuRequestBuilder, Service, ZjuAssist};
 use anyhow::{anyhow, Result};
 use reqwest::Response;
 use serde_json::Value;
@@ -8,7 +8,6 @@ impl ZjuAssist {
     pub(super) async fn login_courses(&self) -> Result<String> {
         let response = self
             .get("https://courses.zju.edu.cn/user/courses")
-            .timeout(Duration::from_secs(15))
             .send()
             .await
             .map_err(|error| error.without_url())?
@@ -21,12 +20,54 @@ impl ZjuAssist {
         Ok(String::new())
     }
 
-    pub async fn get_courses(&self) -> Result<Vec<Value>> {
-        self.ensure_service(Service::Courses, false).await?;
-        if !self.is_login() {
-            return Err(anyhow!("Not login"));
+    // Shared by the course list and its year/semester filters.
+    async fn course_list_json(&self, request: &ZjuRequestBuilder) -> Result<Value> {
+        for attempt in 0..2 {
+            self.ensure_service(Service::Courses, attempt > 0).await?;
+            if !self.is_login() {
+                return Err(anyhow!("Not login"));
+            }
+            let response = request.send().await.map_err(|error| error.without_url())?;
+            let status = response.status();
+            let login_page = response.url().host_str() == Some("zjuam.zju.edu.cn")
+                && response.url().path() == "/cas/login";
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("unknown")
+                .to_owned();
+            let body = response.text().await.map_err(|error| error.without_url())?;
+            let expired = status == reqwest::StatusCode::UNAUTHORIZED
+                || login_page
+                || (body.contains("统一身份认证平台") && body.contains("name=\"execution\""));
+            if expired {
+                log::warn!(
+                    "Course list authentication expired: HTTP {}, content-type {}",
+                    status.as_u16(),
+                    content_type
+                );
+                if attempt == 0 {
+                    continue;
+                }
+                return Err(anyhow!("学在浙大登录已失效，请重新登录"));
+            }
+            if !status.is_success() {
+                return Err(anyhow!(
+                    "学在浙大请求失败（HTTP {}），请稍后重试",
+                    status.as_u16()
+                ));
+            }
+            return serde_json::from_str(&body).map_err(|error| {
+                log::warn!("Invalid course list JSON: HTTP {}, content-type {}, bytes {}, line {}, column {}",
+                    status.as_u16(), content_type, body.len(), error.line(), error.column());
+                anyhow!("学在浙大返回内容异常（HTTP {}），请稍后重试", status.as_u16())
+            });
         }
+        unreachable!()
+    }
 
+    pub async fn get_courses(&self) -> Result<Vec<Value>> {
         let mut courses = Vec::new();
         let mut page = 1;
         loop {
@@ -42,12 +83,12 @@ impl ZjuAssist {
                 },
                 "showScorePassedStatus": false
             });
-            let res = self
-                .post("https://courses.zju.edu.cn/api/my-courses")
-                .json(&payload)
-                .send()
+            let json = self
+                .course_list_json(
+                    self.post("https://courses.zju.edu.cn/api/my-courses")
+                        .json(&payload),
+                )
                 .await?;
-            let json: Value = res.json().await?;
             let page_courses = json["courses"]
                 .as_array()
                 .ok_or_else(|| anyhow!("Courses not found in my-courses response"))?;
@@ -137,6 +178,7 @@ impl ZjuAssist {
                 "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
                 reference_id
             ))
+            .no_timeout()
             .send()
             .await?;
         // if the upload is not allowed to download, then get the preview url
@@ -147,6 +189,7 @@ impl ZjuAssist {
                     "https://courses.zju.edu.cn/api/uploads/{}/blob",
                     id
                 ))
+                .no_timeout()
                 .send()
                 .await?
             }
@@ -170,6 +213,7 @@ impl ZjuAssist {
                     "https://courses.zju.edu.cn/api/uploads/reference/{}/blob",
                     reference_id
                 ))
+                .no_timeout()
                 .send()
                 .await;
             // if the upload is not allowed to download, then get the preview url
@@ -180,6 +224,7 @@ impl ZjuAssist {
                         "https://courses.zju.edu.cn/api/uploads/{}/blob",
                         id
                     ))
+                    .no_timeout()
                     .send()
                     .await?
                 }
@@ -195,39 +240,25 @@ impl ZjuAssist {
     }
 
     pub async fn get_academic_year_list(&self) -> Result<Vec<Value>> {
-        self.ensure_service(Service::Courses, false).await?;
-        if !self.is_login() {
-            return Err(anyhow!("Not login"));
-        }
-        let res = self
-            .get("https://courses.zju.edu.cn/api/my-academic-years?fields=id,name,sort,is_active")
-            .send()
+        let json = self
+            .course_list_json(&self.get(
+                "https://courses.zju.edu.cn/api/my-academic-years?fields=id,name,sort,is_active",
+            ))
             .await?;
-        let json: Value = res.json().await?;
-        Ok(json["academic_years"]
+        json["academic_years"]
             .as_array()
-            .unwrap()
-            .iter()
             .cloned()
-            .collect())
+            .ok_or_else(|| anyhow!("学在浙大返回的课程筛选信息格式异常，请稍后重试"))
     }
 
     pub async fn get_semester_list(&self) -> Result<Vec<Value>> {
-        self.ensure_service(Service::Courses, false).await?;
-        if !self.is_login() {
-            return Err(anyhow!("Not login"));
-        }
-        let res = self
-            .get("https://courses.zju.edu.cn/api/my-semesters?")
-            .send()
+        let json = self
+            .course_list_json(&self.get("https://courses.zju.edu.cn/api/my-semesters?"))
             .await?;
-        let json: Value = res.json().await?;
-        Ok(json["semesters"]
+        json["semesters"]
             .as_array()
-            .unwrap()
-            .iter()
             .cloned()
-            .collect())
+            .ok_or_else(|| anyhow!("学在浙大返回的课程筛选信息格式异常，请稍后重试"))
     }
 
     pub async fn get_todo_list(&self) -> Result<Vec<Value>> {

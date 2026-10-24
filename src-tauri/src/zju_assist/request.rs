@@ -1,6 +1,4 @@
 use super::ZjuAssist;
-use crate::utils::measure_latency;
-use anyhow::{anyhow, Result};
 use log::info;
 use reqwest::header::{HeaderMap, USER_AGENT};
 use reqwest::{Client, Error, IntoUrl, Method, RequestBuilder, Response};
@@ -13,6 +11,7 @@ use std::{
 pub struct ZjuRequestBuilder {
     request_builder_first: RequestBuilder,
     request_builder_second: RequestBuilder,
+    timeout: Option<Duration>,
 }
 impl ZjuRequestBuilder {
     fn new<U: IntoUrl + Clone>(
@@ -32,6 +31,7 @@ impl ZjuRequestBuilder {
 
         let client_default = Client::builder()
             .cookie_provider(Arc::clone(&client.jar))
+            .connect_timeout(Duration::from_secs(15))
             .default_headers(headers.clone())
             .redirect(if follow_redirects {
                 reqwest::redirect::Policy::default()
@@ -43,6 +43,7 @@ impl ZjuRequestBuilder {
 
         let client_no_proxy = Client::builder()
             .cookie_provider(Arc::clone(&client.jar))
+            .connect_timeout(Duration::from_secs(15))
             .default_headers(headers)
             .redirect(if follow_redirects {
                 reqwest::redirect::Policy::default()
@@ -56,11 +57,13 @@ impl ZjuRequestBuilder {
             Self {
                 request_builder_first: client_default.request(method.clone(), url.clone()),
                 request_builder_second: client_no_proxy.request(method, url),
+                timeout: Some(Duration::from_secs(60)),
             }
         } else {
             Self {
                 request_builder_first: client_no_proxy.request(method.clone(), url.clone()),
                 request_builder_second: client_default.request(method, url),
+                timeout: Some(Duration::from_secs(60)),
             }
         }
     }
@@ -103,7 +106,15 @@ impl ZjuRequestBuilder {
 
     // For single-use credentials: retry the authentication flow, not this request.
     pub async fn send_once(&self) -> Result<Response, Error> {
-        self.request_builder_first.try_clone().unwrap().send().await
+        self.send_request(&self.request_builder_first).await
+    }
+
+    async fn send_request(&self, builder: &RequestBuilder) -> Result<Response, Error> {
+        let mut request = builder.try_clone().unwrap();
+        if let Some(timeout) = self.timeout {
+            request = request.timeout(timeout);
+        }
+        request.send().await
     }
 
     pub fn body(&mut self, body: String) -> &mut Self {
@@ -117,22 +128,19 @@ impl ZjuRequestBuilder {
     }
 
     pub fn timeout(&mut self, timeout: Duration) -> &mut Self {
-        self.request_builder_first = self
-            .request_builder_first
-            .try_clone()
-            .unwrap()
-            .timeout(timeout);
-        self.request_builder_second = self
-            .request_builder_second
-            .try_clone()
-            .unwrap()
-            .timeout(timeout);
+        self.timeout = Some(timeout);
+        self
+    }
+
+    // Disable the total request timeout while retaining the connection timeout.
+    pub fn no_timeout(&mut self) -> &mut Self {
+        self.timeout = None;
         self
     }
 
     pub async fn send(&self) -> Result<Response, Error> {
         // total 6 retries, 3 with proxy, 3 without proxy
-        let mut res = self.request_builder_first.try_clone().unwrap().send().await;
+        let mut res = self.send_once().await;
         let mut retries = 5;
         let mut delay_time = 100;
 
@@ -141,14 +149,9 @@ impl ZjuRequestBuilder {
             // wait for 200ms before retry
             tokio::time::sleep(Duration::from_millis(delay_time)).await;
             if retries % 2 == 0 {
-                res = self
-                    .request_builder_second
-                    .try_clone()
-                    .unwrap()
-                    .send()
-                    .await;
+                res = self.send_request(&self.request_builder_second).await;
             } else {
-                res = self.request_builder_first.try_clone().unwrap().send().await;
+                res = self.send_once().await;
             }
             delay_time *= 2;
         }
@@ -176,78 +179,6 @@ impl ZjuAssist {
     pub fn post<U: IntoUrl + Clone>(&self, url: U) -> ZjuRequestBuilder {
         info!("POST {}", url.as_str());
         self.request(Method::POST, url)
-    }
-
-    pub async fn test_connection(&mut self) -> Result<()> {
-        let headers = HeaderMap::new();
-        let client_default = Client::builder()
-            .default_headers(headers.clone())
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap();
-        let client_no_proxy = Client::builder()
-            .default_headers(headers)
-            .no_proxy()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap();
-
-        tokio::pin! {
-            let latency_default = measure_latency(client_default, "https://zdbk.zju.edu.cn/");
-            let latency_no_proxy = measure_latency(client_no_proxy, "https://zdbk.zju.edu.cn/");
-        }
-
-        let latency_default_result;
-        let latency_no_proxy_result;
-
-        tokio::select! {
-            res = &mut latency_default => {
-                if res.is_err() {
-                    // if latency_default fail, wait for latency_no_proxy
-                    latency_default_result = res;
-                    latency_no_proxy_result = latency_no_proxy.await;
-                } else {
-                    // if latency_default success, no need to wait latency_no_proxy
-                    info!("Latency default: {:?}", res);
-                    self.proxy_first.store(true, Ordering::Relaxed);
-                    return Ok(());
-                }
-            },
-            res = &mut latency_no_proxy => {
-                if res.is_err() {
-                    // if latency_no_proxy fail, wait for latency_default
-                    latency_no_proxy_result = res;
-                    latency_default_result = latency_default.await;
-                } else {
-                    // if latency_no_proxy success, no need to wait latency_default
-                    info!("Latency no proxy: {:?}", res);
-                    self.proxy_first.store(false, Ordering::Relaxed);
-                    return Ok(());
-                }
-            },
-        }
-
-        let latency_default = latency_default_result;
-        let latency_no_proxy = latency_no_proxy_result;
-
-        info!("Latency default: {:?}", latency_default);
-        info!("Latency no proxy: {:?}", latency_no_proxy);
-
-        if latency_default.is_err() && latency_no_proxy.is_err() {
-            return Err(anyhow!("Connection failed"));
-        }
-        if latency_default.is_err() {
-            self.proxy_first.store(false, Ordering::Relaxed);
-        } else if latency_no_proxy.is_err() {
-            self.proxy_first.store(true, Ordering::Relaxed);
-        } else if latency_default.unwrap() < latency_no_proxy.unwrap() {
-            self.proxy_first.store(true, Ordering::Relaxed);
-        } else {
-            self.proxy_first.store(false, Ordering::Relaxed);
-        }
-
-        info!("Proxy first: {}", self.proxy_first.load(Ordering::Relaxed));
-        Ok(())
     }
 
     pub(super) fn request_without_redirects<U: IntoUrl + Clone>(

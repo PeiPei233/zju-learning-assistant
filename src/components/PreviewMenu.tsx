@@ -11,8 +11,13 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
     items: [
       {
         type: 'group', label: '异常场景（首次失败，重试恢复）', children: [
-          { key: 'failure-none', label: '正常请求' }, { key: 'failure-save', label: '配置保存失败' },
+          { key: 'failure-none', label: '正常请求' },
+          { key: 'failure-all', label: '所有接口首次失败' },
+          { key: 'failure-save', label: '配置保存失败' },
           { key: 'failure-ai', label: 'AI 连接失败' }, { key: 'failure-ding', label: '钉钉通知失败' }, { key: 'failure-download', label: '下载失败' },
+          { key: 'failure-courses', label: '课程列表加载失败' },
+          { key: 'failure-years', label: '学年加载失败（课程正常）' },
+          { key: 'failure-semesters', label: '学期加载失败（课程正常）' },
           { key: 'failure-timeout', label: '数据请求超时（5 秒）' },
         ]
       },
@@ -34,7 +39,10 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
       // Keep the actual login state after a successful preview login or logout.
       if (!navigation) params.set('page', 'login');
       else if (params.get('page') === 'login') params.set('page', 'learning');
-      if (key.startsWith('failure-')) params.set('failure', key.slice(8));
+      if (key.startsWith('failure-')) {
+        params.set('failure', key.slice(8));
+        if (['failure-courses', 'failure-years', 'failure-semesters'].includes(key)) params.set('page', 'learning');
+      }
       else if (key === 'session-login') params.set('page', 'login');
       else if (key === 'session-main') params.set('page', params.get('evaluation') === 'pending' ? 'score' : 'learning');
       else if (key === 'pending') { params.set('evaluation', 'pending'); params.set('page', 'score'); }

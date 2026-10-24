@@ -1,3 +1,4 @@
+import Highlighter from 'react-highlight-words';
 import EmptyState from './EmptyState';
 import SelectionActions from './SelectionActions';
 import { toggleSelection } from '../utils';
@@ -25,12 +26,13 @@ export interface ResourceListProps<T> {
   searchPlaceholder?: string;
   loading?: boolean;
   emptyText?: string;
+  emptyContent?: React.ReactNode;
   emptyIcon?: React.ReactNode;
-  renderItem: (item: T) => { title: string; subtitle?: string; icon?: React.ReactNode; meta?: React.ReactNode };
+  renderItem: (item: T) => { title: string; titleField?: string; subtitle?: { text: string; field: string }[]; icon?: React.ReactNode; meta?: React.ReactNode };
 }
 
 /** App-owned list UI. Filtering never discards selection outside the visible results. */
-export default function ResourceList<T>({ items, itemKey, selectedKeys, onSelectionChange, title, fields, sorts = [], compact = false, fieldFilters = !compact, searchPlaceholder, loading = false, emptyText = '暂无内容', emptyIcon = <FileOutlined />, renderItem, actions }: ResourceListProps<T>) {
+export default function ResourceList<T>({ items, itemKey, selectedKeys, onSelectionChange, title, fields, sorts = [], compact = false, fieldFilters = !compact, searchPlaceholder, loading = false, emptyText = '暂无内容', emptyContent, emptyIcon = <FileOutlined />, renderItem, actions }: ResourceListProps<T>) {
   const [query, setQuery] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersId = useId();
@@ -41,6 +43,11 @@ export default function ResourceList<T>({ items, itemKey, selectedKeys, onSelect
   const visible = items.filter(item => (!normalized || fields.some(field => (field.value(item) || '').toLocaleLowerCase().includes(normalized))) &&
     fields.every(field => !filters[field.label] || (field.value(item) || '').toLocaleLowerCase().includes(filters[field.label].trim().toLocaleLowerCase())));
   if (sorts[sortIndex]) visible.sort(sorts[sortIndex].compare);
+  const highlight = (text: string, field?: string) => {
+    const searchWords = [...new Set([query, field ? filters[field] || '' : ''].map(value => value.trim()).filter(Boolean))];
+    return searchWords.length
+      ? <Highlighter autoEscape searchWords={searchWords} textToHighlight={text} highlightClassName="search-match" /> : text;
+  };
   const selected = new Set(selectedKeys);
   const filterCount = Object.values(filters).filter(Boolean).length;
   const toggle = (item: T, shift: boolean) => {
@@ -55,7 +62,7 @@ export default function ResourceList<T>({ items, itemKey, selectedKeys, onSelect
         placeholder={searchPlaceholder ?? (compact ? '搜索课程' : '搜索文件、课程…')} value={query} onChange={e => setQuery(e.target.value)}
         suffix={query ? <Tooltip title="清除搜索" trigger={['hover', 'focus']}><button disabled={loading} className="icon-button" aria-label="清除搜索" onClick={() => setQuery('')}><CloseOutlined /></button></Tooltip> : null} />
       {!compact && sorts.length > 0 && <Select disabled={loading} className="resource-sort" aria-label={`${title}排序`} value={sortIndex}
-        onChange={setSortIndex} popupMatchSelectWidth={180}
+        onChange={setSortIndex} popupMatchSelectWidth={false}
         options={[{ value: -1, label: '默认顺序' }, ...sorts.map((sort, index) => ({ value: index, label: sort.label }))]} />}
       {fieldFilters && fields.length > 1 && <Tooltip title="按字段筛选" trigger={['hover', 'focus']}><ActionButton disabled={loading} variant="secondary" iconOnly className={`resource-filter-button ${filterCount ? 'is-active' : ''}`} aria-label="按字段筛选" aria-expanded={filtersOpen} aria-controls={filtersId} onClick={() => setFiltersOpen(!filtersOpen)}><FilterOutlined /></ActionButton></Tooltip>}
       {actions && <div className="resource-toolbar-actions">{actions}</div>}
@@ -68,15 +75,16 @@ export default function ResourceList<T>({ items, itemKey, selectedKeys, onSelect
     </div>
     <div className="resource-rows" key={`${query}|${JSON.stringify(filters)}|${sortIndex}`}>
       {loading && !visible.length && <FetchState label={compact ? "正在获取课程…" : `正在获取${title}…`} />}
-      {!loading && !visible.length && <EmptyState icon={items.length ? <SearchOutlined aria-hidden="true" /> : emptyIcon} action={(query || filterCount > 0) && <button className="text-button" onClick={() => { setQuery(''); setFilters({}); }}>清除筛选</button>}>{items.length ? '没有匹配的结果' : emptyText}</EmptyState>}
+      {!loading && !visible.length && (emptyContent ?? <EmptyState icon={items.length ? <SearchOutlined aria-hidden="true" /> : emptyIcon} action={(query || filterCount > 0) && <button className="text-button" onClick={() => { setQuery(''); setFilters({}); }}>清除筛选</button>}>{items.length ? '没有匹配的结果' : emptyText}</EmptyState>)}
       {visible.map(item => {
         const content = renderItem(item);
         const checked = selected.has(itemKey(item));
+        const subtitle = (content.subtitle ?? []).filter(part => part.text);
         return <button type="button" role="checkbox" aria-checked={checked} aria-label={content.title} key={itemKey(item)} disabled={loading}
           className={`resource-row ${checked ? 'is-selected' : ''}`} onClick={e => toggle(item, e.shiftKey)}
           onKeyDown={e => { if ((e.key === ' ' || e.key === 'Enter') && e.shiftKey) { e.preventDefault(); toggle(item, true); } }}>
           {!compact && <span className="resource-icon" aria-hidden="true">{content.icon || <FileOutlined />}</span>}
-          <span className="resource-copy"><OverflowText className="resource-name" text={content.title} />{content.subtitle && <OverflowText className="resource-description" text={content.subtitle} />}</span>
+          <span className="resource-copy"><OverflowText className="resource-name" text={content.title}>{highlight(content.title, content.titleField)}</OverflowText>{subtitle.length > 0 && <OverflowText className="resource-description" text={subtitle.map(part => part.text).join(' · ')}>{subtitle.map((part, index) => <React.Fragment key={part.field}>{index > 0 && ' · '}{highlight(part.text, part.field)}</React.Fragment>)}</OverflowText>}</span>
           {content.meta && <span className="resource-meta">{content.meta}</span>}
           <span className="resource-check" aria-hidden="true"><SelectionCheck selected={checked} /></span>
         </button>;

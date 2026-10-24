@@ -1,13 +1,13 @@
 use super::{Service, ZjuAssist};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
 
 impl ZjuAssist {
-    pub(super) async fn login_undergraduate(&self) -> Result<String> {
+    pub(super) async fn login_zdbk(&self) -> Result<String> {
         let response = self.post("https://zjuam.zju.edu.cn/cas/login?service=https://zdbk.zju.edu.cn/jwglxt/xtgl/login_ssologin.html")
-            .timeout(Duration::from_secs(15)).send().await.map_err(|error| error.without_url())?
+            .send().await.map_err(|error| error.without_url())?
             .error_for_status().map_err(|error| error.without_url())?;
         let body = response.text().await.map_err(|error| error.without_url())?;
         if body.contains("统一身份认证平台") {
@@ -16,8 +16,8 @@ impl ZjuAssist {
         Ok(String::new())
     }
 
-    pub async fn check_undergraduate_evaluation_done(&mut self) -> Result<bool> {
-        self.ensure_service(Service::Undergraduate, false).await?;
+    pub async fn check_zdbk_evaluation_done(&mut self) -> Result<bool> {
+        self.ensure_service(Service::Zdbk, false).await?;
         if !self.is_login() {
             return Err(anyhow!("Not login"));
         }
@@ -33,7 +33,7 @@ impl ZjuAssist {
         let mut json = serde_json::from_str(&text);
 
         if json.is_err() {
-            self.ensure_service(Service::Undergraduate, true).await?;
+            self.ensure_service(Service::Zdbk, true).await?;
 
             let res = self
                 .post(format!(
@@ -55,7 +55,7 @@ impl ZjuAssist {
         Ok(result == "1")
     }
 
-    fn undergraduate_auth_expired(status: u16, url: &Url, body: &str) -> bool {
+    fn zdbk_auth_expired(status: u16, url: &Url, body: &str) -> bool {
         if status == 401
             || (url.host_str() == Some("zjuam.zju.edu.cn") && url.path() == "/cas/login")
             || (url.host_str() == Some("zdbk.zju.edu.cn")
@@ -75,8 +75,8 @@ impl ZjuAssist {
                 || (body.contains("name=\"yhm\"") && body.contains("name=\"mm\"")))
     }
 
-    pub async fn get_undergraduate_score(&mut self) -> Result<Vec<Value>> {
-        self.ensure_service(Service::Undergraduate, false).await?;
+    pub async fn get_zdbk_score(&mut self) -> Result<Vec<Value>> {
+        self.ensure_service(Service::Zdbk, false).await?;
         if !self.is_login() {
             return Err(anyhow!("Not login"));
         }
@@ -104,7 +104,6 @@ impl ZjuAssist {
         for attempt in 0..2 {
             let res = self.post(format!("https://zdbk.zju.edu.cn/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N508301&su={}", self.username))
                 .form(&data)
-                .timeout(Duration::from_secs(15))
                 .send()
                 .await.map_err(|error| error.without_url())?;
             let status = res.status();
@@ -116,9 +115,9 @@ impl ZjuAssist {
                 .unwrap_or("unknown")
                 .to_owned();
             let text = res.text().await.map_err(|error| error.without_url())?;
-            if Self::undergraduate_auth_expired(status.as_u16(), &url, &text) {
+            if Self::zdbk_auth_expired(status.as_u16(), &url, &text) {
                 if attempt == 0 {
-                    self.ensure_service(Service::Undergraduate, true).await?;
+                    self.ensure_service(Service::Zdbk, true).await?;
                     continue;
                 }
                 return Err(anyhow!("本科系统登录已失效，请重新登录"));

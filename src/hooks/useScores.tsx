@@ -16,7 +16,7 @@ export function useScores() {
   const [loading, setLoading] = useState(true);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const previous = useRef<ScoreItem[] | null>(null);
-  const previousParts = useRef<{ undergraduate: ScoreItem[] | null; graduate: ScoreItem[] | null }>({ undergraduate: null, graduate: null });
+  const previousParts = useRef<{ zdbk: ScoreItem[] | null; yjsy: ScoreItem[] | null }>({ zdbk: null, yjsy: null });
   const generation = useRef(0);
   const checkedEvaluations = useRef(new Set<string>());
   const failedEvaluations = useRef(new Set<string>());
@@ -33,37 +33,40 @@ export function useScores() {
     if (request.foreground) setLoading(true);
     request.promise = (async () => {
       try {
-        const [undergraduate, graduate] = await Promise.allSettled([
-          invoke<ScoreItem[]>('get_undergraduate_score'),
-          invoke<ScoreItem[]>('get_graduate_score'),
+        const [zdbk, yjsy] = await Promise.allSettled([
+          invoke<ScoreItem[]>('get_zdbk_score'),
+          invoke<ScoreItem[]>('get_yjsy_score'),
         ]);
         const response = {
-          undergraduate: undergraduate.status === 'fulfilled' ? undergraduate.value : null,
-          graduate: graduate.status === 'fulfilled' ? graduate.value : null,
+          zdbk: zdbk.status === 'fulfilled' ? zdbk.value : null,
+          yjsy: yjsy.status === 'fulfilled' ? yjsy.value : null,
         };
         const errors = [
-          undergraduate.status === 'rejected' ? `本科成绩：${String(undergraduate.reason)}` : null,
-          graduate.status === 'rejected' ? `研究生成绩：${String(graduate.reason)}` : null,
+          zdbk.status === 'rejected' ? `本科成绩：${String(zdbk.reason)}` : null,
+          yjsy.status === 'rejected' ? `研究生成绩：${String(yjsy.reason)}` : null,
         ].filter((error): error is string => error !== null);
         if (run !== generation.current) return;
-        if (response.undergraduate === null && response.graduate === null) {
+        if (response.zdbk === null && response.yjsy === null) {
           throw new Error(errors.join('\n') || '成绩获取失败');
         }
         const parts = previousParts.current;
         // A failed source retains its last successful result; an empty array clears it.
         // A source's first successful response establishes its notification baseline.
-        const changedRows = (['undergraduate', 'graduate'] as const).flatMap(key =>
+        const changedRows = (['zdbk', 'yjsy'] as const).flatMap(key =>
           response[key] !== null && parts[key] !== null ? response[key]! : []);
         const nextParts = {
-          undergraduate: response.undergraduate ?? parts.undergraduate,
-          graduate: response.graduate ?? parts.graduate,
+          zdbk: response.zdbk ?? parts.zdbk,
+          yjsy: response.yjsy ?? parts.yjsy,
         };
         previousParts.current = nextParts;
-        const rows = [...(nextParts.undergraduate ?? []), ...(nextParts.graduate ?? [])];
+        const rows = [...(nextParts.zdbk ?? []), ...(nextParts.yjsy ?? [])];
         const old = previous.current;
         previous.current = rows;
         if (!old || JSON.stringify(old) !== JSON.stringify(rows)) setScore(rows);
-        if (!errors.length) setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'));
+        if (!errors.length) {
+          setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'));
+          notification.destroy('score-refresh-error');
+        }
         if (old) {
           const settings = configRef.current;
           const oldTotals = calculateScoreTotals(old), totals = calculateScoreTotals(rows);
@@ -80,13 +83,13 @@ export function useScores() {
           }
         }
         if (errors.length && request.foreground) notification.warning({
-          title: '部分成绩刷新失败',
+          key: 'score-refresh-error', title: '部分成绩刷新失败',
           description: `${errors.join('\n')}\n已更新获取成功的成绩，失败部分保留上次结果。`,
         });
         {
           const checks = [
-            { available: response.undergraduate !== null, command: 'check_undergraduate_evaluation_done', label: '本科', url: 'https://alt.zju.edu.cn/studentEvaluationBackend/list' },
-            { available: response.graduate !== null, command: 'check_graduate_evaluation_done', label: '研究生', url: 'https://yjsy.zju.edu.cn/dashboard/workplace?dm=py_xsxk&mode=2&role=1&back=dashboard' },
+            { available: response.zdbk !== null, command: 'check_zdbk_evaluation_done', label: '本科', url: 'https://alt.zju.edu.cn/studentEvaluationBackend/list' },
+            { available: response.yjsy !== null, command: 'check_yjsy_evaluation_done', label: '研究生', url: 'https://yjsy.zju.edu.cn/dashboard/workplace?dm=py_xsxk&mode=2&role=1&back=dashboard' },
           ].filter(check => check.available && (request.manual || !checkedEvaluations.current.has(check.command)));
           const results = await Promise.allSettled(checks.map(check => invoke<boolean>(check.command)));
           if (run !== generation.current) return;
@@ -109,7 +112,7 @@ export function useScores() {
             const key = `evaluation-required-${check.command}`;
             if (result.value) notification.destroy(key);
             else notification.warning({
-              key, title: `${check.label}教学评价未完成`,
+              key, duration: 0, title: `${check.label}教学评价未完成`,
               description: '部分课程需完成评价后才能查看成绩，请完成后重新刷新。',
               actions: <ActionButton variant="secondary"
                 onClick={() => shell.open(check.url).then(() => notification.destroy(key)).catch(err => notification.error({ title: '打开教学评价失败', description: String(err) }))}>
@@ -122,7 +125,7 @@ export function useScores() {
           }
         }
       } catch (err) {
-        if (run === generation.current && request.foreground) notification.error({ title: '成绩刷新失败', description: String(err) });
+        if (run === generation.current && request.foreground) notification.error({ key: 'score-refresh-error', title: '成绩刷新失败', description: String(err) });
       } finally {
         if (run === generation.current) { flight.current = null; if (request.foreground) setLoading(false); }
       }

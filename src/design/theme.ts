@@ -36,7 +36,10 @@ export function createControlTheme(dark: boolean): { theme: ThemeConfig; css: st
           multipleItemBg: colors.selected, multipleItemBorderColor: 'transparent'
         },
         Segmented: { trackBg: colors.field, itemSelectedBg: colors.selected, itemColor: colors.muted, itemSelectedColor: colors.text, itemHoverBg: colors.hover },
-        Switch: { trackHeight: 20, trackMinWidth: 36, handleSize: 16, trackPadding: 2, handleShadow: 'none' },
+        Switch: {
+          colorPrimary: dark ? '#88a9e0' : '#5478b8', colorPrimaryHover: dark ? '#9bb8e8' : '#6588c6',
+          handleBg: '#ffffff', trackHeight: 20, trackMinWidth: 36, handleSize: 16, trackPadding: 2, handleShadow: 'none'
+        },
         Checkbox: { colorWhite: colors.canvas, controlInteractiveSize: 16, borderRadiusSM: 4, colorBgContainer: colors.field },
         Button: {
           colorPrimary: colors.text, colorPrimaryHover: colors.text, colorPrimaryActive: colors.text, defaultBg: 'transparent', defaultColor: colors.text, defaultBorderColor: 'transparent',

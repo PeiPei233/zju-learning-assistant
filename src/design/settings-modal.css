@@ -107,3 +107,5 @@
 .version-download-copy { flex: 1; min-width: 0; }
 .version-download-copy > .ant-progress { display: block; margin: 6px 0 0; line-height: 1; }
 .version-download > .action-button { flex-shrink: 0; }
+
+.version-release-link { margin-inline-end: auto; }

@@ -18,6 +18,7 @@ pub struct Config {
     pub todo_reminder_minutes: Vec<u32>,
     pub auto_open_download_list: bool,
     pub auto_select_all_courseware: bool,
+    pub theme: String,
     pub tray: bool,
     pub max_concurrent_tasks: u32,
     pub auto_start: bool,
@@ -54,6 +55,7 @@ impl Default for Config {
             todo_reminder_minutes: vec![60],
             auto_open_download_list: false,
             auto_select_all_courseware: true,
+            theme: "system".to_string(),
             tray: true,
             max_concurrent_tasks: 3,
             auto_start: false,
@@ -76,6 +78,7 @@ impl Default for Config {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Upload {
+    pub course_id: i64,
     pub id: i64,
     pub reference_id: i64,
     pub file_name: String,
@@ -109,9 +112,11 @@ pub struct Subject {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VersionInfo {
+    pub update_available: bool,
     pub can_install: bool,
     pub prepare_error: Option<String>,
     pub version: String,
     pub notes: String,
+    pub notes_error: Option<String>,
     pub url: String,
 }

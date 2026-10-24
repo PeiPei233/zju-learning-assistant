@@ -9,7 +9,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::Instant,
 };
 use tokio::sync::Mutex;
 
@@ -17,8 +17,8 @@ use tokio::sync::Mutex;
 pub(super) enum Service {
     Courses,
     Classroom,
-    Undergraduate,
-    Graduate,
+    Zdbk,
+    Yjsy,
 }
 
 #[derive(Default)]
@@ -33,8 +33,8 @@ pub(super) struct LoginSession {
     authentication: Mutex<()>,
     courses: Mutex<ServiceLogin>,
     classroom: Mutex<ServiceLogin>,
-    undergraduate: Mutex<ServiceLogin>,
-    graduate: Mutex<ServiceLogin>,
+    zdbk: Mutex<ServiceLogin>,
+    yjsy: Mutex<ServiceLogin>,
 }
 
 impl ZjuAssist {
@@ -43,27 +43,42 @@ impl ZjuAssist {
             return Ok(());
         }
         self.logout();
-        tokio::time::timeout(
-            Duration::from_secs(45),
-            self.authenticate_cas(username, password),
-        )
-        .await
-        .map_err(|_| anyhow!("登录超时，请重试"))??;
+        // Race only the login page, with independent CAS cookies for each route.
+        let attempts = [true, false].map(|proxy_first| {
+            let mut candidate = self.clone();
+            candidate.jar = Arc::new(Jar::default());
+            candidate.proxy_first = Arc::new(AtomicBool::new(proxy_first));
+            Box::pin(async move {
+                let execution = candidate
+                    .get_cas_execution(true)
+                    .await?
+                    .ok_or_else(|| anyhow!("Execution value not found"))?;
+                Ok::<_, anyhow::Error>((candidate, execution))
+            })
+        });
+        let ((candidate, execution), _) = futures::future::select_ok(attempts).await?;
+        self.jar = candidate.jar;
+        self.proxy_first.store(
+            candidate.proxy_first.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        self.authenticate_cas(username, password, Some(execution))
+            .await?;
         self.username = username.to_owned();
         self.password = password.to_owned();
         self.session.active.store(true, Ordering::Release);
         Ok(())
     }
 
-    async fn authenticate_cas(&self, username: &str, password: &str) -> Result<()> {
-        let res = self
-            .get("https://zjuam.zju.edu.cn/cas/login")
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await
-            .map_err(|error| error.without_url())?
-            .error_for_status()
-            .map_err(|error| error.without_url())?;
+    async fn get_cas_execution(&self, single_attempt: bool) -> Result<Option<String>> {
+        let request = self.get("https://zjuam.zju.edu.cn/cas/login");
+        let res = if single_attempt {
+            request.send_once().await
+        } else {
+            request.send().await
+        }
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| error.without_url())?;
 
         let text = res.text().await?;
         if !text.contains("统一身份认证平台") {
@@ -80,18 +95,34 @@ impl ZjuAssist {
                 })
                 .unwrap_or(false);
             if self.is_login() && has_sso_cookie {
-                return Ok(());
+                return Ok(None);
             }
             return Err(anyhow!("统一身份认证返回了异常页面，请重试"));
         }
         let re = Regex::new(r#"<input type="hidden" name="execution" value="(.*?)" />"#).unwrap();
         let execution = re
             .captures(&text)
-            .and_then(|cap| cap.get(1).map(|m| m.as_str()))
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_owned()))
+            .filter(|value| !value.is_empty())
             .ok_or(anyhow!("Execution value not found"))?;
+        Ok(Some(execution))
+    }
+
+    async fn authenticate_cas(
+        &self,
+        username: &str,
+        password: &str,
+        execution: Option<String>,
+    ) -> Result<()> {
+        let execution = match execution {
+            Some(execution) => execution,
+            None => match self.get_cas_execution(false).await? {
+                Some(execution) => execution,
+                None => return Ok(()),
+            },
+        };
         let res = self
             .get("https://zjuam.zju.edu.cn/cas/v2/getPubKey")
-            .timeout(Duration::from_secs(15))
             .send()
             .await
             .map_err(|error| error.without_url())?
@@ -111,7 +142,7 @@ impl ZjuAssist {
         let data = [
             ("username", username),
             ("password", &rsapwd),
-            ("execution", execution),
+            ("execution", execution.as_str()),
             ("_eventId", "submit"),
             ("authcode", ""),
         ];
@@ -119,7 +150,6 @@ impl ZjuAssist {
         let res = self
             .post("https://zjuam.zju.edu.cn/cas/login")
             .form(&data)
-            .timeout(Duration::from_secs(15))
             .send()
             .await
             .map_err(|error| error.without_url())?
@@ -171,8 +201,8 @@ impl ZjuAssist {
         for service in [
             Service::Courses,
             Service::Classroom,
-            Service::Undergraduate,
-            Service::Graduate,
+            Service::Zdbk,
+            Service::Yjsy,
         ] {
             if !self.is_login() {
                 break;
@@ -191,8 +221,8 @@ impl ZjuAssist {
         let state = match service {
             Service::Courses => &self.session.courses,
             Service::Classroom => &self.session.classroom,
-            Service::Undergraduate => &self.session.undergraduate,
-            Service::Graduate => &self.session.graduate,
+            Service::Zdbk => &self.session.zdbk,
+            Service::Yjsy => &self.session.yjsy,
         };
         // Hold the per-service lock through login so concurrent callers share its result.
         let mut state = state.lock().await;
@@ -210,21 +240,19 @@ impl ZjuAssist {
         if !self.is_login() {
             return Err(anyhow!("Not login"));
         }
-        let result = tokio::time::timeout(Duration::from_secs(45), async {
+        let result = async {
             if refresh || state.result.as_ref().is_some_and(|result| result.is_err()) {
-                self.authenticate_cas(&self.username, &self.password)
+                self.authenticate_cas(&self.username, &self.password, None)
                     .await?;
             }
             match service {
                 Service::Courses => self.login_courses().await,
                 Service::Classroom => self.login_classroom().await,
-                Service::Undergraduate => self.login_undergraduate().await,
-                Service::Graduate => self.login_graduate().await,
+                Service::Zdbk => self.login_zdbk().await,
+                Service::Yjsy => self.login_yjsy().await,
             }
-        })
+        }
         .await
-        .map_err(|_| anyhow!("连接超时，请重试"))
-        .and_then(|result| result)
         .map_err(|error| error.to_string());
         if !self.is_login() {
             return Err(anyhow!("Not login"));

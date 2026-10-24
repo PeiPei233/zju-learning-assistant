@@ -111,6 +111,7 @@ export function useTodos() {
         setItems(result);
       }
       setError(null);
+      notification.destroy('todo-refresh-error');
       setLastSync(dayjs().format('YYYY-MM-DD HH:mm:ss'));
       if (notifyChange) notification.info({ title: '待办有更新', description: `当前共 ${result.length} 项待办。` });
       checkReminders();
@@ -118,7 +119,7 @@ export function useTodos() {
     } catch (err) {
       if (run !== generation.current) return;
       if (request.foreground) setError(String(err));
-      if (request.manual) notification.error({ title: '待办刷新失败', description: String(err) });
+      if (request.manual) notification.error({ key: 'todo-refresh-error', title: '待办刷新失败', description: String(err) });
     } finally {
       if (run === generation.current) {
         inFlight.current = null;
@@ -134,10 +135,11 @@ export function useTodos() {
     setExporting(true);
     try {
       const message = await invoke<string | null>(fromTray ? 'export_todo_from_tray' : 'export_todo', { todoList: selection, location });
+      if (run === exportGeneration.current) notification.destroy('todo-export-error');
       if (run === exportGeneration.current && !fromTray && message) notification.success({ title: '导出待办成功', description: message });
     }
     catch (err) {
-      if (run === exportGeneration.current) notification.error({ title: '导出待办失败', description: String(err) });
+      if (run === exportGeneration.current) notification.error({ key: 'todo-export-error', title: '导出待办失败', description: String(err) });
     }
     finally {
       if (run === exportGeneration.current) { exportInFlight.current = false; setExporting(false); }

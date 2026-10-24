@@ -102,11 +102,12 @@ export default function Classroom() {
     requestInFlight.current = true;
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
+      notification.destroy('classroom-range-error')
       setRightSubList(res)
       setSelectedRightKeys(previous => refreshedSelection(previous, res.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
       notification.error({
-        title: '获取课程列表失败',
+        key: 'classroom-range-error', title: '获取课程列表失败',
         description: String(err)
       })
     }).finally(() => {
@@ -128,12 +129,13 @@ export default function Classroom() {
     const course_ids = subs.map((item) => item.course_id)
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
+      notification.destroy('classroom-course-error')
       const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
       setRightSubList(subs)
       setSelectedRightKeys(previous => refreshedSelection(previous, subs.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
       notification.error({
-        title: '获取课件列表失败',
+        key: 'classroom-course-error', title: '获取课件列表失败',
         description: String(err)
       })
     }).finally(() => {
@@ -174,12 +176,13 @@ export default function Classroom() {
     requestInFlight.current = true;
     setLoadingLeftSubList(true)
     invoke<Subject[]>('search_courses', { courseName: searchCourseName, teacherName: searchTeacherName }).then((res) => {
+      notification.destroy('classroom-search-error')
       setHasSearchedCourses(true)
       setLeftSubList(res)
       setSelectedLeftKeys([])
     }).catch((err) => {
       notification.error({
-        title: '搜索课程失败',
+        key: 'classroom-search-error', title: '搜索课程失败',
         description: String(err)
       })
     }).finally(() => {
@@ -224,7 +227,7 @@ export default function Classroom() {
     {selectedCourseRange === 'all' && <div className="panel-list"><ResourceList<Subject> compact fieldFilters emptyIcon={<PlatformIcon platform="classroom" />} emptyText={hasSearchedCourses ? '未找到课程，请调整课程名称或教师后重试' : '输入课程名称或教师，搜索全部课程'} searchPlaceholder="筛选搜索结果…" title="课程" items={leftSubList} itemKey={item => item.course_id}
       selectedKeys={selectedLeftKeys} onSelectionChange={setSelectedLeftKeys} loading={loadingLeftSubList}
       fields={[{ label: '课程', value: item => item.course_name }, { label: '教师', value: item => item.lecturer_name }, { label: '时间', value: item => item.sub_name }]}
-      renderItem={item => ({ title: item.course_name, subtitle: `${item.lecturer_name} · ${item.sub_name}` })} /></div>}
+      renderItem={item => ({ title: item.course_name, titleField: '课程', subtitle: [{ text: item.lecturer_name, field: '教师' }, { text: item.sub_name, field: '时间' }] })} /></div>}
     <div className="panel-bottom"><p>下载格式 · {toPdf ? 'PDF' : '图片'}</p><p>字幕与 AI 处理选项可在设置中调整。</p></div>
   </>}
     footer={<><span>已选 {selectedRightKeys.length} 个课件 <span className="muted">· {rightSubList.filter(item => selectedRightKeys.includes(item.sub_id)).reduce((sum, item) => sum + item.ppt_image_urls.length, 0)} 页</span></span>
@@ -234,7 +237,7 @@ export default function Classroom() {
       sorts={[{ label: '课程升序', compare: (a, b) => a.course_name.localeCompare(b.course_name) }, { label: '课程降序', compare: (a, b) => b.course_name.localeCompare(a.course_name) },
       { label: '时间升序', compare: (a, b) => a.sub_name.localeCompare(b.sub_name) }, { label: '时间降序', compare: (a, b) => b.sub_name.localeCompare(a.sub_name) },
       { label: '页数升序', compare: (a, b) => a.ppt_image_urls.length - b.ppt_image_urls.length }, { label: '页数降序', compare: (a, b) => b.ppt_image_urls.length - a.ppt_image_urls.length }]}
-      renderItem={item => ({ title: item.course_name, subtitle: `${item.sub_name} · ${item.lecturer_name}`, icon: <FileTypeIcon name={item.course_name} extension={toPdf ? 'pdf' : 'png'} />, meta: `${item.ppt_image_urls.length} 页` })}
+      renderItem={item => ({ title: item.course_name, titleField: '课程', subtitle: [{ text: item.sub_name, field: '时间' }, { text: item.lecturer_name, field: '教师' }], icon: <FileTypeIcon name={item.course_name} extension={toPdf ? 'pdf' : 'png'} />, meta: `${item.ppt_image_urls.length} 页` })}
       emptyIcon={<PlatformIcon platform="classroom" />} emptyText="当前范围内暂无课件，可调整范围后重新获取" />}
   </Workspace>
 }

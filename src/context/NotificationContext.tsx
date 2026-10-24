@@ -17,11 +17,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       const merge = args.key == null && typeof title === 'string' && (!args.description || typeof args.description === 'string') && !args.actions && !args.btn && !args.onClick;
       const key = args.key ?? (merge ? JSON.stringify([type, title, args.description]) : `notice-${++sequence.current}`);
       const count = merge ? (entries.current.get(key) ?? 0) + 1 : 1;
-      if (!entries.current.has(key) && entries.current.size >= 3) {
-        const oldest = entries.current.keys().next().value!;
-        entries.current.delete(oldest);
-        notification.destroy(oldest);
-      }
       entries.current.set(key, count);
       const { message: _message, btn: _btn, ...noticeArgs } = args;
       notification.open({
@@ -30,7 +25,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         actions: args.actions ?? args.btn,
         className: `desktop-notice desktop-notice-${type} ${args.className ?? ''}`,
         icon: args.icon ?? icons[type], closeIcon: args.closeIcon ?? <CloseOutlined />,
-        duration: args.duration ?? (type === 'error' || type === 'warning' ? 0 : 6),
+        duration: args.duration ?? 6,
         pauseOnHover: true,
         role: args.role ?? (type === 'error' || type === 'warning' ? 'alert' : 'status'),
         onClose: () => { entries.current.delete(key); args.onClose?.(); },
