@@ -202,14 +202,18 @@ pub async fn check(app: &AppHandle, state: &AppUpdateState) -> Result<Option<Ver
                     Ok(release) => {
                         release_source = source.alternate();
                         Some(release)
-                    },
+                    }
                     Err(second_error) => {
                         let not_found = |error: &anyhow::Error| {
-                            error.downcast_ref::<reqwest::Error>()
-                                .and_then(reqwest::Error::status) == Some(reqwest::StatusCode::NOT_FOUND)
+                            error
+                                .downcast_ref::<reqwest::Error>()
+                                .and_then(reqwest::Error::status)
+                                == Some(reqwest::StatusCode::NOT_FOUND)
                         };
                         if !not_found(&first_error) || !not_found(&second_error) {
-                            log::warn!("Current release notes failed: {first_error}; {second_error}");
+                            log::warn!(
+                                "Current release notes failed: {first_error}; {second_error}"
+                            );
                             notes_error = Some("版本说明获取失败，请重新检查更新。".into());
                         }
                         None
@@ -220,7 +224,16 @@ pub async fn check(app: &AppHandle, state: &AppUpdateState) -> Result<Option<Ver
         return Ok(Some(VersionInfo {
             update_available: false,
             version: current,
-            url: release.as_ref().map(|release| format!("{}/releases/tag/{}", release_source.repository(), release.tag_name)).unwrap_or_default(),
+            url: release
+                .as_ref()
+                .map(|release| {
+                    format!(
+                        "{}/releases/tag/{}",
+                        release_source.repository(),
+                        release.tag_name
+                    )
+                })
+                .unwrap_or_default(),
             notes: release.and_then(|release| release.body).unwrap_or_default(),
             notes_error,
             can_install: false,

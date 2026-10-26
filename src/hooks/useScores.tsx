@@ -75,7 +75,8 @@ export function useScores() {
             for (const item of changedRows) {
               const before = byId.get(item.course_id);
               if (!before || ['grade', 'makeup_grade', 'grade_point', 'credits'].some(key => before[key as keyof ScoreItem] !== item[key as keyof ScoreItem])) {
-                void invoke('notify_score', { score: item, oldTotalGp: oldTotals.gp, oldTotalCredit: oldTotals.credit, totalGp: totals.gp, totalCredit: totals.credit,
+                void invoke('notify_score', {
+                  score: item, oldTotalGp: oldTotals.gp, oldTotalCredit: oldTotals.credit, totalGp: totals.gp, totalCredit: totals.credit,
                   dingUrl: settings.score_ding_notification ? settings.ding_url : '', dingSecret: settings.ding_secret, systemEnabled: settings.score_system_notification,
                 }).catch(err => { if (run === generation.current) notification.error({ title: '发送成绩通知失败', description: String(err) }); });
               }
@@ -112,7 +113,7 @@ export function useScores() {
             const key = `evaluation-required-${check.command}`;
             if (result.value) notification.destroy(key);
             else notification.warning({
-              key, duration: 0, title: `${check.label}教学评价未完成`,
+              key, title: `${check.label}教学评价未完成`,
               description: '部分课程需完成评价后才能查看成绩，请完成后重新刷新。',
               actions: <ActionButton variant="secondary"
                 onClick={() => shell.open(check.url).then(() => notification.destroy(key)).catch(err => notification.error({ title: '打开教学评价失败', description: String(err) }))}>

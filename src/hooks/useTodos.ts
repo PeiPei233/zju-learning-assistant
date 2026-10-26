@@ -134,7 +134,7 @@ export function useTodos() {
     const run = exportGeneration.current;
     setExporting(true);
     try {
-      const message = await invoke<string | null>(fromTray ? 'export_todo_from_tray' : 'export_todo', { todoList: selection, location });
+      const message = await invoke<string | null>(fromTray ? 'export_todo_from_tray' : location.startsWith('caldav_') ? 'export_caldav' : 'export_todo', { todoList: selection, location });
       if (run === exportGeneration.current) notification.destroy('todo-export-error');
       if (run === exportGeneration.current && !fromTray && message) notification.success({ title: '导出待办成功', description: message });
     }

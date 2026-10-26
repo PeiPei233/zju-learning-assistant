@@ -32,13 +32,13 @@ export function installPreview() {
     }
     const matches = scenario === 'courses' ? command === 'get_courses'
       : scenario === 'years' ? command === 'get_academic_year_list'
-      : scenario === 'semesters' ? command === 'get_semester_list'
-      : scenario === 'save' ? command === 'set_config'
-      : scenario === 'ding' ? (command === 'send_ding_notification' || command === 'notify_score')
-      : scenario === 'ai' ? command === 'test_llm_connection'
-        : scenario === 'download' ? command.startsWith('start_download_')
-          : scenario === 'timeout' ? ['sync_todo_once', 'get_courses', 'get_zdbk_score', 'get_yjsy_score', 'search_courses', 'get_range_subs', 'get_uploads_list', 'get_course_all_sub_ppts'].includes(command)
-            : false;
+        : scenario === 'semesters' ? command === 'get_semester_list'
+          : scenario === 'save' ? command === 'set_config'
+            : scenario === 'ding' ? (command === 'send_ding_notification' || command === 'notify_score')
+              : scenario === 'ai' ? command === 'test_llm_connection'
+                : scenario === 'download' ? command.startsWith('start_download_')
+                  : scenario === 'timeout' ? ['sync_todo_once', 'get_courses', 'get_zdbk_score', 'get_yjsy_score', 'search_courses', 'get_range_subs', 'get_uploads_list', 'get_course_all_sub_ppts'].includes(command)
+                    : false;
     if (matches && !failed.has(scenario!)) {
       failed.add(scenario!);
       if (scenario === 'timeout') await new Promise(resolve => setTimeout(resolve, 5000));
@@ -49,8 +49,8 @@ export function installPreview() {
       case 'get_latest_version_info':
         if (new URLSearchParams(window.location.search).get('update') === 'check-error') throw new Error('预览：检查更新失败');
         return ['none', 'notes-error', 'notes-empty'].includes(new URLSearchParams(window.location.search).get('update') ?? '')
-        ? { update_available: false, can_install: false, version: 'v0.3.15', notes_error: new URLSearchParams(window.location.search).get('update') === 'notes-error' ? '版本说明获取失败，请重新检查更新。' : null, notes: new URLSearchParams(window.location.search).get('update') !== 'none' ? '' : '这是当前版本的模拟更新日志。\n\n- 优化课件列表与筛选体验\n- 支持切换深色、浅色及跟随系统外观', url: new URLSearchParams(window.location.search).get('update') === 'none' ? 'https://example.invalid/releases/tag/v0.3.15' : '' }
-        : { update_available: true, can_install: !['prepare-error', 'manual-only'].includes(new URLSearchParams(window.location.search).get('update') ?? ''), prepare_error: new URLSearchParams(window.location.search).get('update') === 'prepare-error' ? '暂时无法获取更新包，请稍后重试。' : null, version: 'v0.3.16-preview', notes: '这是用于检查更新提示样式的模拟版本，并非真实发布。\n\n- 优化侧栏状态标记\n- 改进加载与刷新体验', url: 'https://example.invalid' };
+          ? { update_available: false, can_install: false, version: 'v0.3.15', notes_error: new URLSearchParams(window.location.search).get('update') === 'notes-error' ? '版本说明获取失败，请重新检查更新。' : null, notes: new URLSearchParams(window.location.search).get('update') !== 'none' ? '' : '这是当前版本的模拟更新日志。\n\n- 优化课件列表与筛选体验\n- 支持切换深色、浅色及跟随系统外观', url: new URLSearchParams(window.location.search).get('update') === 'none' ? 'https://example.invalid/releases/tag/v0.3.15' : '' }
+          : { update_available: true, can_install: !['prepare-error', 'manual-only'].includes(new URLSearchParams(window.location.search).get('update') ?? ''), prepare_error: new URLSearchParams(window.location.search).get('update') === 'prepare-error' ? '暂时无法获取更新包，请稍后重试。' : null, version: 'v0.3.16-preview', notes: '这是用于检查更新提示样式的模拟版本，并非真实发布。\n\n- 优化侧栏状态标记\n- 改进加载与刷新体验', url: 'https://example.invalid' };
       case 'cancel_app_update_download': updateDownloadCancelled = true; return null;
       case 'download_app_update': {
         updateDownloadCancelled = false;
@@ -124,6 +124,8 @@ export function installPreview() {
       case 'plugin:notification|is_permission_granted': return true;
       case 'plugin:notification|request_permission': return 'granted';
       case 'test_llm_connection': return '预览模式：连接测试成功（未调用模型）';
+      case 'connect_caldav': return [{ url: 'https://calendar.example.invalid/events/', name: '我的日历', components: ['VEVENT'] }, { url: 'https://calendar.example.invalid/tasks/', name: '我的待办', components: ['VTODO'] }];
+      case 'export_caldav': return `已导出 ${args.todoList.length} 项待办，重复条目不会再次创建。`;
       case 'export_todo': return '示例待办已导出';
       case 'export_todo_from_tray': return null;
       case 'notify_score': case 'open_file': case 'open_file_upload': case 'open_file_ppts': return null;

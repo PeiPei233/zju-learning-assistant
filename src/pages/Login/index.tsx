@@ -2,7 +2,6 @@ import UpdateIndicator, { type UpdateIndicatorState } from '../../components/Upd
 import PreviewMenu from "../../components/PreviewMenu";
 import { useDesktopApp } from '../../context/NotificationContext';
 import AppIcon from '../../components/AppIcon';
-import { useConfig } from '../../context/ConfigContext';
 import WindowChrome from '../../components/WindowChrome';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Form, Input, Switch, Tooltip } from 'antd';
@@ -38,7 +37,6 @@ export default function Login({
 
   const { notification } = useDesktopApp()
   const [form] = Form.useForm()
-  const { loadError, loadingConfig, refreshConfig } = useConfig()
 
   const [loading, setLoading] = useState(false)
   const [autoLogin, setAutoLogin] = useState(false)
@@ -70,7 +68,7 @@ export default function Login({
         if (session === loginSession.current) notification.destroy('login-setup-error');
       } catch (err) {
         if (session === loginSession.current) notification.warning({
-          key: 'login-setup-error', duration: 0, title: remember ? '无法保存自动登录信息' : '无法清除自动登录信息',
+          key: 'login-setup-error', title: remember ? '无法保存自动登录信息' : '无法清除自动登录信息',
           description: String(err), actions: <ActionButton onClick={() => void save()}>重试</ActionButton>,
         });
       } finally { pending = false; }
@@ -133,11 +131,6 @@ export default function Login({
             </ActionButton>
             {autoLogin && <p className="login-status" role="status">正在登录 {autoLoginUsername}</p>}
           </Form>
-          {loadError && <p className="login-status">
-            <ActionButton disabled={loadingConfig} onClick={() => void refreshConfig()}>
-              {loadingConfig && <LoadingOutlined spin />}读取设置失败 · {loadingConfig ? '正在重试' : '重试'}
-            </ActionButton>
-          </p>}
           {isPreview && <p className="login-preview-note">预览模式 · 任意填写可登录，学号 error 可测试失败。</p>}
         </div>
       </div>

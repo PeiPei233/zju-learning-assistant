@@ -4,6 +4,7 @@ import { Progress, Subject, Upload } from "./model"
 
 export class Task {
   id: string
+  runId: string
   name: string
   path: string
   totalSize: number
@@ -19,6 +20,7 @@ export class Task {
 
   constructor() {
     this.id = ''
+    this.runId = ''
     this.name = ''
     this.path = ''
     this.totalSize = 0
@@ -34,6 +36,7 @@ export class Task {
   }
 
   public async start(): Promise<any> {
+    this.runId = crypto.randomUUID()
     this.startTime = Date.now()
     this.lastUpdateTime = this.startTime
     this.downloadedSize = 0
@@ -46,10 +49,10 @@ export class Task {
   }
 
   public updateProgress(progress: Progress): void {
-    this.status = progress.status
+    if (this.status !== 'canceling' || ['done', 'failed', 'canceled'].includes(progress.status)) this.status = progress.status
     this.totalSize = progress.downloaded_size > progress.total_size ? 0 : progress.total_size
     this.name = progress.file_name
-    this.msg = progress.msg || ''
+    this.msg = this.status === 'canceling' ? '' : progress.msg || ''
     const currentTime = Date.now()
     if (this.status === 'done') {
       this.progress = 1
@@ -75,7 +78,7 @@ export class Task {
   }
 
   public async cancel(): Promise<any> {
-    this.status = 'canceled'
+    this.status = 'canceling'
     this.msg = ''
   }
 
@@ -88,10 +91,14 @@ export class Task {
     } else if (this.status === 'downloading') {
       return bytesToSize(this.downloadedSize) + '/' + (this.totalSize > 0 ? bytesToSize(this.totalSize) : '-') + ' | ' + bytesToSize(this.speed) + '/s' +
         (this.remainingTime && !isNaN(this.remainingTime) && isFinite(this.remainingTime) ? ' 剩余 ' + formatTime(this.remainingTime) : '')
+    } else if (this.status === 'writing') {
+      return '正在写入…'
     } else if (this.status === 'done') {
       return '下载完成'
     } else if (this.status === 'failed') {
       return this.errorMessage || '下载失败'
+    } else if (this.status === 'canceling') {
+      return '正在取消…'
     } else if (this.status === 'canceled') {
       return '已取消'
     } else {
@@ -126,13 +133,13 @@ export class LearningTask extends Task {
   async start(): Promise<any> {
     super.start()
     // start uploading
-    return invoke('start_download_upload', { id: this.id, upload: this.upload, syncUpload: this.syncUpload })
+    return invoke('start_download_upload', { id: this.runId, upload: this.upload, syncUpload: this.syncUpload })
   }
 
   async cancel(): Promise<any> {
     super.cancel()
     // cancel uploading
-    return invoke('cancel_download', { id: this.id })
+    return invoke('cancel_download', { id: this.runId })
   }
 
   async openFile(folder: boolean): Promise<string> {
@@ -167,13 +174,13 @@ export class ClassroomTask extends Task {
   async start(): Promise<any> {
     super.start()
     // start downloading
-    return invoke('start_download_ppts', { id: this.id, subject: this.subject, toPdf: this.toPdf })
+    return invoke('start_download_ppts', { id: this.runId, subject: this.subject, toPdf: this.toPdf })
   }
 
   async cancel(): Promise<any> {
     super.cancel()
     // cancel downloading
-    return invoke('cancel_download', { id: this.id })
+    return invoke('cancel_download', { id: this.runId })
   }
 
 
@@ -211,6 +218,8 @@ export class DownloadManager {
   downloading: Task[]
   tasks: Task[]
   private readonly runs = new WeakMap<Task, object>()
+  private readonly terminalProgress = new WeakMap<Task, Progress>()
+  private readonly completions = new WeakMap<Task, Promise<void>>()
   private readonly cancellations = new WeakMap<Task, { run: object | undefined; promise: Promise<boolean> }>()
   private readonly listeners = new Set<() => void>()
   private readonly pendingProgress = new Set<Task>()
@@ -303,21 +312,29 @@ export class DownloadManager {
       started = true
       const run = {}
       this.runs.set(task, run)
+      this.terminalProgress.delete(task)
       this.pendingProgress.delete(task)
-      task.start().catch(err => {
+      const completion = task.start().then(() => {
         if (this.runs.get(task) !== run) return
-        console.log(err)
-        this.pendingProgress.delete(task)
+        const terminal = this.terminalProgress.get(task)
+        if (terminal) task.updateProgress(terminal)
+        else if (task.status === 'canceling') task.status = 'canceled'
+        else if (['downloading', 'writing'].includes(task.status)) { task.status = 'done'; task.progress = 1 }
+      }).catch(err => {
+        if (this.runs.get(task) !== run) return
         task.status = 'failed'
         task.msg = ''
-        task.errorMessage = err.toString()
-        const index = this.downloading.findIndex(item => item.id === task.id)
-        if (index !== -1) {
-          this.downloading.splice(index, 1)
-        }
+        task.errorMessage = String(err)
+      }).finally(() => {
+        if (this.runs.get(task) !== run) return
+        this.pendingProgress.delete(task)
+        this.terminalProgress.delete(task)
+        const index = this.downloading.indexOf(task)
+        if (index !== -1) this.downloading.splice(index, 1)
         this._adjustQueue()
         this.publish()
       })
+      this.completions.set(task, completion)
     }
     if (started) this.publish()
   }
@@ -356,7 +373,10 @@ export class DownloadManager {
       if (pending && pending.run === run) return pending.promise
       this.pendingProgress.delete(task)
       const previousStatus = task.status
-      const promise = task.cancel().then(() => {
+      const completion = this.completions.get(task)
+      const promise = task.cancel().then(async () => {
+        // Cancel acknowledges the request; the download command includes cleanup.
+        await completion
         if (this.runs.get(task) !== run) return false
         const currentIndex = this.downloading.indexOf(task)
         if (currentIndex !== -1) this.downloading.splice(currentIndex, 1)
@@ -366,7 +386,7 @@ export class DownloadManager {
       }).catch(error => {
         // A rejected cancel must not free a slot still occupied by the backend.
         if (this.runs.get(task) === run && this.downloading.includes(task)) {
-          if (task.status === 'canceled') task.status = previousStatus
+          if (task.status === 'canceling') task.status = previousStatus
           task.msg = String(error)
           this.publish()
         }
@@ -388,23 +408,20 @@ export class DownloadManager {
   }
 
   updateProgress(progress: Progress): void {
-    let index = this.tasks.findIndex(item => item.id === progress.id)
-    if (index !== -1) {
-      const task = this.tasks[index]
-      const previousStatus = task.status
-      task.updateProgress(progress)
-      if (['done', 'failed', 'canceled'].includes(progress.status)) {
-        index = this.downloading.findIndex(item => item.id === progress.id)
-        if (index !== -1) {
-          this.downloading.splice(index, 1)
-        }
-      }
-      this._adjustQueue()
-      if (previousStatus !== progress.status || ['done', 'failed', 'canceled'].includes(progress.status)) {
-        this.pendingProgress.delete(task)
-        this.publish()
-      } else this.publishProgress(task)
+    const task = this.tasks.find(item => item.runId === progress.id)
+    if (!task) return
+    // Terminal events arrive before backend cleanup; expose actions only once it finishes.
+    if (this.downloading.includes(task) && ['done', 'failed', 'canceled'].includes(progress.status)) {
+      this.terminalProgress.set(task, progress)
+      return
     }
+    const previousStatus = task.status
+    task.updateProgress(progress)
+    // A terminal event can precede file cleanup. Only command completion frees the slot.
+    if (previousStatus !== task.status || ['done', 'failed', 'canceled'].includes(progress.status)) {
+      this.pendingProgress.delete(task)
+      this.publish()
+    } else this.publishProgress(task)
   }
 
   removeTask(id: string): void {

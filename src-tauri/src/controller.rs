@@ -12,7 +12,6 @@ use keyring::Entry;
 use log::{debug, info};
 use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
-use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use std::{path::Path, process::Command, sync::Arc};
 #[cfg(desktop)]
@@ -25,6 +24,7 @@ use tauri_plugin_shell::ShellExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -64,48 +64,10 @@ pub async fn complete_login_setup(
         return Ok(());
     }
     #[cfg(desktop)]
-    let update_tray = || -> Result<(), String> {
-        let res = handle
-            .app_handle()
-            .tray_by_id("main")
-            .ok_or_else(|| "托盘不可用".to_string())?
-            .set_menu(Some(
-                Menu::with_items(
-                    &handle,
-                    &[
-                        &MenuItem::with_id(
-                            &handle,
-                            "id",
-                            format!("已登录：{}", username),
-                            false,
-                            None::<&str>,
-                        )
-                        .map_err(|err| err.to_string())?,
-                        &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
-                        &MenuItem::with_id(
-                            &handle,
-                            "open",
-                            "打开 ZJU Learning Assistant",
-                            true,
-                            None::<&str>,
-                        )
-                        .map_err(|err| err.to_string())?,
-                        &MenuItem::with_id(
-                            &handle,
-                            "quit",
-                            "退出 ZJU Learning Assistant",
-                            true,
-                            None::<&str>,
-                        )
-                        .map_err(|err| err.to_string())?,
-                    ],
-                )
-                .map_err(|err| err.to_string())?,
-            ));
-        res.map_err(|error| error.to_string())
-    };
-    #[cfg(desktop)]
-    if let Err(error) = update_tray() {
+    if let Err(error) = handle
+        .state::<MenuItem<tauri::Wry>>()
+        .set_text(format!("已登录：{}", username))
+    {
         log::warn!("Update login tray failed: {}", error);
     }
 
@@ -122,14 +84,18 @@ pub async fn complete_login_setup(
 }
 
 #[tauri::command]
-pub fn get_auto_login_info() -> Result<(String, String), String> {
+pub fn get_auto_login_info() -> Result<Option<(String, String)>, String> {
     info!("get_auto_login_info");
     let entry = Entry::new("zju-assist", "auto-login").map_err(|err| err.to_string())?;
-    let content = entry.get_password().map_err(|err| err.to_string())?;
+    let content = match entry.get_password() {
+        Ok(content) => content,
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
     let mut content = content.split('\n');
     let username = content.next().unwrap_or("").to_string();
     let password = content.next().unwrap_or("").to_string();
-    Ok((username, password))
+    Ok(Some((username, password)))
 }
 
 #[tauri::command]
@@ -152,12 +118,17 @@ pub async fn logout(
     zju_assist.logout();
 
     #[cfg(desktop)]
+    let login_status = handle.state::<MenuItem<tauri::Wry>>();
+    #[cfg(desktop)]
+    login_status
+        .set_text("未登录")
+        .map_err(|err| err.to_string())?;
+    #[cfg(desktop)]
     let res = handle.tray_by_id("main").unwrap().set_menu(Some(
         Menu::with_items(
             &handle,
             &[
-                &MenuItem::with_id(&handle, "id", "未登录", false, None::<&str>)
-                    .map_err(|err| err.to_string())?,
+                login_status.inner(),
                 &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
                 &MenuItem::with_id(
                     &handle,
@@ -227,14 +198,7 @@ pub async fn sync_todo_once(
     let menu = Menu::new(&handle).unwrap();
     #[cfg(desktop)]
     menu.append_items(&[
-        &MenuItem::with_id(
-            &handle,
-            "id",
-            format!("已登录：{}", zju_assist.get_username()),
-            false,
-            None::<&str>,
-        )
-        .map_err(|err| err.to_string())?,
+        handle.state::<MenuItem<tauri::Wry>>().inner(),
         &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
     ])
     .unwrap();
@@ -288,72 +252,46 @@ pub async fn sync_todo_once(
         .unwrap();
     }
 
-    #[cfg(target_os = "macos")]
-    menu.append_items(&[
-        &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
-        &Submenu::with_items(
-            &handle,
-            "导出待办事项",
-            true,
-            &[
-                &MenuItem::with_id(
-                    &handle,
-                    "export-todo-calendar",
-                    "添加至日历 App",
-                    true,
-                    None::<&str>,
-                )
-                .map_err(|err| err.to_string())?,
-                &MenuItem::with_id(
-                    &handle,
-                    "export-todo-reminder",
-                    "添加至提醒事项 App",
-                    true,
-                    None::<&str>,
-                )
-                .map_err(|err| err.to_string())?,
-                &MenuItem::with_id(
-                    &handle,
-                    "export-todo-ics",
-                    "导出为 iCalendar 文件",
-                    true,
-                    None::<&str>,
-                )
-                .map_err(|err| err.to_string())?,
-                &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
-                &MenuItem::with_id(&handle, "export-todo-help", "查看帮助", true, None::<&str>)
-                    .map_err(|err| err.to_string())?,
-            ],
-        )
-        .map_err(|err| err.to_string())?,
-    ])
-    .unwrap();
-
     #[cfg(desktop)]
-    #[cfg(not(target_os = "macos"))]
-    menu.append_items(&[
-        &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
-        &Submenu::with_items(
-            &handle,
-            "导出待办事项",
-            true,
-            &[
-                &MenuItem::with_id(
-                    &handle,
-                    "export-todo-ics",
-                    "导出为 iCalendar 文件",
-                    true,
-                    None::<&str>,
+    {
+        let export_menu =
+            Submenu::new(&handle, "导出待办事项", true).map_err(|err| err.to_string())?;
+        let destinations = [
+            ("ics", "导出为 iCalendar 文件"),
+            ("caldav_calendar", "导出到 CalDAV 日历"),
+            ("caldav_tasks", "导出到 CalDAV 待办事项"),
+            #[cfg(target_os = "macos")]
+            ("calendar", "添加至日历 App"),
+            #[cfg(target_os = "macos")]
+            ("reminder", "添加至提醒事项 App"),
+        ];
+        for (location, label) in destinations {
+            export_menu
+                .append(
+                    &MenuItem::with_id(
+                        &handle,
+                        format!("export-todo-{}", location),
+                        label,
+                        true,
+                        None::<&str>,
+                    )
+                    .map_err(|err| err.to_string())?,
                 )
-                .map_err(|err| err.to_string())?,
+                .map_err(|err| err.to_string())?;
+        }
+        export_menu
+            .append_items(&[
                 &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
                 &MenuItem::with_id(&handle, "export-todo-help", "查看帮助", true, None::<&str>)
                     .map_err(|err| err.to_string())?,
-            ],
-        )
-        .map_err(|err| err.to_string())?,
-    ])
-    .unwrap();
+            ])
+            .map_err(|err| err.to_string())?;
+        menu.append_items(&[
+            &PredefinedMenuItem::separator(&handle).map_err(|err| err.to_string())?,
+            &export_menu,
+        ])
+        .map_err(|err| err.to_string())?;
+    }
 
     #[cfg(desktop)]
     menu.append_items(&[
@@ -410,7 +348,19 @@ pub async fn export_todo_from_tray(
     todo_list: Vec<Value>,
     location: String,
 ) {
-    let result = export_todo_to_destination(handle.clone(), window, todo_list, location).await;
+    let result = if location.starts_with("caldav_") {
+        export_caldav(
+            handle.clone(),
+            handle.state(),
+            handle.state(),
+            todo_list,
+            location,
+        )
+        .await
+        .map(Some)
+    } else {
+        export_todo_to_destination(handle.clone(), window, todo_list, location).await
+    };
     let (title, description) = match result {
         Ok(Some(description)) => ("导出待办成功", description),
         Ok(None) => return,
@@ -591,7 +541,7 @@ pub async fn get_uploads_list(
 #[tauri::command]
 pub async fn start_download_upload(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
-    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
+    state: State<'_, DashMap<String, CancellationToken>>,
     window: Window,
     id: String,
     upload: Upload,
@@ -599,319 +549,343 @@ pub async fn start_download_upload(
 ) -> Result<(), String> {
     info!("download_upload: {} {}", id, upload.file_name);
 
-    let zju_assist = zju_assist.lock().await.clone();
-    // state -> true: downloading, false: cancel
-    let download_state = Arc::new(AtomicBool::new(true));
+    // Register before waiting for authentication or network responses.
+    let download_state = CancellationToken::new();
     state.insert(id.clone(), download_state.clone());
-
-    let res = zju_assist
-        .get_uploads_response(upload.id, upload.reference_id)
-        .await;
-    let (res, is_preview) = match res {
-        Ok(res) => (res, false),
-        Err(_) if upload.allow_private_wps_office_view => {
-            info!(
-                "download_upload: fallback to WPS original download {}",
-                upload.id
-            );
-            let activity_id = upload
-                .activity_id
-                .ok_or_else(|| "缺少课件所属活动，请刷新课件列表后重试".to_string())?;
-            let res = crate::utils::wps::download(
-                &zju_assist,
-                upload.id,
-                activity_id,
-                crate::utils::wps::DownloadMode::Original,
-            )
-            .await;
-            match res {
-                Ok(res) => (res, false),
-                Err(_) => {
-                    info!("download_upload: fallback to WPS preview PDF {}", upload.id);
-                    if download_state.load(std::sync::atomic::Ordering::SeqCst) {
-                        let _ = window.emit(
-                            "download-progress",
-                            Progress {
-                                id: id.clone(),
-                                status: "downloading".to_string(),
-                                file_name: crate::utils::wps::preview_file_name(&upload.file_name),
-                                msg: "正在导出预览版 PDF".to_string(),
-                                ..Progress::default()
-                            },
-                        );
-                    }
-                    let res = crate::utils::wps::download(
-                        &zju_assist,
-                        upload.id,
-                        activity_id,
-                        crate::utils::wps::DownloadMode::PreviewPdf,
-                    )
-                    .await
-                    .map_err(|err| err.to_string())?;
-                    (res, true)
-                }
-            }
-        }
-        Err(err) => return Err(err.to_string()),
-    };
-    let completion_message = if is_preview {
-        "预览版 PDF（非原文件）"
-    } else {
-        "下载完成"
-    };
-
-    if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
-        state.remove(&id);
-        window
-            .emit(
-                "download-progress",
-                Progress {
-                    id,
-                    status: "canceled".to_string(),
-                    file_name: upload.file_name,
-                    msg: "已取消".to_string(),
+    let task_id = id.clone();
+    let result = async {
+        let (res, is_preview) = tokio::select! {
+            biased;
+            _ = download_state.cancelled() => {
+                window.emit("download-progress", Progress {
+                    id: id.clone(), status: "canceled".into(),
+                    file_name: upload.file_name.clone(), msg: "已取消".into(),
                     ..Progress::default()
-                },
-            )
-            .unwrap();
-        return Ok(());
-    }
+                }).map_err(|error| error.to_string())?;
+                return Ok(());
+            }
+            result = async {
+                let zju_assist = zju_assist.lock().await.clone();
 
-    if !res.status().is_success() {
-        debug!(
-            "download_upload: fail {} {} {} {} {}",
-            upload.id,
-            upload.reference_id,
-            upload.file_name,
-            upload.path,
-            res.status()
-        );
-        state.remove(&id);
-        return Err("下载失败".to_string());
-    }
-
-    // create father dir if not exists
-    std::fs::create_dir_all(Path::new(&upload.path)).map_err(|e| e.to_string())?;
-
-    let response_length = res.content_length();
-    let content_length = response_length.unwrap_or(if is_preview { 0 } else { upload.size });
-    let mut file_name = upload.file_name.clone();
-    let url = res.url().to_string();
-    if is_preview {
-        file_name = crate::utils::wps::preview_file_name(&upload.file_name);
-    } else if let Some(start) = url.find("name=") {
-        let start = start + 5;
-        let end = url[start..].find("&").unwrap_or(url.len() - start);
-        file_name = percent_decode_str(&url[start..start + end])
-            .decode_utf8_lossy()
-            .to_string();
-    }
-    let filepath = Path::new(&upload.path).join(&file_name);
-
-    info!("download_upload - filepath: {:?}", filepath);
-
-    // if path exists, and size match, then skip
-    if sync_upload
-        && (!is_preview || content_length > 0)
-        && filepath.exists()
-        && filepath.metadata().unwrap().len() == content_length
-    {
-        debug!(
-            "download_upload: skip {} {} {} {}",
-            upload.id, upload.reference_id, upload.file_name, upload.path
-        );
-        window
-            .emit(
-                "download-progress",
-                Progress {
-                    id: id.clone(),
-                    status: "done".to_string(),
-                    file_name: file_name.clone(),
-                    downloaded_size: content_length,
-                    total_size: content_length,
-                    msg: completion_message.to_string(),
-                },
-            )
-            .unwrap();
-        info!(
-            "download_upload: done {} {} {} {}",
-            upload.id, upload.reference_id, upload.file_name, upload.path
-        );
-        return Ok(());
-    }
-    debug!(
-        "download_upload: stream {} {} {} {:?}",
-        upload.id, upload.reference_id, upload.file_name, filepath
-    );
-    let mut file = tokio::fs::File::create(filepath.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    tokio::task::spawn(async move {
-        let mut current_size: u64 = 0;
-        let mut stream = res.bytes_stream();
-        let mut signature = Vec::new();
-        loop {
-            let res = stream.try_next().await.map_err(|e| e.to_string());
-            let res = res.and_then(|item| {
-                if is_preview {
-                    if let Some(chunk) = &item {
-                        signature.extend(chunk.iter().take(5 - signature.len()).copied());
+                let res = zju_assist
+                    .get_uploads_response(upload.id, upload.reference_id)
+                    .await;
+                let response = match res {
+                    Ok(res) => (res, false),
+                    Err(_) if upload.allow_private_wps_office_view => {
+                        info!(
+                            "download_upload: fallback to WPS original download {}",
+                            upload.id
+                        );
+                        let activity_id = upload
+                            .activity_id
+                            .ok_or_else(|| "缺少课件所属活动，请刷新课件列表后重试".to_string())?;
+                        let res = crate::utils::wps::download(
+                            &zju_assist,
+                            upload.id,
+                            activity_id,
+                            crate::utils::wps::DownloadMode::Original,
+                        )
+                        .await;
+                        match res {
+                            Ok(res) => (res, false),
+                            Err(_) => {
+                                info!("download_upload: fallback to WPS preview PDF {}", upload.id);
+                                if !download_state.is_cancelled() {
+                                    let _ = window.emit(
+                                        "download-progress",
+                                        Progress {
+                                            id: id.clone(),
+                                            status: "downloading".to_string(),
+                                            file_name: crate::utils::wps::preview_file_name(&upload.file_name),
+                                            msg: "正在导出预览版 PDF".to_string(),
+                                            ..Progress::default()
+                                        },
+                                    );
+                                }
+                                let res = crate::utils::wps::download(
+                                    &zju_assist,
+                                    upload.id,
+                                    activity_id,
+                                    crate::utils::wps::DownloadMode::PreviewPdf,
+                                )
+                                .await
+                                .map_err(|err| err.to_string())?;
+                                (res, true)
+                            }
+                        }
                     }
-                    if (signature.len() == 5 && signature != b"%PDF-")
-                        || (item.is_none()
-                            && (signature != b"%PDF-"
-                                || response_length.is_some_and(|size| size != current_size)))
-                    {
-                        return Err("下载文件无效或不完整".to_string());
-                    }
-                }
-                Ok(item)
-            });
-            let res = if matches!(&res, Ok(None)) {
-                file.flush().await.map(|_| None).map_err(|e| e.to_string())
-            } else {
-                res
-            };
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: file_name.clone(),
-                            downloaded_size: current_size,
-                            total_size: content_length,
-                            msg: "下载失败".to_string(),
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_upload: fail {} {} {} {}: {}",
-                    upload.id, upload.reference_id, upload.file_name, upload.path, err
-                );
-                // clean up
-                drop(file);
-                let res = tokio::fs::remove_file(&filepath.clone())
-                    .await
-                    .map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_upload: clean up fail: {}", err);
-                }
-                return;
-            }
+                    Err(err) => return Err(err.to_string()),
+                };
+                Ok::<_, String>(response)
+            } => result?,
+        };
+        let completion_message = if is_preview {
+            "预览版 PDF（非原文件）"
+        } else {
+            "下载完成"
+        };
 
-            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "canceled".to_string(),
-                            file_name: file_name.clone(),
-                            downloaded_size: current_size,
-                            total_size: content_length,
-                            msg: "已取消".to_string(),
-                        },
-                    )
-                    .unwrap();
-                // clean up
-                drop(file);
-                let res = tokio::fs::remove_file(&filepath.clone())
-                    .await
-                    .map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_upload: clean up fail: {}", err);
-                }
-                return;
-            }
-            let item = res.unwrap();
-            if item.is_none() {
-                break;
-            }
-            let chunk = item.unwrap();
-            current_size += chunk.len() as u64;
-            let res = file.write_all(&chunk).await.map_err(|e| e.to_string());
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: file_name.clone(),
-                            downloaded_size: current_size,
-                            total_size: content_length,
-                            msg: "写入文件失败".to_string(),
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_upload: fail {} {} {} {} {}",
-                    upload.id, upload.reference_id, upload.file_name, upload.path, err
-                );
-                // clean up
-                drop(file);
-                let res = tokio::fs::remove_file(&filepath.clone())
-                    .await
-                    .map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_upload: clean up fail: {}", err);
-                }
-                return;
-            }
+        if download_state.is_cancelled() {
+            state.remove(&id);
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        id,
+                        status: "canceled".to_string(),
+                        file_name: upload.file_name,
+                        msg: "已取消".to_string(),
+                        ..Progress::default()
+                    },
+                )
+                .unwrap();
+            return Ok(());
+        }
 
+        if !res.status().is_success() {
+            debug!(
+                "download_upload: fail {} {} {} {} {}",
+                upload.id,
+                upload.reference_id,
+                upload.file_name,
+                upload.path,
+                res.status()
+            );
+            state.remove(&id);
+            return Err("下载失败".to_string());
+        }
+
+        // create father dir if not exists
+        std::fs::create_dir_all(Path::new(&upload.path)).map_err(|e| e.to_string())?;
+
+        let response_length = res.content_length();
+        let content_length = response_length.unwrap_or(if is_preview { 0 } else { upload.size });
+        let mut file_name = upload.file_name.clone();
+        let url = res.url().to_string();
+        if is_preview {
+            file_name = crate::utils::wps::preview_file_name(&upload.file_name);
+        } else if let Some(start) = url.find("name=") {
+            let start = start + 5;
+            let end = url[start..].find("&").unwrap_or(url.len() - start);
+            file_name = percent_decode_str(&url[start..start + end])
+                .decode_utf8_lossy()
+                .to_string();
+        }
+        let filepath = Path::new(&upload.path).join(&file_name);
+
+        info!("download_upload - filepath: {:?}", filepath);
+
+        // if path exists, and size match, then skip
+        if sync_upload
+            && (!is_preview || content_length > 0)
+            && filepath.exists()
+            && filepath.metadata().unwrap().len() == content_length
+        {
+            debug!(
+                "download_upload: skip {} {} {} {}",
+                upload.id, upload.reference_id, upload.file_name, upload.path
+            );
             window
                 .emit(
                     "download-progress",
                     Progress {
                         id: id.clone(),
-                        status: "downloading".to_string(),
+                        status: "done".to_string(),
                         file_name: file_name.clone(),
-                        downloaded_size: current_size,
+                        downloaded_size: content_length,
                         total_size: content_length,
-                        msg: "".to_string(),
+                        msg: completion_message.to_string(),
                     },
                 )
                 .unwrap();
+            info!(
+                "download_upload: done {} {} {} {}",
+                upload.id, upload.reference_id, upload.file_name, upload.path
+            );
+            return Ok(());
         }
-        drop(file);
-        let content_length = if is_preview {
-            current_size
-        } else {
-            content_length
-        };
-        window
-            .emit(
-                "download-progress",
-                Progress {
-                    id: id.clone(),
-                    status: "done".to_string(),
-                    file_name: file_name.clone(),
-                    downloaded_size: content_length,
-                    total_size: content_length,
-                    msg: completion_message.to_string(),
-                },
-            )
-            .unwrap();
-        info!(
-            "download_upload: done {} {} {} {}",
-            upload.id, upload.reference_id, upload.file_name, upload.path
+        debug!(
+            "download_upload: stream {} {} {} {:?}",
+            upload.id, upload.reference_id, upload.file_name, filepath
         );
-    });
+        let mut file = tokio::fs::File::create(filepath.clone())
+            .await
+            .map_err(|e| e.to_string())?;
 
-    Ok(())
+        let result = tokio::task::spawn(async move {
+            let mut current_size: u64 = 0;
+            let mut stream = res.bytes_stream();
+            let mut signature = Vec::new();
+            loop {
+                let res = tokio::select! {
+                    biased;
+                    _ = download_state.cancelled() => Ok(None),
+                    result = stream.try_next() => result.map_err(|e| e.to_string()),
+                };
+                let res = res.and_then(|item| {
+                    if is_preview && !download_state.is_cancelled() {
+                        if let Some(chunk) = &item {
+                            signature.extend(chunk.iter().take(5 - signature.len()).copied());
+                        }
+                        if (signature.len() == 5 && signature != b"%PDF-")
+                            || (item.is_none()
+                                && (signature != b"%PDF-"
+                                    || response_length.is_some_and(|size| size != current_size)))
+                        {
+                            return Err("下载文件无效或不完整".to_string());
+                        }
+                    }
+                    Ok(item)
+                });
+                let res = if matches!(&res, Ok(None)) && !download_state.is_cancelled() {
+                    file.flush().await.map(|_| None).map_err(|e| e.to_string())
+                } else {
+                    res
+                };
+                if let Err(err) = res {
+                    window
+                        .emit(
+                            "download-progress",
+                            Progress {
+                                id: id.clone(),
+                                status: "failed".to_string(),
+                                file_name: file_name.clone(),
+                                downloaded_size: current_size,
+                                total_size: content_length,
+                                msg: "下载失败".to_string(),
+                            },
+                        )
+                        .unwrap();
+                    info!(
+                        "download_upload: fail {} {} {} {}: {}",
+                        upload.id, upload.reference_id, upload.file_name, upload.path, err
+                    );
+                    // clean up
+                    drop(file);
+                    let res = tokio::fs::remove_file(&filepath.clone())
+                        .await
+                        .map_err(|e| e.to_string());
+                    if let Err(err) = res {
+                        debug!("download_upload: clean up fail: {}", err);
+                    }
+                    return;
+                }
+
+                if download_state.is_cancelled() {
+                    window
+                        .emit(
+                            "download-progress",
+                            Progress {
+                                id: id.clone(),
+                                status: "canceled".to_string(),
+                                file_name: file_name.clone(),
+                                downloaded_size: current_size,
+                                total_size: content_length,
+                                msg: "已取消".to_string(),
+                            },
+                        )
+                        .unwrap();
+                    // clean up
+                    drop(file);
+                    let res = tokio::fs::remove_file(&filepath.clone())
+                        .await
+                        .map_err(|e| e.to_string());
+                    if let Err(err) = res {
+                        debug!("download_upload: clean up fail: {}", err);
+                    }
+                    return;
+                }
+                let item = res.unwrap();
+                if item.is_none() {
+                    break;
+                }
+                let chunk = item.unwrap();
+                current_size += chunk.len() as u64;
+                let res = file.write_all(&chunk).await.map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    window
+                        .emit(
+                            "download-progress",
+                            Progress {
+                                id: id.clone(),
+                                status: "failed".to_string(),
+                                file_name: file_name.clone(),
+                                downloaded_size: current_size,
+                                total_size: content_length,
+                                msg: "写入文件失败".to_string(),
+                            },
+                        )
+                        .unwrap();
+                    info!(
+                        "download_upload: fail {} {} {} {} {}",
+                        upload.id, upload.reference_id, upload.file_name, upload.path, err
+                    );
+                    // clean up
+                    drop(file);
+                    let res = tokio::fs::remove_file(&filepath.clone())
+                        .await
+                        .map_err(|e| e.to_string());
+                    if let Err(err) = res {
+                        debug!("download_upload: clean up fail: {}", err);
+                    }
+                    return;
+                }
+
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "downloading".to_string(),
+                            file_name: file_name.clone(),
+                            downloaded_size: current_size,
+                            total_size: content_length,
+                            msg: "".to_string(),
+                        },
+                    )
+                    .unwrap();
+            }
+            drop(file);
+            let content_length = if is_preview {
+                current_size
+            } else {
+                content_length
+            };
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        id: id.clone(),
+                        status: "done".to_string(),
+                        file_name: file_name.clone(),
+                        downloaded_size: content_length,
+                        total_size: content_length,
+                        msg: completion_message.to_string(),
+                    },
+                )
+                .unwrap();
+            info!(
+                "download_upload: done {} {} {} {}",
+                upload.id, upload.reference_id, upload.file_name, upload.path
+            );
+        }).await;
+        result.map_err(|error| error.to_string())?;
+
+        Ok(())
+    }.await;
+    state.remove(&task_id);
+    result
 }
 
 #[tauri::command]
 pub fn cancel_download(
-    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
+    state: State<'_, DashMap<String, CancellationToken>>,
     id: String,
 ) -> Result<(), String> {
     info!("cancel_download: {}", id);
     if let Some(download_state) = state.get(&id) {
-        download_state.store(false, std::sync::atomic::Ordering::SeqCst);
+        download_state.cancel();
     }
     Ok(())
 }
@@ -1077,7 +1051,7 @@ pub async fn install_app_update(
 pub async fn start_download_ppts(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
     config_state: State<'_, Arc<Mutex<Config>>>,
-    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
+    state: State<'_, DashMap<String, CancellationToken>>,
     window: Window,
     id: String,
     subject: Subject,
@@ -1088,129 +1062,283 @@ pub async fn start_download_ppts(
         id, subject.course_name, subject.sub_name
     );
 
-    let mut zju_assist = zju_assist.lock().await.clone();
-    zju_assist
-        .keep_classroom_alive()
-        .await
-        .map_err(|err| err.to_string())?;
-
-    // state -> true: downloading, false: cancel
-    let download_state = Arc::new(AtomicBool::new(true));
-    let config = config_state.lock().await.clone();
+    let download_state = CancellationToken::new();
     state.insert(id.clone(), download_state.clone());
-
-    tokio::task::spawn(async move {
-        let ai_task_handle = if config.download_subtitle || config.llm_enabled {
-            let zju_clone = zju_assist.clone();
-            let subject_clone = subject.clone();
-            let config_clone = config.clone();
-            let window_clone = window.clone();
-            let bg_id = format!("{}-bg", id);
-            let state_clone = download_state.clone();
-
-            Some(tokio::spawn(async move {
-                if !state_clone.load(std::sync::atomic::Ordering::SeqCst) {
-                    return Ok(());
-                }
-
-                // 1. 获取字幕
-                match zju_clone.get_subtitle(subject_clone.sub_id).await {
-                    Ok(contents) => {
-                        let contents: Vec<SubtitleContent> = contents;
-                        if !contents.is_empty() {
-                            let sub_dir =
-                                Path::new(&subject_clone.path).join(&subject_clone.sub_name);
-                            let _ = std::fs::create_dir_all(&sub_dir);
-                            let file_stem =
-                                format!("{}-{}", subject_clone.course_name, subject_clone.sub_name);
-
-                            // 2. 保存字幕
-                            if config_clone.download_subtitle {
-                                if let Err(e) =
-                                    save_subtitle(&contents, &sub_dir, &file_stem, &config_clone)
-                                        .await
-                                {
-                                    info!("后台保存字幕失败: {}", e);
-                                    return Err(format!("保存字幕失败: {}", e));
-                                }
-                            }
-
-                            // 3. AI 总结
-                            if config_clone.llm_enabled {
-                                if !state_clone.load(std::sync::atomic::Ordering::SeqCst) {
-                                    return Ok(());
-                                }
-                                if let Err(e) = summarize_subtitle(
-                                    &contents,
-                                    &sub_dir,
-                                    &file_stem,
-                                    &config_clone,
-                                    &window_clone,
-                                    &bg_id,
-                                )
-                                .await
-                                {
-                                    info!("后台 AI 总结失败: {}", e);
-                                    return Err(format!("AI总结失败: {}", e));
-                                }
-                            }
-                        }
-                        Ok(())
-                    }
-                    Err(e) => Err(format!("获取字幕失败: {}", e)),
-                }
-            }))
-        } else {
-            None
+    let task_id = id.clone();
+    let result = async {
+        let zju_assist = tokio::select! {
+            biased;
+            _ = download_state.cancelled() => {
+                window.emit("download-progress", Progress {
+                    id: id.clone(), status: "canceled".into(),
+                    file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                    ..Progress::default()
+                }).map_err(|error| error.to_string())?;
+                return Ok(());
+            }
+            result = async {
+                let mut client = zju_assist.lock().await.clone();
+                client.keep_classroom_alive().await.map_err(|error| error.to_string())?;
+                Ok::<_, String>(client)
+            } => result?,
         };
 
-        let mut count = 0;
-        let total_size = subject.ppt_image_urls.len();
-        let path = Path::new(&subject.path).join(&subject.sub_name);
-        let urls = subject.ppt_image_urls.clone();
+        let config = config_state.lock().await.clone();
 
-        let image_paths = urls
-            .clone()
-            .into_iter()
-            .zip(1..=urls.len())
-            .map(|(url, i)| {
-                path.join("ppt_images")
-                    .join(format!("{}.{}", i, url.split('.').last().unwrap()))
-                    .to_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .collect::<Vec<_>>();
+        let result = tokio::task::spawn(async move {
+            let ai_task_handle = if config.download_subtitle || config.llm_enabled {
+                let zju_clone = zju_assist.clone();
+                let subject_clone = subject.clone();
+                let config_clone = config.clone();
+                let window_clone = window.clone();
+                let bg_id = format!("{}-bg", id);
+                let state_clone = download_state.clone();
 
-        let mut tasks: Vec<JoinHandle<Result<(), String>>> = Vec::new();
-        for (url, path) in urls
-            .clone()
-            .into_iter()
-            .zip(image_paths.clone().into_iter())
-        {
-            let zju_assist = zju_assist.clone();
-            let task = tokio::task::spawn(async move {
-                let res = zju_assist
-                    .download_ppt_image(&url, &path)
-                    .await
-                    .map_err(|err| err.to_string());
-                // if download fail, retry once
-                if let Err(_) = res {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    return zju_assist
+                Some(tokio::spawn(async move {
+                    if state_clone.is_cancelled() {
+                        return Ok(());
+                    }
+
+                    // 1. 获取字幕
+                    match zju_clone.get_subtitle(subject_clone.sub_id).await {
+                        Ok(contents) => {
+                            let contents: Vec<SubtitleContent> = contents;
+                            if !contents.is_empty() {
+                                let sub_dir =
+                                    Path::new(&subject_clone.path).join(&subject_clone.sub_name);
+                                let _ = std::fs::create_dir_all(&sub_dir);
+                                let file_stem = format!(
+                                    "{}-{}",
+                                    subject_clone.course_name, subject_clone.sub_name
+                                );
+
+                                // 2. 保存字幕
+                                if config_clone.download_subtitle {
+                                    if let Err(e) = save_subtitle(
+                                        &contents,
+                                        &sub_dir,
+                                        &file_stem,
+                                        &config_clone,
+                                    )
+                                    .await
+                                    {
+                                        info!("后台保存字幕失败: {}", e);
+                                        return Err(format!("保存字幕失败: {}", e));
+                                    }
+                                }
+
+                                // 3. AI 总结
+                                if config_clone.llm_enabled {
+                                    if state_clone.is_cancelled() {
+                                        return Ok(());
+                                    }
+                                    if let Err(e) = summarize_subtitle(
+                                        &contents,
+                                        &sub_dir,
+                                        &file_stem,
+                                        &config_clone,
+                                        &window_clone,
+                                        &bg_id,
+                                    )
+                                    .await
+                                    {
+                                        info!("后台 AI 总结失败: {}", e);
+                                        return Err(format!("AI总结失败: {}", e));
+                                    }
+                                }
+                            }
+                            Ok(())
+                        }
+                        Err(e) => Err(format!("获取字幕失败: {}", e)),
+                    }
+                }))
+            } else {
+                None
+            };
+
+            let mut count = 0;
+            let total_size = subject.ppt_image_urls.len();
+            let path = Path::new(&subject.path).join(&subject.sub_name);
+            let urls = subject.ppt_image_urls.clone();
+
+            let image_paths = urls
+                .clone()
+                .into_iter()
+                .zip(1..=urls.len())
+                .map(|(url, i)| {
+                    path.join("ppt_images")
+                        .join(format!("{}.{}", i, url.split('.').last().unwrap()))
+                        .to_str()
+                        .unwrap()
+                        .to_string()
+                })
+                .collect::<Vec<_>>();
+
+            let mut tasks: Vec<JoinHandle<Result<(), String>>> = Vec::new();
+            for (url, path) in urls
+                .clone()
+                .into_iter()
+                .zip(image_paths.clone().into_iter())
+            {
+                let zju_assist = zju_assist.clone();
+                let task = tokio::task::spawn(async move {
+                    let res = zju_assist
                         .download_ppt_image(&url, &path)
                         .await
                         .map_err(|err| err.to_string());
+                    // if download fail, retry once
+                    if let Err(_) = res {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        return zju_assist
+                            .download_ppt_image(&url, &path)
+                            .await
+                            .map_err(|err| err.to_string());
+                    }
+                    Ok(())
+                });
+                tasks.push(task);
+                if download_state.is_cancelled() {
+                    break;
                 }
-                Ok(())
-            });
-            tasks.push(task);
-            // delay 50ms to avoid too many requests
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
+                // delay 50ms to avoid too many requests
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
 
-        for task in &mut tasks {
-            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+            let mut tasks = tasks.into_iter();
+            while !tasks.as_slice().is_empty() {
+                if download_state.is_cancelled() {
+                    window
+                        .emit(
+                            "download-progress",
+                            Progress {
+                                id: id.clone(),
+                                status: "canceled".to_string(),
+                                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                                downloaded_size: count,
+                                total_size: total_size as u64,
+                                msg: "".to_string(),
+                            },
+                        )
+                        .unwrap();
+                    // stop all tasks
+                    for task in tasks.as_slice() {
+                        task.abort();
+                    }
+                    for task in tasks {
+                        let _ = task.await;
+                    }
+                    // stop AI task
+                    if let Some(handle) = ai_task_handle {
+                        handle.abort();
+                        let _ = handle.await;
+                    }
+                    // clean up
+                    let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                    if let Err(err) = res {
+                        debug!("download_ppts: clean up fail: {}", err);
+                    }
+                    return;
+                }
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "downloading".to_string(),
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            downloaded_size: count,
+                            total_size: total_size as u64,
+                            msg: "".to_string(),
+                        },
+                    )
+                    .unwrap();
+                let mut task = tasks.next().unwrap();
+                let res = tokio::select! {
+                    biased;
+                    _ = download_state.cancelled() => {
+                        task.abort();
+                        let _ = task.await;
+                        continue;
+                    }
+                    result = &mut task => result.map_err(|err| err.to_string()),
+                };
+                if let Err(err) = res {
+                    window
+                        .emit(
+                            "download-progress",
+                            Progress {
+                                id: id.clone(),
+                                status: "failed".to_string(),
+                                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                                downloaded_size: count,
+                                total_size: total_size as u64,
+                                msg: "".to_string(),
+                            },
+                        )
+                        .unwrap();
+                    info!(
+                        "download_ppts: fail {} {} {} {}",
+                        subject.course_name, subject.sub_name, subject.path, err
+                    );
+                    for task in tasks.as_slice() {
+                        task.abort();
+                    }
+                    for task in tasks {
+                        let _ = task.await;
+                    }
+                    // stop AI task
+                    if let Some(handle) = ai_task_handle {
+                        handle.abort();
+                        let _ = handle.await;
+                    }
+                    // clean up
+                    let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                    if let Err(err) = res {
+                        debug!("download_ppts: clean up fail: {}", err);
+                    }
+                    return;
+                }
+                let res = res.unwrap();
+                if let Err(err) = res {
+                    window
+                        .emit(
+                            "download-progress",
+                            Progress {
+                                id: id.clone(),
+                                status: "failed".to_string(),
+                                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                                downloaded_size: count,
+                                total_size: total_size as u64,
+                                msg: "".to_string(),
+                            },
+                        )
+                        .unwrap();
+                    info!(
+                        "download_ppts: fail {} {} {} {}",
+                        subject.course_name, subject.sub_name, subject.path, err
+                    );
+                    for task in tasks.as_slice() {
+                        task.abort();
+                    }
+                    for task in tasks {
+                        let _ = task.await;
+                    }
+                    // stop AI task
+                    if let Some(handle) = ai_task_handle {
+                        handle.abort();
+                        let _ = handle.await;
+                    }
+                    // clean up
+                    let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                    if let Err(err) = res {
+                        debug!("download_ppts: clean up fail: {}", err);
+                    }
+                    return;
+                }
+                count += 1;
+            }
+
+            if download_state.is_cancelled() {
                 window
                     .emit(
                         "download-progress",
@@ -1224,165 +1352,10 @@ pub async fn start_download_ppts(
                         },
                     )
                     .unwrap();
-                // stop all tasks
-                for task in tasks {
-                    task.abort();
-                }
                 // stop AI task
                 if let Some(handle) = ai_task_handle {
                     handle.abort();
-                }
-                // clean up
-                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_ppts: clean up fail: {}", err);
-                }
-                return;
-            }
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "downloading".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                        msg: "".to_string(),
-                    },
-                )
-                .unwrap();
-            let res = task.await.map_err(|err| err.to_string());
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                            downloaded_size: count,
-                            total_size: total_size as u64,
-                            msg: "".to_string(),
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_ppts: fail {} {} {} {}",
-                    subject.course_name, subject.sub_name, subject.path, err
-                );
-                // stop AI task
-                if let Some(handle) = ai_task_handle {
-                    handle.abort();
-                }
-                // clean up
-                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_ppts: clean up fail: {}", err);
-                }
-                return;
-            }
-            let res = res.unwrap();
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                            downloaded_size: count,
-                            total_size: total_size as u64,
-                            msg: "".to_string(),
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_ppts: fail {} {} {} {}",
-                    subject.course_name, subject.sub_name, subject.path, err
-                );
-                // stop AI task
-                if let Some(handle) = ai_task_handle {
-                    handle.abort();
-                }
-                // clean up
-                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-                if let Err(err) = res {
-                    debug!("download_ppts: clean up fail: {}", err);
-                }
-                return;
-            }
-            count += 1;
-        }
-
-        if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "canceled".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                        msg: "".to_string(),
-                    },
-                )
-                .unwrap();
-            // stop AI task
-            if let Some(handle) = ai_task_handle {
-                handle.abort();
-            }
-            // clean up
-            let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-            if let Err(err) = res {
-                debug!("download_upload: clean up fail: {}", err);
-            }
-            return;
-        }
-
-        if urls.len() > 0 && to_pdf {
-            let pdf_path = path
-                .join(format!("{}-{}.pdf", subject.course_name, subject.sub_name))
-                .to_str()
-                .unwrap()
-                .to_string();
-
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "writing".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                        msg: "".to_string(),
-                    },
-                )
-                .unwrap();
-            let res = images_to_pdf(image_paths, &pdf_path).map_err(|err| err.to_string());
-            if let Err(err) = res {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                            downloaded_size: count,
-                            total_size: total_size as u64,
-                            msg: "".to_string(),
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_ppts: fail {} {} {} {}",
-                    subject.course_name, subject.sub_name, subject.path, err
-                );
-                // stop AI task
-                if let Some(handle) = ai_task_handle {
-                    handle.abort();
+                    let _ = handle.await;
                 }
                 // clean up
                 let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
@@ -1391,52 +1364,29 @@ pub async fn start_download_ppts(
                 }
                 return;
             }
-        }
 
-        if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "canceled".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                        msg: "".to_string(),
-                    },
-                )
-                .unwrap();
-            // stop AI task
-            if let Some(handle) = ai_task_handle {
-                handle.abort();
-            }
-            // clean up
-            let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
-            if let Err(err) = res {
-                debug!("download_upload: clean up fail: {}", err);
-            }
-            return;
-        }
+            if urls.len() > 0 && to_pdf {
+                let pdf_path = path
+                    .join(format!("{}-{}.pdf", subject.course_name, subject.sub_name))
+                    .to_str()
+                    .unwrap()
+                    .to_string();
 
-        // wait for ai task
-        if let Some(handle) = ai_task_handle {
-            window
-                .emit(
-                    "download-progress",
-                    Progress {
-                        id: id.clone(),
-                        status: "writing".to_string(),
-                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                        downloaded_size: count,
-                        total_size: total_size as u64,
-                        msg: "正在进行 AI 总结".to_string(),
-                    },
-                )
-                .unwrap();
-            let res = handle.await;
-            if let Ok(ai_res) = res {
-                if let Err(err) = ai_res {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "writing".to_string(),
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            downloaded_size: count,
+                            total_size: total_size as u64,
+                            msg: "正在写入 PDF 文件".to_string(),
+                        },
+                    )
+                    .unwrap();
+                let res = images_to_pdf(image_paths, &pdf_path).map_err(|err| err.to_string());
+                if let Err(err) = res {
                     window
                         .emit(
                             "download-progress",
@@ -1446,7 +1396,120 @@ pub async fn start_download_ppts(
                                 file_name: format!("{}-{}", subject.course_name, subject.sub_name),
                                 downloaded_size: count,
                                 total_size: total_size as u64,
-                                msg: format!("AI 任务失败：{}", err),
+                                msg: "".to_string(),
+                            },
+                        )
+                        .unwrap();
+                    info!(
+                        "download_ppts: fail {} {} {} {}",
+                        subject.course_name, subject.sub_name, subject.path, err
+                    );
+                    // stop AI task
+                    if let Some(handle) = ai_task_handle {
+                        handle.abort();
+                        let _ = handle.await;
+                    }
+                    // clean up
+                    let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                    if let Err(err) = res {
+                        debug!("download_upload: clean up fail: {}", err);
+                    }
+                    return;
+                }
+            }
+
+            if download_state.is_cancelled() {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "canceled".to_string(),
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            downloaded_size: count,
+                            total_size: total_size as u64,
+                            msg: "".to_string(),
+                        },
+                    )
+                    .unwrap();
+                // stop AI task
+                if let Some(handle) = ai_task_handle {
+                    handle.abort();
+                    let _ = handle.await;
+                }
+                // clean up
+                let res = std::fs::remove_dir_all(&path).map_err(|e| e.to_string());
+                if let Err(err) = res {
+                    debug!("download_upload: clean up fail: {}", err);
+                }
+                return;
+            }
+
+            // wait for ai task
+            if let Some(mut handle) = ai_task_handle {
+                window
+                    .emit(
+                        "download-progress",
+                        Progress {
+                            id: id.clone(),
+                            status: "writing".to_string(),
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            downloaded_size: count,
+                            total_size: total_size as u64,
+                            msg: "正在进行 AI 总结".to_string(),
+                        },
+                    )
+                    .unwrap();
+                let res = tokio::select! {
+                    biased;
+                    _ = download_state.cancelled() => {
+                        handle.abort();
+                        let _ = handle.await;
+                        let _ = std::fs::remove_dir_all(&path);
+                        let _ = window.emit("download-progress", Progress {
+                            id: id.clone(), status: "canceled".into(),
+                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                            ..Progress::default()
+                        });
+                        return;
+                    }
+                    result = &mut handle => result,
+                };
+                if let Ok(ai_res) = res {
+                    if let Err(err) = ai_res {
+                        window
+                            .emit(
+                                "download-progress",
+                                Progress {
+                                    id: id.clone(),
+                                    status: "failed".to_string(),
+                                    file_name: format!(
+                                        "{}-{}",
+                                        subject.course_name, subject.sub_name
+                                    ),
+                                    downloaded_size: count,
+                                    total_size: total_size as u64,
+                                    msg: format!("AI 任务失败：{}", err),
+                                },
+                            )
+                            .unwrap();
+                        info!(
+                            "download_ppts: AI task fail {} {} {}",
+                            subject.course_name, subject.sub_name, subject.path
+                        );
+                        return;
+                    }
+                } else {
+                    window
+                        .emit(
+                            "download-progress",
+                            Progress {
+                                id: id.clone(),
+                                status: "failed".to_string(),
+                                file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                                downloaded_size: count,
+                                total_size: total_size as u64,
+                                msg: "AI 任务失败".to_string(),
                             },
                         )
                         .unwrap();
@@ -1456,54 +1519,40 @@ pub async fn start_download_ppts(
                     );
                     return;
                 }
-            } else {
-                window
-                    .emit(
-                        "download-progress",
-                        Progress {
-                            id: id.clone(),
-                            status: "failed".to_string(),
-                            file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                            downloaded_size: count,
-                            total_size: total_size as u64,
-                            msg: "AI 任务失败".to_string(),
-                        },
-                    )
-                    .unwrap();
-                info!(
-                    "download_ppts: AI task fail {} {} {}",
-                    subject.course_name, subject.sub_name, subject.path
-                );
-                return;
             }
-        }
 
-        window
-            .emit(
-                "download-progress",
-                Progress {
-                    id: id.clone(),
-                    status: "done".to_string(),
-                    file_name: format!("{}-{}", subject.course_name, subject.sub_name),
-                    downloaded_size: count,
-                    total_size: total_size as u64,
-                    msg: "".to_string(),
-                },
-            )
-            .unwrap();
-        info!(
-            "download_ppts: done {} {}",
-            subject.course_name, subject.sub_name
-        );
-    });
+            window
+                .emit(
+                    "download-progress",
+                    Progress {
+                        id: id.clone(),
+                        status: "done".to_string(),
+                        file_name: format!("{}-{}", subject.course_name, subject.sub_name),
+                        downloaded_size: count,
+                        total_size: total_size as u64,
+                        msg: "".to_string(),
+                    },
+                )
+                .unwrap();
+            info!(
+                "download_ppts: done {} {}",
+                subject.course_name, subject.sub_name
+            );
+        })
+        .await;
+        result.map_err(|error| error.to_string())?;
 
-    Ok(())
+        Ok(())
+    }
+    .await;
+    state.remove(&task_id);
+    result
 }
 
 #[tauri::command]
 pub async fn start_download_playback(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
-    state: State<'_, DashMap<String, Arc<AtomicBool>>>,
+    state: State<'_, DashMap<String, CancellationToken>>,
     window: Window,
     id: String,
     subject: Subject,
@@ -1520,8 +1569,8 @@ pub async fn start_download_playback(
         .await
         .map_err(|err| err.to_string())?;
 
-    // state -> true: downloading, false: cancel
-    let download_state = Arc::new(AtomicBool::new(true));
+    // Register before waiting for authentication or network responses.
+    let download_state = CancellationToken::new();
     state.insert(id.clone(), download_state.clone());
 
     let res = zju_assist
@@ -1584,7 +1633,11 @@ pub async fn start_download_playback(
         let mut current_size: u64 = 0;
         let mut stream = res.bytes_stream();
         loop {
-            let res = stream.try_next().await.map_err(|e| e.to_string());
+            let res = tokio::select! {
+                biased;
+                _ = download_state.cancelled() => Ok(None),
+                result = stream.try_next() => result.map_err(|e| e.to_string()),
+            };
             if let Err(err) = res {
                 window
                     .emit(
@@ -1613,7 +1666,7 @@ pub async fn start_download_playback(
                 break;
             }
 
-            if !download_state.load(std::sync::atomic::Ordering::SeqCst) {
+            if download_state.is_cancelled() {
                 window
                     .emit(
                         "download-progress",
@@ -2157,4 +2210,52 @@ pub async fn test_llm_connection(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn connect_caldav(
+    server: String,
+    username: String,
+    password: String,
+) -> Result<Vec<crate::utils::caldav::Calendar>, String> {
+    let config = Config {
+        caldav_server: server,
+        caldav_username: username,
+        caldav_password: password,
+        ..Config::default()
+    };
+    crate::utils::caldav::connect(&config)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn export_caldav(
+    handle: AppHandle,
+    config: State<'_, Arc<Mutex<Config>>>,
+    state: State<'_, Arc<Mutex<ZjuAssist>>>,
+    todo_list: Vec<Value>,
+    location: String,
+) -> Result<String, String> {
+    let component = match location.as_str() {
+        "caldav_calendar" => "VEVENT",
+        "caldav_tasks" => "VTODO",
+        _ => return Err("不支持的 CalDAV 导出类型".into()),
+    };
+    let _guard = crate::utils::caldav::EXPORT_LOCK
+        .try_lock()
+        .map_err(|_| "正在导出到 CalDAV，请稍候再试")?;
+    let config = config.lock().await.clone();
+    let scope = state.lock().await.get_username();
+    if scope.is_empty() {
+        return Err("请先登录后再导出待办".into());
+    }
+    let path = handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("caldav_exports.json");
+    crate::utils::caldav::export(&config, &scope, todo_list, component, &path)
+        .await
+        .map_err(|e| e.to_string())
 }

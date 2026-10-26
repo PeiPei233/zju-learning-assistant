@@ -40,8 +40,14 @@ export default function Classroom() {
   const [loadingLeftSubList, setLoadingLeftSubList] = useState(false)
   const [loadingRightSubList, setLoadingRightSubList] = useState(false)
   const requestInFlight = useRef(false);
+  const requestGeneration = useRef(0);
+  useEffect(() => () => {
+    requestGeneration.current += 1;
+    requestInFlight.current = false;
+  }, []);
   const loadingConditions = !ready || loadingLeftSubList || loadingRightSubList;
   const [hasSearchedCourses, setHasSearchedCourses] = useState(false)
+  const requestedRange = useRef('');
   const [searchCourseName, setSearchCourseName] = useState('')
   const [searchTeacherName, setSearchTeacherName] = useState('')
   const startAt = useRef(dayjs().startOf('week').format('YYYY-MM-DD'))
@@ -100,17 +106,27 @@ export default function Classroom() {
   const updateMySubList = () => {
     if (!ready || requestInFlight.current) return;
     requestInFlight.current = true;
+    const run = requestGeneration.current;
+    const range = JSON.stringify([startAt.current, endAt.current]);
+    if (requestedRange.current !== range) {
+      setRightSubList([]);
+      setSelectedRightKeys([]);
+      requestedRange.current = range;
+    }
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
+      if (run !== requestGeneration.current) return;
       notification.destroy('classroom-range-error')
       setRightSubList(res)
       setSelectedRightKeys(previous => refreshedSelection(previous, res.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
+      if (run !== requestGeneration.current) return;
       notification.error({
         key: 'classroom-range-error', title: '获取课程列表失败',
         description: String(err)
       })
     }).finally(() => {
+      if (run !== requestGeneration.current) return;
       requestInFlight.current = false;
       setLoadingRightSubList(false)
     })
@@ -126,19 +142,23 @@ export default function Classroom() {
       return
     }
     requestInFlight.current = true;
+    const run = requestGeneration.current;
     const course_ids = subs.map((item) => item.course_id)
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
+      if (run !== requestGeneration.current) return;
       notification.destroy('classroom-course-error')
       const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
       setRightSubList(subs)
       setSelectedRightKeys(previous => refreshedSelection(previous, subs.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
+      if (run !== requestGeneration.current) return;
       notification.error({
         key: 'classroom-course-error', title: '获取课件列表失败',
         description: String(err)
       })
     }).finally(() => {
+      if (run !== requestGeneration.current) return;
       requestInFlight.current = false;
       setLoadingRightSubList(false)
     })
@@ -174,18 +194,22 @@ export default function Classroom() {
       return
     }
     requestInFlight.current = true;
+    const run = requestGeneration.current;
     setLoadingLeftSubList(true)
     invoke<Subject[]>('search_courses', { courseName: searchCourseName, teacherName: searchTeacherName }).then((res) => {
+      if (run !== requestGeneration.current) return;
       notification.destroy('classroom-search-error')
       setHasSearchedCourses(true)
       setLeftSubList(res)
       setSelectedLeftKeys([])
     }).catch((err) => {
+      if (run !== requestGeneration.current) return;
       notification.error({
         key: 'classroom-search-error', title: '搜索课程失败',
         description: String(err)
       })
     }).finally(() => {
+      if (run !== requestGeneration.current) return;
       requestInFlight.current = false;
       setLoadingLeftSubList(false)
     })

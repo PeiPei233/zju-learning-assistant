@@ -316,7 +316,7 @@ pub async fn export_todo_to_destination(
 ) -> Result<Option<String>, String> {
     if location == "help" {
         handle.opener().open_url(
-            "https://github.com/PeiPei233/zju-learning-assistant?tab=readme-ov-file#导出学在浙大待办事项",
+            "https://github.com/PeiPei233/zju-learning-assistant?tab=readme-ov-file#todo-export",
             None::<&str>,
         ).map_err(|error| error.to_string())?;
         return Ok(None);

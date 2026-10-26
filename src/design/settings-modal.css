@@ -20,7 +20,6 @@
 .desktop-confirm .ant-btn-default:not(:disabled):hover, .desktop-confirm .ant-btn-default:not(:disabled):active { color: var(--text); background: var(--field-hover); border-color: transparent; }
 .desktop-confirm .ant-btn-primary, .desktop-confirm .ant-btn-primary:not(:disabled):hover, .desktop-confirm .ant-btn-primary:not(:disabled):active { color: var(--canvas); background: var(--text); border-color: transparent; }
 .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.desktop-modal .modal-save-note { min-width: 0; overflow-wrap: anywhere; margin-right: auto; align-self: center; text-align: left; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 20px; }
 .version-modal .ant-modal-body { color: var(--text); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .version-modal .ant-modal-body > :first-child { margin-top: 0; }
 .version-modal .ant-modal-body > :last-child { margin-bottom: 0; }
@@ -32,16 +31,7 @@
 .autosave-status { color: var(--muted); font-size: 12px; line-height: 20px; }
 
 .modal-actions > .action-button { flex-shrink: 0; }
-.autosave-modal-actions { flex-wrap: wrap; }
-.autosave-modal-actions:has(> :nth-child(3)) .modal-save-note { flex-basis: 100%; }
 
-/* Footer remains visible even when a backend returns a long error. */
-.autosave-modal .ant-modal-container { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
-.autosave-modal .ant-modal-header, .autosave-modal .ant-modal-footer { flex-shrink: 0; }
-.autosave-modal .ant-modal-body { min-height: 0; max-height: none; overflow-y: auto; }
-.autosave-error-details { margin-bottom: 16px; padding: 10px 12px; background: var(--field-bg); border-radius: 6px; color: var(--muted); font-size: 12px; }
-.autosave-error-details summary { cursor: pointer; }
-.autosave-error-details pre { max-height: 120px; overflow: auto; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
 
 .setting-field { display: flex; align-items: center; gap: 20px; padding-block: 16px; }
 .setting-field + .setting-field { border-top: 1px solid var(--line); }
@@ -80,8 +70,6 @@
 .settings-inline .llm-settings-body { padding: 0; }
 .settings-inline .llm-section + .llm-section { border-top: 1px solid var(--line); }
 .settings-inline .llm-settings-body .setting-field:not(.setting-field-stacked) { grid-template-columns: minmax(130px, 1fr) minmax(0, 1.4fr); }
-.settings-inline-status { border-top: 1px solid var(--line); padding: 16px 0; }
-.settings-inline-status .modal-save-note { margin-right: auto; color: var(--muted); font-size: 12px; }
 .settings-about { margin-top: 20px; text-align: center; color: var(--muted); font-size: 12px; line-height: 20px; }
 .settings-about p { margin: 4px 0 0; }
 .settings-card .settings-extension-control { width: 240px; max-width: 100%; }
@@ -94,9 +82,9 @@
   .settings-inline .llm-temperature { grid-template-columns: minmax(0, 1fr) 64px; gap: 8px; }
 }
 
-.settings-card .settings-webhook-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.settings-card .settings-webhook-field, .caldav-settings .setting-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
 @container (max-width: 480px) {
-  .settings-card .settings-webhook-field { grid-template-columns: minmax(0, 1fr); }
+  .settings-card .settings-webhook-field, .caldav-settings .setting-field { grid-template-columns: minmax(0, 1fr); }
 }
 
 .version-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; }
@@ -109,3 +97,8 @@
 .version-download > .action-button { flex-shrink: 0; }
 
 .version-release-link { margin-inline-end: auto; }
+
+.caldav-settings .ant-select { width: 100%; }
+.caldav-settings .setting-field-error { overflow-wrap: anywhere; }
+
+.caldav-select-popup .ant-select-item-empty { padding: 0; }

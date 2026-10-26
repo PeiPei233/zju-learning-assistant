@@ -131,6 +131,7 @@ export default function Home({
     document.addEventListener('keydown', escape);
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
   }, [peek]);
+  const [caldavRequest, setCaldavRequest] = useState(0);
   const navigate = useCallback((page: string) => {
     setVisited(pages => pages.includes(page) ? pages : [...pages, page]);
     setCurrent(page);
@@ -383,12 +384,12 @@ export default function Home({
             score={score}
             handleSync={handleSyncScore}
           /></ModuleFrame>}
-          {visited.includes('todo') && <ModuleFrame name="todo" current={current}><Todo {...todos} /></ModuleFrame>}
+          {visited.includes('todo') && <ModuleFrame name="todo" current={current}><Todo {...todos} onOpenCalDav={() => { setCaldavRequest(value => value + 1); navigate('setting'); }} /></ModuleFrame>}
           {visited.includes('download') && <ModuleFrame name="download" current={current}>
             <Downloads taskList={downloadTasks} downloadManager={downloadManager} />
           </ModuleFrame>}
           {visited.includes('setting') && <ModuleFrame name="setting" current={current}>
-            <Settings currentVersion={currentVersion} latestVersionData={latestVersionData} setOpenVersionModal={setOpenVersionModal} />
+            <Settings onOpen={() => navigate('setting')} active={current === 'setting'} caldavRequest={caldavRequest} currentVersion={currentVersion} latestVersionData={latestVersionData} setOpenVersionModal={setOpenVersionModal} />
           </ModuleFrame>}
         </div>
       </div>

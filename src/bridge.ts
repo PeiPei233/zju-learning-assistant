@@ -16,7 +16,7 @@ export function setPreviewBackend(backend?: PreviewBackend) { preview = backend;
 const activeOperations = new Set<object>();
 let installingUpdate = false;
 const needsUpdateGuard = (command: string) => command.startsWith('start_download_')
-  || ['export_todo', 'export_todo_from_tray', 'set_config', 'get_uploads_list', 'login', 'complete_login_setup'].includes(command);
+  || ['export_todo', 'export_caldav', 'export_todo_from_tray', 'set_config', 'get_uploads_list', 'login', 'complete_login_setup'].includes(command);
 
 export function beginUpdateInstallation() {
   if (installingUpdate) throw new Error('正在安装更新');
@@ -41,5 +41,5 @@ export const shell = { open: (path: string) => preview ? invoke<void>('plugin:sh
 export const dialog = { open: (options: nativeDialog.OpenDialogOptions) => preview ? invoke<string | null>('plugin:dialog|open', { options }) : nativeDialog.open(options) };
 export const isPermissionGranted = () => preview ? invoke<boolean>('plugin:notification|is_permission_granted') : nativeNotification.isPermissionGranted();
 export const requestPermission = () => preview ? invoke<NotificationPermission>('plugin:notification|request_permission') : nativeNotification.requestPermission();
-export const sendNotification = (options: nativeNotification.Options) => { if (preview) void invoke('plugin:notification|notify', { options }); else nativeNotification.sendNotification(options); };
+export const sendNotification = (options: nativeNotification.Options) => preview ? invoke<void>('plugin:notification|notify', { options }) : nativeNotification.sendNotification(options);
 export const exit = (code = 0) => preview ? invoke<void>('plugin:process|exit', { code }) : nativeExit(code);

@@ -239,7 +239,8 @@ pub fn run() {
             app.manage(utils::app_update::AppUpdateState::default());
             let config_state = Arc::new(Mutex::new(config));
 
-            let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
+            let download_states: DashMap<String, tokio_util::sync::CancellationToken> =
+                DashMap::new();
 
             app.manage(zju_assist);
             app.manage(config_state);
@@ -266,10 +267,14 @@ pub fn run() {
             }
 
             #[cfg(desktop)]
+            let login_status = MenuItem::with_id(app, "id", "未登录", false, None::<&str>)?;
+            #[cfg(desktop)]
+            app.manage(login_status.clone());
+            #[cfg(desktop)]
             let menu = Menu::with_items(
                 app,
                 &[
-                    &MenuItem::with_id(app, "id", "未登录", false, None::<&str>)?,
+                    &login_status,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(
                         app,
@@ -363,6 +368,8 @@ pub fn run() {
             controller::logout,
             controller::sync_todo_once,
             controller::export_todo,
+            controller::connect_caldav,
+            controller::export_caldav,
             controller::export_todo_from_tray,
             controller::get_courses,
             controller::get_academic_year_list,

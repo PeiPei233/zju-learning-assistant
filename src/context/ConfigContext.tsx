@@ -35,6 +35,8 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
   const loaded = useRef(false);
   const [optimistic, setOptimistic] = useState<{ id: number; patch: Partial<Config> }[]>([]);
   const sequence = useRef(0);
+  const fieldRevisions = useRef(new Map<string, number>());
+  const failedSaves = useRef(new Map<string, string[]>());
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const [pending, setPending] = useState<Record<string, number>>({});
   const isSaving = (field?: keyof Config) => field ? !!pending[field] : Object.values(pending).some(Boolean);
@@ -69,9 +71,11 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
           }
         }
         setLoadError(String(err));
-        notification.error({ key: 'config-read-error', title: '读取设置失败', actions: <ActionButton onClick={() => { void refreshConfig(); }}>重试读取设置</ActionButton>, description: loaded.current
-          ? `${String(err)}。正在使用已有设置或默认设置，原配置文件未被修改。`
-          : String(err) });
+        notification.error({
+          key: 'config-read-error', title: '读取设置失败', actions: <ActionButton onClick={() => { void refreshConfig(); }}>重试读取设置</ActionButton>, description: loaded.current
+            ? `${String(err)}。正在使用已有设置或默认设置，原配置文件未被修改。`
+            : String(err)
+        });
       } finally {
         setLoadingConfig(false);
         loadFlight.current = null;
@@ -92,6 +96,15 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
     const id = ++sequence.current;
     setOptimistic(previous => [...previous, { id, patch: updates }]);
     const fields = Object.keys(updates);
+    fields.forEach(field => fieldRevisions.current.set(field, id));
+    const isCurrent = () => fields.every(field => fieldRevisions.current.get(field) === id);
+    // A new edit supersedes retry actions for the same fields.
+    for (const [key, failedFields] of failedSaves.current) {
+      if (failedFields.some(field => fields.includes(field))) {
+        notification.destroy(key);
+        failedSaves.current.delete(key);
+      }
+    }
     const errorKey = `config-save-error:${fields.slice().sort().join(",")}`;
     const markPending = (delta: number) => setPending(previous => {
       const next = { ...previous };
@@ -116,7 +129,16 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         return true;
       } catch (err) {
         if (onError) onError(String(err));
-        else notification.error({ key: errorKey, title: '设置失败', description: String(err) });
+        else if (isCurrent()) {
+          failedSaves.current.set(errorKey, fields);
+          notification.error({
+            key: errorKey, title: '设置失败', description: String(err),
+            actions: <ActionButton onClick={() => {
+              if (isCurrent() && failedSaves.current.get(errorKey) === fields) void updateConfigBatch(updates);
+            }}>重试保存</ActionButton>,
+            onClose: () => { if (failedSaves.current.get(errorKey) === fields) failedSaves.current.delete(errorKey); },
+          });
+        }
         return false;
       } finally {
         setOptimistic(previous => previous.filter(item => item.id !== id));

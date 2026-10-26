@@ -73,7 +73,7 @@ function Index() {
     if (loggedIn.current) startupErrors.current.credentials = ''
     const errors = Object.values(startupErrors.current).filter(Boolean)
     if (errors.length) notification.error({
-      key: 'startup-read-error', duration: 0, title: '部分信息未能读取', description: errors.join('；'),
+      key: 'startup-read-error', title: '部分信息未能读取', description: errors.join('；'),
       actions: <ActionButton onClick={() => void readStartupInfo()}>重试</ActionButton>,
     })
     else notification.destroy('startup-read-error')

@@ -11,7 +11,7 @@ import OpenActionButton from './OpenActionButton';
 import { LoadingOutlined, FolderOpenOutlined, ReloadOutlined, CloseCircleOutlined, CloseOutlined, ClearOutlined, DownloadOutlined } from '@ant-design/icons';
 import { ClassroomTask, DownloadManager, Task } from '../downloadManager';
 
-const statusLabels: Record<string, string> = { pending: '等待中', downloading: '下载中', writing: '写入中', done: '已完成', failed: '失败', canceled: '已取消' };
+const statusLabels: Record<string, string> = { pending: '等待中', downloading: '下载中', writing: '写入中', done: '已完成', failed: '失败', canceling: '正在取消…', canceled: '已取消' };
 
 interface DownloadsProps {
   taskList: Task[];
@@ -24,7 +24,7 @@ export default function Downloads({ taskList, downloadManager }: DownloadsProps)
   const [filter, setFilter] = useState('all');
   const filters = [
     { key: 'all', label: '全部任务', match: (_: Task) => true },
-    { key: 'active', label: '进行中', match: (task: Task) => ['pending', 'downloading', 'writing'].includes(task.status) },
+    { key: 'active', label: '进行中', match: (task: Task) => ['pending', 'downloading', 'writing', 'canceling'].includes(task.status) },
     { key: 'done', label: '已完成', match: (task: Task) => task.status === 'done' },
     { key: 'failed', label: '失败与取消', match: (task: Task) => ['failed', 'canceled'].includes(task.status) },
   ];
@@ -38,7 +38,7 @@ export default function Downloads({ taskList, downloadManager }: DownloadsProps)
       <div className="panel-bottom">切换页面后，下载继续在后台运行。</div>
     </>} actions={<div className="download-batch-actions">
       <ActionButton variant="secondary" disabled={!taskList.length} onClick={() => downloadManager.reDownloadAllTasks()}><ReloadOutlined />全部重新开始</ActionButton>
-      <ActionButton variant="secondary" disabled={!taskList.some(task => ['pending', 'downloading', 'writing'].includes(task.status))} onClick={() => downloadManager.cancelAllTasks()}><CloseCircleOutlined />全部取消</ActionButton>
+      <ActionButton variant="secondary" disabled={!taskList.some(task => ['pending', 'downloading', 'writing', 'canceling'].includes(task.status))} onClick={() => downloadManager.cancelAllTasks()}><CloseCircleOutlined />全部取消</ActionButton>
       <ActionButton variant="secondary" disabled={!taskList.length} onClick={() => downloadManager.cleanUp()}><ClearOutlined />清空列表</ActionButton>
     </div>}>
       <div className="download-content">
@@ -55,17 +55,17 @@ export default function Downloads({ taskList, downloadManager }: DownloadsProps)
                 <span className="download-task-copy">
                   <OverflowText className="download-task-name" text={item.name} />
                   <span className={`download-task-detail ${item.status === 'failed' ? 'is-error' : ''}`}>
-                    <span className="download-status">{item.status === 'writing' || (item.status === 'downloading' && item.totalSize <= 0)
-                      ? <><LoadingOutlined spin /> {item.status === 'writing' ? item.getDescription() : (item.msg || (item.downloadedSize > 0 ? item.getDescription() : '正在准备下载'))}</>
+                    <span className="download-status">{item.status === 'canceling' || item.status === 'writing' || (item.status === 'downloading' && item.totalSize <= 0)
+                      ? <><LoadingOutlined spin /> {['writing', 'canceling'].includes(item.status) ? item.getDescription() : (item.msg || (item.downloadedSize > 0 ? item.getDescription() : '正在准备下载'))}</>
                       : (statusLabels[item.status] || item.status)}</span>
-                    {item.getDescription() !== statusLabels[item.status] && item.status !== 'done' && item.status !== 'writing' && !(item.status === 'downloading' && item.totalSize <= 0) && <span>{item.getDescription()}</span>}
+                    {item.getDescription() !== statusLabels[item.status] && item.status !== 'done' && item.status !== 'writing' && item.status !== 'canceling' && !(item.status === 'downloading' && item.totalSize <= 0) && <span>{item.getDescription()}</span>}
                   </span>
                   {item.status === 'downloading' && item.totalSize > 0 && <Progress size="small" percent={Math.floor(item.progress * 100)} status="active" />}
                 </span>
               </Content>
               <div className="download-task-actions">
                 {['failed', 'canceled'].includes(item.status) && <IconAction label="重新下载" aria-label={`重新下载 ${item.name}`} onClick={() => downloadManager.reDownloadTask(item.id)}><ReloadOutlined /></IconAction>}
-                {['pending', 'downloading'].includes(item.status) && <IconAction label="取消下载" aria-label={`取消下载 ${item.name}`} onClick={() => downloadManager.cancelTask(item.id)}><CloseCircleOutlined /></IconAction>}
+                {['pending', 'downloading', 'writing'].includes(item.status) && <IconAction label="取消下载" aria-label={`取消下载 ${item.name}`} onClick={() => downloadManager.cancelTask(item.id)}><CloseCircleOutlined /></IconAction>}
                 {item.status === 'done' && <>
                   <IconAction label="打开文件夹" aria-label={`打开 ${item.name} 所在文件夹`} onClick={() => downloadManager.openTask(item.id, true).catch(err => notification.error({ title: '打开文件夹失败', description: String(err) }))}><FolderOpenOutlined /></IconAction>
                 </>}

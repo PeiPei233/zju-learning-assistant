@@ -27,6 +27,7 @@ tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 reqwest = { version = "0.12.12", features = ["json", "cookies", "stream"] }
 regex = "1"
 num = "0.4.3"
+tokio-util = { version = "0.7", features = ["rt"] }
 tokio = { version = "1.43.0", features = ["full"] }
 percent-encoding = "2.3"
 futures = "0.3"
@@ -56,6 +57,9 @@ tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-log = "2.2.1"
 tauri-plugin-os = "2"
+libdav = "0.11"
+http = "1"
+chrono-tz = "0.10"
 
 [target.'cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))'.dependencies]
 security-framework = "=2.10.0"

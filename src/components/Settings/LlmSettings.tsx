@@ -6,7 +6,7 @@ import { invoke } from '../../bridge';
 import { Config } from '../../model';
 import ActionButton from '../ActionButton';
 import SettingsSwitch from './SettingsSwitch';
-import AutosaveModal from './AutosaveModal';
+import { useDelayedBusy } from '../../hooks/useDelayedBusy';
 import SettingField from './SettingField';
 import { useConfigAutosave } from '../../hooks/useConfigAutosave';
 
@@ -15,29 +15,25 @@ const defaultPrompt = "你是一个专业的课程助教。请根据提供的课
 
 const TemperatureInput = ({ value, onChange, disabled }: { value?: number, onChange?: (value: number) => void, disabled?: boolean }) => {
   const [empty, setEmpty] = useState(false);
-  const temperature = value ?? 0.3;
+  const [temperature, setTemperature] = useState(value ?? 0.3);
+  useEffect(() => { setTemperature(value ?? 0.3); }, [value]);
   const change = (next: number | null) => {
     setEmpty(next === null);
     // Clearing is an editing state, not a configuration value to autosave.
-    if (next !== null && Number.isFinite(next) && next >= 0 && next <= 2) onChange?.(next);
+    if (next !== null && Number.isFinite(next) && next >= 0 && next <= 2) setTemperature(next);
   };
   return (
     <div className="llm-temperature">
-      <Slider disabled={disabled} min={0} max={2} step={0.1} value={temperature} onChange={change} ariaLabelForHandle="温度" />
+      <Slider disabled={disabled} min={0} max={2} step={0.1} value={temperature} onChange={change} onChangeComplete={next => onChange?.(next)} ariaLabelForHandle="温度" />
       <InputNumber disabled={disabled} min={0} max={2} step={0.1} value={empty ? null : temperature} onChange={change}
-        onBlur={() => setEmpty(false)} aria-label="温度数值" variant="filled" />
+        onBlur={() => { setEmpty(false); if (temperature !== (value ?? 0.3)) onChange?.(temperature); }} aria-label="温度数值" variant="filled" />
     </div>
   );
 };
 
-interface LlmSettingsModalProps {
-  inline?: boolean;
-  open: boolean;
-  onCancel: () => void;
-}
-
-export default function LlmSettingsModal({ open, onCancel, inline = false }: LlmSettingsModalProps) {
-  const { config } = useConfig();
+export default function LlmSettings() {
+  const { config, isSaving, updateConfigField } = useConfig();
+  const savingSettings = useDelayedBusy(isSaving());
   const [draft, setDraft] = useState(config);
   const draftRef = useRef(draft);
   const [errors, setErrors] = useState<Partial<Record<keyof Config, string>>>({});
@@ -72,23 +68,16 @@ export default function LlmSettingsModal({ open, onCancel, inline = false }: Llm
     return !fields.some(field => next[field]);
   };
   const autosave = useConfigAutosave(async fields => validate(fields));
-  const wasOpen = useRef(false);
   useEffect(() => {
-    if (open && (!wasOpen.current || inline)) {
-      const next = config.clone();
-      if (inline) for (const field of Object.keys(draftRef.current) as (keyof Config)[]) {
-        if (autosave.hasDraft(field)) Object.assign(next, { [field]: draftRef.current[field] });
-      }
-      draftRef.current = next;
-      setDraft(next);
-      if (!wasOpen.current) {
-        errorsRef.current = {}; setErrors({}); setShowApiKey(false); setTestResult(null);
-      }
+    const next = config.clone();
+    for (const field of Object.keys(draftRef.current) as (keyof Config)[]) {
+      if (autosave.hasDraft(field)) Object.assign(next, { [field]: draftRef.current[field] });
     }
-    wasOpen.current = open;
-  // Draft fields survive configuration updates from other controls.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, config, inline]);
+    draftRef.current = next;
+    setDraft(next);
+    // Draft fields survive configuration updates from other controls.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config]);
 
   const change = <K extends keyof Config>(field: K, value: Config[K], delay?: number) => {
     const patch = { [field]: value };
@@ -121,44 +110,44 @@ export default function LlmSettingsModal({ open, onCancel, inline = false }: Llm
     onBlur: () => { void autosave.save([field]); },
   });
 
+  const locked = testingLlm || savingSettings;
   return (
-    <AutosaveModal inline={inline} title="AI 课程总结配置" className="llm-settings-modal" open={open}
-      onClose={() => { if (inline) { draftRef.current = config; setDraft(config); setFieldErrors({}); setTestResult(null); } else onCancel(); }} autosave={autosave} busy={testingLlm} onInvalid={focusError}>
-      {locked => <div className="llm-settings-body" ref={bodyRef}>
-          <section className="llm-section" aria-label="连接配置">
-            <SettingField label="API 地址" htmlFor="llm_api_base" error={errors.llm_api_base}>
-              <Input {...inputProps('llm_api_base')} disabled={locked} variant="filled" placeholder="https://api.openai.com/v1" />
-            </SettingField>
-            <SettingField label="API Key" htmlFor="llm_api_key" error={errors.llm_api_key}>
-              <Input.Password {...inputProps('llm_api_key')} disabled={locked} variant="filled" placeholder="sk-..." autoComplete="off"
-                visibilityToggle={{ visible: showApiKey, onVisibleChange: setShowApiKey }} />
-            </SettingField>
-            <SettingField label="模型名称" htmlFor="llm_model" error={errors.llm_model}>
-              <div className="llm-model-control">
-                <Input {...inputProps('llm_model')} disabled={locked} variant="filled" placeholder="填写模型名称" />
-                <ActionButton disabled={locked} aria-busy={testingLlm} onClick={handleTestLlm}>
-                  {testingLlm ? <LoadingOutlined spin /> : <ApiOutlined />}<span>{testingLlm ? '正在测试…' : '测试连接'}</span>
-                </ActionButton>
-              </div>
-              <div className="llm-test-result" role="status" aria-live="polite">
-                {testResult && <>{testResult.ok ? <CheckCircleOutlined /> : <CloseCircleOutlined />}<span>{testResult.text}</span></>}
-              </div>
-            </SettingField>
-          </section>
-          <section className="llm-section" aria-label="总结输出">
-            <SettingField label="温度" description="较低的值让总结更稳定，较高的值让表达更多样。">
-              <TemperatureInput key={String(open)} disabled={locked} value={draft.llm_temperature} onChange={value => change('llm_temperature', value, 800)} />
-            </SettingField>
-            <SettingField label="隐藏思考过程" htmlFor="llm_hide_think_tag" description="过滤模型输出的 <think> 标签及其内容。">
-              <SettingsSwitch field="llm_hide_think_tag" checked={draft.llm_hide_think_tag} onChange={value => change('llm_hide_think_tag', value, 0)} disabled={locked} id="llm_hide_think_tag" aria-label="隐藏思考过程" />
-            </SettingField>
-            <SettingField label="总结提示词" htmlFor="llm_prompt" stacked action={
-              <ActionButton disabled={locked} onClick={() => change('llm_prompt', defaultPrompt, 0)}><ReloadOutlined />恢复默认</ActionButton>
-            }>
-              <TextArea id="llm_prompt" disabled={locked} value={draft.llm_prompt ?? ''} onChange={event => change('llm_prompt', event.target.value, 800)} variant="filled" rows={4} placeholder={defaultPrompt} />
-            </SettingField>
-          </section>
-      </div>}
-    </AutosaveModal>
+    <div className="settings-inline llm-settings">
+      <div className="llm-settings-body" ref={bodyRef}>
+        <section className="llm-section" aria-label="连接配置">
+          <SettingField label="API 地址" htmlFor="llm_api_base" description="填写服务提供的完整 API 地址，包含 http 或 https。" error={errors.llm_api_base}>
+            <Input {...inputProps('llm_api_base')} disabled={locked} variant="filled" placeholder="请输入 API 地址" />
+          </SettingField>
+          <SettingField label="API Key" htmlFor="llm_api_key" error={errors.llm_api_key}>
+            <Input.Password {...inputProps('llm_api_key')} disabled={locked} variant="filled" placeholder="请输入 API Key" autoComplete="off"
+              visibilityToggle={{ visible: showApiKey, onVisibleChange: setShowApiKey }} />
+          </SettingField>
+          <SettingField label="模型名称" htmlFor="llm_model" error={errors.llm_model}>
+            <div className="llm-model-control">
+              <Input {...inputProps('llm_model')} disabled={locked} variant="filled" placeholder="请输入模型名称" />
+              <ActionButton disabled={locked} aria-busy={testingLlm} onClick={handleTestLlm}>
+                {testingLlm ? <LoadingOutlined spin /> : <ApiOutlined />}<span>{testingLlm ? '正在测试…' : '测试连接'}</span>
+              </ActionButton>
+            </div>
+            <div className="llm-test-result" role="status" aria-live="polite">
+              {testResult && <>{testResult.ok ? <CheckCircleOutlined /> : <CloseCircleOutlined />}<span>{testResult.text}</span></>}
+            </div>
+          </SettingField>
+        </section>
+        <section className="llm-section" aria-label="总结输出">
+          <SettingField label="温度" description="较低的值让总结更稳定，较高的值让表达更多样。">
+            <TemperatureInput disabled={locked} value={config.llm_temperature} onChange={value => updateConfigField('llm_temperature', value)} />
+          </SettingField>
+          <SettingField label="隐藏思考过程" htmlFor="llm_hide_think_tag" description="过滤模型输出的 <think> 标签及其内容。">
+            <SettingsSwitch field="llm_hide_think_tag" checked={config.llm_hide_think_tag} onChange={value => updateConfigField('llm_hide_think_tag', value)} disabled={locked} id="llm_hide_think_tag" aria-label="隐藏思考过程" />
+          </SettingField>
+          <SettingField label="总结提示词" htmlFor="llm_prompt" stacked action={
+            <ActionButton disabled={locked} onClick={() => change('llm_prompt', defaultPrompt, 0)}><ReloadOutlined />恢复默认</ActionButton>
+          }>
+            <TextArea id="llm_prompt" disabled={locked} value={draft.llm_prompt ?? ''} onChange={event => change('llm_prompt', event.target.value, 800)} onBlur={() => { void autosave.save(['llm_prompt']); }} variant="filled" rows={4} placeholder="请输入总结提示词" />
+          </SettingField>
+        </section>
+      </div>
+    </div>
   );
 }

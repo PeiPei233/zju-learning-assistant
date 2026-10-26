@@ -12,8 +12,8 @@ import { EditOutlined, SendOutlined, LoadingOutlined } from '@ant-design/icons';
 import { invoke, dialog } from '../../bridge';
 
 import { useConfig } from '../../context/ConfigContext';
-import LlmSettingsModal from './LlmSettingsModal';
-import SubtitleSettingsModal from './SubtitleSettingsModal';
+import LlmSettings from './LlmSettings';
+import SubtitleSettings from './SubtitleSettings';
 import { VersionInfo } from '../../model';
 import { useConfigAutosave } from '../../hooks/useConfigAutosave';
 import dayjs from 'dayjs';
@@ -21,19 +21,26 @@ import { todoReminderMessage, reminderLabel, reminderOptions } from '../../remin
 import { normalizeFileExtensions } from '../../utils';
 
 import SettingField from './SettingField';
+import CalDavSettings from './CalDavSettings';
 import type { ReactNode } from 'react';
 
-function SettingsGroup({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return <section className="settings-group"><h2>{title}</h2>{description && <p className="settings-group-description">{description}</p>}<Card className="settings-card">{children}</Card></section>;
+function SettingsGroup({ id, title, description, children }: { id?: string; title: string; description?: string; children: ReactNode }) {
+  return <section id={id} className="settings-group"><h2>{title}</h2>{description && <p className="settings-group-description">{description}</p>}<Card className="settings-card">{children}</Card></section>;
 }
 
 interface SettingsProps {
+  active: boolean;
+  onOpen: () => void;
+  caldavRequest?: number;
   currentVersion: string;
   latestVersionData: VersionInfo | null;
   setOpenVersionModal: (open: boolean) => void;
 }
 
 export default function Settings({
+  active,
+  onOpen,
+  caldavRequest = 0,
   currentVersion,
   latestVersionData,
   setOpenVersionModal
@@ -59,6 +66,12 @@ export default function Settings({
     return !error;
   });
   const [section, setSection] = useState('downloads');
+  useEffect(() => {
+    if (caldavRequest) {
+      setSection('downloads');
+      requestAnimationFrame(() => document.getElementById('caldav-settings')?.scrollIntoView({ block: 'start' }));
+    }
+  }, [caldavRequest]);
   const sections = [
     { key: 'downloads', label: '下载与同步' },
     { key: 'classroom', label: '智云课堂处理' },
@@ -90,7 +103,7 @@ export default function Settings({
       key: 'ding-config-required',
       title: '请先配置钉钉机器人',
       description: '填写机器人 Webhook 后即可开启或发送测试通知。',
-      actions: <ActionButton onClick={() => { notification.destroy('ding-config-required'); setSection('notifications'); requestAnimationFrame(() => document.getElementById('ding-webhook')?.focus()); }}>去配置</ActionButton>,
+      actions: <ActionButton onClick={() => { notification.destroy('ding-config-required'); onOpen(); setSection('notifications'); requestAnimationFrame(() => document.getElementById('ding-webhook')?.focus()); }}>去配置</ActionButton>,
     });
   };
 
@@ -133,7 +146,7 @@ export default function Settings({
         key: 'llm-config-required',
         title: '请先完成 AI 总结配置',
         description: '填写 API 地址、API Key 和模型名称后即可开启。',
-        actions: <ActionButton onClick={() => { notification.destroy('llm-config-required'); setSection('classroom'); requestAnimationFrame(() => document.getElementById('llm_api_base')?.focus()); }}>去配置</ActionButton>,
+        actions: <ActionButton onClick={() => { notification.destroy('llm-config-required'); onOpen(); setSection('classroom'); requestAnimationFrame(() => document.getElementById('llm_api_base')?.focus()); }}>去配置</ActionButton>,
       });
       return;
     }
@@ -159,23 +172,24 @@ export default function Settings({
         </SettingsGroup>
         <SettingsGroup title="课件选择">
           <SettingField label="刷新课件后自动全选" description="适用于学在浙大和智云课堂。关闭后仅保留仍有效的已有选择。"><SettingsSwitch field="auto_select_all_courseware" aria-label="刷新课件后自动全选" checked={config.auto_select_all_courseware} onChange={value => updateConfigField('auto_select_all_courseware', value)} /></SettingField>
-          <SettingField label="全选时排除文件类型" description="仅适用于学在浙大的自动全选和后台自动下载，仍可手动选择。"><Select className="settings-extension-control" aria-label="全选时排除文件类型" disabled={savingSettings} mode="tags" value={config.excluded_upload_extensions} placeholder="不排除" tokenSeparators={[',', '，', ' ']} maxTagCount="responsive" options={['mp4', 'mp3', 'mov', 'm4a', 'wav'].map(value => ({value, label:value}))} onChange={values => updateConfigField('excluded_upload_extensions', normalizeFileExtensions(values))} /></SettingField>
+          <SettingField label="全选时排除文件类型" description="仅适用于学在浙大的自动全选和后台自动下载，仍可手动选择。"><Select className="settings-extension-control" aria-label="全选时排除文件类型" disabled={savingSettings} mode="tags" value={config.excluded_upload_extensions} placeholder="不排除" tokenSeparators={[',', '，', ' ']} maxTagCount="responsive" options={['mp4', 'mp3', 'mov', 'm4a', 'wav'].map(value => ({ value, label: value }))} onChange={values => updateConfigField('excluded_upload_extensions', normalizeFileExtensions(values))} /></SettingField>
         </SettingsGroup>
         <SettingsGroup title="同步">
           <SettingField label="自动下载新课件" description="同步学在浙大课件时，自动下载新文件，跳过已排除的文件类型。"><SettingsSwitch aria-label="自动下载新课件" field="auto_download" checked={config.auto_download} onChange={value => updateConfigField('auto_download', value)} /></SettingField>
           <SettingField label="自动同步成绩" description="自动更新成绩，关闭后需手动刷新。"><SettingsSwitch aria-label="自动同步成绩" field="score_auto_sync" checked={config.score_auto_sync} onChange={value => updateConfigField('score_auto_sync', value)} /></SettingField>
           <SettingField label="自动同步待办" description="自动更新待办，关闭后需手动刷新，截止提醒不受影响。"><SettingsSwitch aria-label="自动同步待办" field="todo_auto_sync" checked={config.todo_auto_sync} onChange={value => updateConfigField('todo_auto_sync', value)} /></SettingField>
         </SettingsGroup>
+        <SettingsGroup id="caldav-settings" title="CalDAV" description="将待办导出到你使用的日历或待办应用。配置后，可在待办页或托盘菜单中导出。"><CalDavSettings active={active && section === 'downloads'} /></SettingsGroup>
       </div>
       <div hidden={section !== 'classroom'}>
         <SettingsGroup title="课件导出"><SettingField label="自动导出为 PDF" description="将下载的课件图片合并为 PDF 文件。"><SettingsSwitch aria-label="自动导出为 PDF" field="to_pdf" checked={config.to_pdf} onChange={value => updateConfigField('to_pdf', value)} /></SettingField></SettingsGroup>
         <SettingsGroup title="语音识别文本">
           <SettingField label="下载语音识别文本" description="下载课件时，同时保存课程字幕。"><SettingsSwitch aria-label="下载语音识别文本" field="download_subtitle" checked={config.download_subtitle} onChange={value => updateConfigField('download_subtitle', value)} /></SettingField>
-          <SubtitleSettingsModal inline open onCancel={() => {}} />
+          <SubtitleSettings />
         </SettingsGroup>
         <SettingsGroup title="AI 课程总结">
           <SettingField label="生成课程总结" description="使用课程字幕生成总结，支持 OpenAI 兼容接口。"><SettingsSwitch aria-label="生成课程总结" field="llm_enabled" checked={config.llm_enabled} onChange={handleLlmSwitchChange} /></SettingField>
-          <LlmSettingsModal inline open onCancel={() => {}} />
+          <LlmSettings />
         </SettingsGroup>
       </div>
       <div hidden={section !== 'notifications'}>
@@ -184,21 +198,19 @@ export default function Settings({
           <SettingField label="钉钉通知" description="成绩有更新时发送钉钉通知。"><div className="settings-control-group"><IconAction label={testingDingKind === 'score' ? '正在发送' : '发送成绩测试通知'} disabled={testingDing || savingSettings} aria-busy={testingDingKind === 'score'} onClick={() => void handleTestDing('score')}>{testingDingKind === 'score' ? <LoadingOutlined spin /> : <SendOutlined />}</IconAction><SettingsSwitch aria-label="成绩更新钉钉通知" field="score_ding_notification" checked={config.score_ding_notification} onChange={value => handleDingSwitchChange('score_ding_notification', value)} /></div></SettingField>
         </SettingsGroup>
         <SettingsGroup title="待办截止提醒">
-          <SettingField label="提前提醒" description="选择在截止前多久提醒，可多选。请保持应用运行以接收提醒。"><Select className="settings-extension-control" aria-label="待办提前提醒时间" mode="multiple" disabled={savingSettings} value={config.todo_reminder_minutes} placeholder="不提醒" maxTagCount="responsive" options={reminderOptions.map(value => ({value, label: reminderLabel(value)}))} onChange={values => updateConfigField('todo_reminder_minutes', values)} /></SettingField>
+          <SettingField label="提前提醒" description="选择在截止前多久提醒，可多选。请保持应用运行以接收提醒。"><Select className="settings-extension-control" aria-label="待办提前提醒时间" mode="multiple" disabled={savingSettings} value={config.todo_reminder_minutes} placeholder="不提醒" maxTagCount="responsive" options={reminderOptions.map(value => ({ value, label: reminderLabel(value) }))} onChange={values => updateConfigField('todo_reminder_minutes', values)} /></SettingField>
           <SettingField label="系统通知" description="在所选时间发送系统通知。"><SettingsSwitch aria-label="待办截止系统通知" field="todo_system_notification" checked={config.todo_system_notification} onChange={value => updateConfigField('todo_system_notification', value)} /></SettingField>
           <SettingField label="钉钉通知" description="在所选时间发送钉钉通知。"><div className="settings-control-group"><IconAction label={testingDingKind === 'todo' ? '正在发送' : '发送待办测试通知'} disabled={testingDing || savingSettings} aria-busy={testingDingKind === 'todo'} onClick={() => void handleTestDing('todo')}>{testingDingKind === 'todo' ? <LoadingOutlined spin /> : <SendOutlined />}</IconAction><SettingsSwitch aria-label="待办截止钉钉通知" field="todo_ding_notification" checked={config.todo_ding_notification} onChange={value => handleDingSwitchChange('todo_ding_notification', value)} /></div></SettingField>
         </SettingsGroup>
         <SettingsGroup title="钉钉机器人">
-        <SettingField className="settings-webhook-field" label="机器人 Webhook" htmlFor="ding-webhook" description="用于接收成绩和待办通知。清空后将关闭钉钉通知。">
-          <div className="settings-webhook-input-row"><Input id="ding-webhook" disabled={testingDing || savingSettings} status={dingError ? 'error' : undefined} aria-describedby={dingError || dingSave.failed ? 'ding-save-status' : undefined} aria-label="钉钉机器人 Webhook" placeholder="输入完整的 Webhook 地址" value={dingUrlInput} onBlur={() => dingSave.save()} onChange={event => {setDingUrlInput(event.target.value); setDingError(''); dingSave.change({ding_url:event.target.value});}} />
-</div>
-          {(dingError || dingSave.failed) && <div id="ding-save-status" className="autosave-status" role="status">{dingError || dingSave.status}{dingSave.failed && <ActionButton onClick={() => dingSave.save()}>重试</ActionButton>}</div>}
-        </SettingField>
-        <SettingField className="settings-webhook-field" label="加签密钥 Secret" htmlFor="ding-secret" description="如果机器人的安全设置启用了加签，请填写对应密钥。">
-          <Input.Password id="ding-secret" aria-label="钉钉加签密钥 Secret" autoComplete="off" disabled={testingDing || savingSettings} value={dingSecretInput} placeholder="SEC…" onChange={event => { setDingSecretInput(event.target.value); secretSave.change({ ding_secret: event.target.value }); }} onBlur={() => secretSave.save()} />
-          {secretSave.failed && <div className="autosave-status" role="status">{secretSave.status}<ActionButton onClick={() => secretSave.save()}>重试</ActionButton></div>}
-        </SettingField>
-      </SettingsGroup></div>
+          <SettingField className="settings-webhook-field" label="机器人 Webhook" htmlFor="ding-webhook" error={dingError} description="用于接收成绩和待办通知。清空后将关闭钉钉通知。">
+            <div className="settings-webhook-input-row"><Input id="ding-webhook" disabled={testingDing || savingSettings} status={dingError ? 'error' : undefined} aria-describedby={dingError ? 'ding-webhook-error' : undefined} aria-label="钉钉机器人 Webhook" placeholder="请输入 Webhook 地址" value={dingUrlInput} onBlur={() => dingSave.save()} onChange={event => { setDingUrlInput(event.target.value); setDingError(''); dingSave.change({ ding_url: event.target.value }); }} />
+            </div>
+          </SettingField>
+          <SettingField className="settings-webhook-field" label="加签密钥 Secret" htmlFor="ding-secret" description="如果机器人的安全设置启用了加签，请填写对应密钥。">
+            <Input.Password id="ding-secret" aria-label="钉钉加签密钥 Secret" autoComplete="off" disabled={testingDing || savingSettings} value={dingSecretInput} placeholder="请输入加签密钥" onChange={event => { setDingSecretInput(event.target.value); secretSave.change({ ding_secret: event.target.value }); }} onBlur={() => secretSave.save()} />
+          </SettingField>
+        </SettingsGroup></div>
       <div hidden={section !== 'app'}>
         <SettingsGroup title="外观">
           <SettingField label="外观模式" description="跟随系统时，随系统外观自动切换。"><Segmented aria-label="外观模式" disabled={savingSettings} value={config.theme}

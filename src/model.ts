@@ -37,6 +37,10 @@ export interface Subject {
   ppt_image_urls: string[]
 }
 
+export interface CalDavCalendar {
+  url: string; name: string; components: string[];
+}
+
 export class Config {
   save_path!: string
   to_pdf!: boolean
@@ -62,6 +66,12 @@ export class Config {
   subtitle_format!: string
   subtitle_with_timestamps!: boolean
 
+  caldav_server!: string;
+  caldav_username!: string;
+  caldav_password!: string;
+  caldav_calendar!: string;
+  caldav_task_list!: string;
+
   llm_enabled!: boolean
   llm_api_base!: string
   llm_api_key!: string
@@ -71,7 +81,7 @@ export class Config {
   llm_hide_think_tag!: boolean
 
   constructor(config?: Partial<Config>) {
-    Object.assign(this, { theme: 'system', ding_secret: '', score_auto_sync: true, todo_auto_sync: true, score_system_notification: true, score_ding_notification: false, todo_system_notification: true, todo_ding_notification: false, todo_reminder_minutes: [60], excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true }, config);
+    Object.assign(this, { theme: 'system', ding_secret: '', score_auto_sync: true, todo_auto_sync: true, score_system_notification: true, score_ding_notification: false, todo_system_notification: true, todo_ding_notification: false, todo_reminder_minutes: [60], excluded_upload_extensions: [], auto_open_download_list: false, auto_select_all_courseware: true, caldav_server: '', caldav_username: '', caldav_password: '', caldav_calendar: '', caldav_task_list: '' }, config);
   }
 
   clone(): Config {

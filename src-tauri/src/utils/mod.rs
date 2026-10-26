@@ -14,3 +14,5 @@ pub mod windows_chrome;
 pub mod wps;
 
 pub mod app_update;
+
+pub mod caldav;

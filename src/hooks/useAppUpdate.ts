@@ -101,7 +101,7 @@ export function useAppUpdate(onShowUpdate?: () => void, modalOpen = false) {
   const install = async () => {
     if (busy.current || !ready.current) return;
     if (hasPendingDrafts()) {
-      notification.info({ title: '暂时无法安装更新', description: '还有设置未保存，请先完成保存或放弃修改。' });
+      notification.info({ title: '暂时无法安装更新', description: '还有设置未保存，请先检查设置并保存后再安装。' });
       return;
     }
     if (isSaving() || manager.getDownloadingCount() > 0) {

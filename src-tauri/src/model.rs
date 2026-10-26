@@ -28,6 +28,12 @@ pub struct Config {
     pub subtitle_format: String,
     pub subtitle_with_timestamps: bool,
 
+    pub caldav_server: String,
+    pub caldav_username: String,
+    pub caldav_password: String,
+    pub caldav_calendar: String,
+    pub caldav_task_list: String,
+
     pub llm_enabled: bool,
     pub llm_api_base: String,
     pub llm_api_key: String,
@@ -64,6 +70,12 @@ impl Default for Config {
             subtitle_language: vec!["zh".to_string()],
             subtitle_format: "srt".to_string(),
             subtitle_with_timestamps: true,
+
+            caldav_server: String::new(),
+            caldav_username: String::new(),
+            caldav_password: String::new(),
+            caldav_calendar: String::new(),
+            caldav_task_list: String::new(),
 
             llm_enabled: false,
             llm_api_base: String::new(),

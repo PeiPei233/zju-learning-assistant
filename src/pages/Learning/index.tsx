@@ -176,10 +176,10 @@ export default function Learning({
     <div className="panel-controls course-filters">
       <label>学年{loadErrors.years ? retryControl('years', academicYearList.find(item => item.id === selectedAcademicYear)?.name) : <Select popupMatchSelectWidth={false} aria-label="学年" placeholder={loading.years ? '正在获取…' : '全部学年'} allowClear showSearch optionFilterProp="label" value={selectedAcademicYear} onChange={onAcademicYearChange}
         options={academicYearList.map(item => ({ label: item.name, value: item.id }))} loading={loading.years} disabled={loading.years}
-        />}</label>
+      />}</label>
       <label>学期{loadErrors.semesters ? retryControl('semesters', semesterList.find(item => item.id === selectedSemester)?.name) : <Select popupMatchSelectWidth={false} aria-label="学期" placeholder={loading.semesters ? '正在获取…' : '全部学期'} allowClear showSearch optionFilterProp="label" value={selectedSemester} onChange={onSemesterChange}
         options={semesterList.filter(item => !selectedAcademicYear || selectedAcademicYear === item.academic_year_id).map(item => ({ label: item.name, value: item.id }))} loading={loading.semesters} disabled={loading.semesters}
-        />}</label>
+      />}</label>
     </div>
     <div className="panel-list"><ResourceList compact title="课程" items={loadErrors.courses ? [] : selectedCourses} itemKey={course => course.key}
       selectedKeys={loadErrors.courses ? [] : selectedCourseKeys} onSelectionChange={setSelectedCourseKeys} loading={loading.courses}

@@ -138,7 +138,7 @@ fn commit(
     Ok(current.clone())
 }
 
-fn write_atomically(path: &std::path::Path, contents: &[u8]) -> Result<(), String> {
+pub fn write_atomically(path: &std::path::Path, contents: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("无法确定配置目录")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;

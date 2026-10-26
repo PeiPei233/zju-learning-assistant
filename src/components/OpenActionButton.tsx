@@ -15,4 +15,3 @@ export default function OpenActionButton({ hint = '打开文件', ...props }: Bu
       onFocus={() => { setShowOpenHint(true); setOffset([0, 8]); }} />
   </Tooltip>;
 }
-
