@@ -86,7 +86,7 @@ const SearchTable = <T extends object>({
         </div>
       </div>
     ),
-    filterIcon: (filtered: boolean) => <SearchOutlined style={{ color: filtered ? 'var(--status-accent)' : undefined }} />,
+    filterIcon: (filtered: boolean) => <SearchOutlined aria-label={`筛选${title}`} style={{ color: filtered ? 'var(--status-accent)' : undefined }} />,
     onFilter: (value, record) => {
       const val = record[dataIndex as keyof T];
       return val ? val.toString().toLowerCase().includes((value as string).toLowerCase()) : false;

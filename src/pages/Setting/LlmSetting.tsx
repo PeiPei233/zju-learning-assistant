@@ -4,8 +4,8 @@ import { useConfig } from '../../context/ConfigContext';
 import { useEffect, useState, useRef } from 'react';
 import { invoke } from '../../bridge';
 import { Config } from '../../model';
-import ActionButton from '../ActionButton';
-import SettingsSwitch from './SettingsSwitch';
+import ActionButton from '../../components/ActionButton';
+import SettingSwitch from './SettingSwitch';
 import { useDelayedBusy } from '../../hooks/useDelayedBusy';
 import SettingField from './SettingField';
 import { useConfigAutosave } from '../../hooks/useConfigAutosave';
@@ -13,7 +13,7 @@ import { useConfigAutosave } from '../../hooks/useConfigAutosave';
 const { TextArea } = Input;
 const defaultPrompt = "你是一个专业的课程助教。请根据提供的课程字幕内容，总结课程的核心知识点、重点和难点。输出格式要求清晰、结构化，使用 Markdown 格式。";
 
-const TemperatureInput = ({ value, onChange, disabled }: { value?: number, onChange?: (value: number) => void, disabled?: boolean }) => {
+const TemperatureInput = ({ value, onChange, disabled, descriptionId }: { descriptionId?: string, value?: number, onChange?: (value: number) => void, disabled?: boolean }) => {
   const [empty, setEmpty] = useState(false);
   const [temperature, setTemperature] = useState(value ?? 0.3);
   useEffect(() => { setTemperature(value ?? 0.3); }, [value]);
@@ -23,15 +23,15 @@ const TemperatureInput = ({ value, onChange, disabled }: { value?: number, onCha
     if (next !== null && Number.isFinite(next) && next >= 0 && next <= 2) setTemperature(next);
   };
   return (
-    <div className="llm-temperature">
+    <div className="llm-temperature" role="group" aria-label="温度" aria-describedby={descriptionId}>
       <Slider disabled={disabled} min={0} max={2} step={0.1} value={temperature} onChange={change} onChangeComplete={next => onChange?.(next)} ariaLabelForHandle="温度" />
       <InputNumber disabled={disabled} min={0} max={2} step={0.1} value={empty ? null : temperature} onChange={change}
-        onBlur={() => { setEmpty(false); if (temperature !== (value ?? 0.3)) onChange?.(temperature); }} aria-label="温度数值" variant="filled" />
+        onBlur={() => { setEmpty(false); if (temperature !== (value ?? 0.3)) onChange?.(temperature); }} aria-label="温度数值" aria-describedby={descriptionId} variant="filled" />
     </div>
   );
 };
 
-export default function LlmSettings() {
+export default function LlmSetting() {
   const { config, isSaving, updateConfigField } = useConfig();
   const savingSettings = useDelayedBusy(isSaving());
   const [draft, setDraft] = useState(config);
@@ -115,9 +115,9 @@ export default function LlmSettings() {
     <div className="settings-inline llm-settings">
       <div className="llm-settings-body" ref={bodyRef}>
         <section className="llm-section" aria-label="连接配置">
-          <SettingField label="API 地址" htmlFor="llm_api_base" description="填写服务提供的完整 API 地址，包含 http 或 https。" error={errors.llm_api_base}>
-            <Input {...inputProps('llm_api_base')} disabled={locked} variant="filled" placeholder="请输入 API 地址" />
-          </SettingField>
+          <SettingField label="API 地址" htmlFor="llm_api_base" description="填写服务提供的完整 API 地址，包含 http 或 https。" error={errors.llm_api_base}>{descriptionId => <>
+            <Input {...inputProps('llm_api_base')} disabled={locked} variant="filled" placeholder="请输入 API 地址" aria-describedby={[descriptionId, inputProps('llm_api_base')['aria-describedby']].filter(Boolean).join(' ')} />
+          </>}</SettingField>
           <SettingField label="API Key" htmlFor="llm_api_key" error={errors.llm_api_key}>
             <Input.Password {...inputProps('llm_api_key')} disabled={locked} variant="filled" placeholder="请输入 API Key" autoComplete="off"
               visibilityToggle={{ visible: showApiKey, onVisibleChange: setShowApiKey }} />
@@ -135,12 +135,12 @@ export default function LlmSettings() {
           </SettingField>
         </section>
         <section className="llm-section" aria-label="总结输出">
-          <SettingField label="温度" description="较低的值让总结更稳定，较高的值让表达更多样。">
-            <TemperatureInput disabled={locked} value={config.llm_temperature} onChange={value => updateConfigField('llm_temperature', value)} />
-          </SettingField>
-          <SettingField label="隐藏思考过程" htmlFor="llm_hide_think_tag" description="过滤模型输出的 <think> 标签及其内容。">
-            <SettingsSwitch field="llm_hide_think_tag" checked={config.llm_hide_think_tag} onChange={value => updateConfigField('llm_hide_think_tag', value)} disabled={locked} id="llm_hide_think_tag" aria-label="隐藏思考过程" />
-          </SettingField>
+          <SettingField label="温度" description="较低的值让总结更稳定，较高的值让表达更多样。">{descriptionId => <>
+            <TemperatureInput disabled={locked} value={config.llm_temperature} onChange={value => updateConfigField('llm_temperature', value)} descriptionId={descriptionId} />
+          </>}</SettingField>
+          <SettingField label="隐藏思考过程" htmlFor="llm_hide_think_tag" description="过滤模型输出的 <think> 标签及其内容。">{descriptionId => <>
+            <SettingSwitch field="llm_hide_think_tag" checked={config.llm_hide_think_tag} onChange={value => updateConfigField('llm_hide_think_tag', value)} disabled={locked} id="llm_hide_think_tag" aria-label="隐藏思考过程" aria-describedby={descriptionId} />
+          </>}</SettingField>
           <SettingField label="总结提示词" htmlFor="llm_prompt" stacked action={
             <ActionButton disabled={locked} onClick={() => change('llm_prompt', defaultPrompt, 0)}><ReloadOutlined />恢复默认</ActionButton>
           }>

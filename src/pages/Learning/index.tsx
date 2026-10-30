@@ -1,3 +1,4 @@
+import PanelHeading from '../../components/PanelHeading';
 import FetchState from '../../components/FetchState';
 import PlatformIcon from '../../components/PlatformIcon';
 import ConfigReadState from '../../components/ConfigReadState';
@@ -172,7 +173,7 @@ export default function Learning({
   </Tooltip>;
 
   return <Workspace headerless title="学在浙大" panel={<>
-    <div className="panel-heading"><h2>学在浙大</h2></div>
+    <PanelHeading><h2>学在浙大</h2></PanelHeading>
     <div className="panel-controls course-filters">
       <label>学年{loadErrors.years ? retryControl('years', academicYearList.find(item => item.id === selectedAcademicYear)?.name) : <Select popupMatchSelectWidth={false} aria-label="学年" placeholder={loading.years ? '正在获取…' : '全部学年'} allowClear showSearch optionFilterProp="label" value={selectedAcademicYear} onChange={onAcademicYearChange}
         options={academicYearList.map(item => ({ label: item.name, value: item.id }))} loading={loading.years} disabled={loading.years}
@@ -186,7 +187,7 @@ export default function Learning({
       emptyContent={loadErrors.courses ? <FetchState label="重新获取课程" onRetry={() => void loadCourses()} /> : undefined}
       fields={[{ label: '课程', value: course => course.name }, { label: '教师', value: course => course.teachers }, { label: '学期', value: course => course.term }]}
       renderItem={course => ({ title: course.name, titleField: '课程', subtitle: [{ text: course.teachers, field: '教师' }, { text: course.term, field: '学期' }] })} emptyIcon={<PlatformIcon platform="learning" />} emptyText="暂无课程" /></div>
-    <div className="panel-bottom"><div className="setting-line"><span>自动同步</span><Switch disabled={!ready || loadingUploadList} checked={syncing} onChange={handleSwitchSync} /></div>
+    <div className="panel-bottom"><div className="setting-line"><span>自动同步</span><Switch aria-label="自动同步课件" disabled={!ready || loadingUploadList} checked={syncing} onChange={handleSwitchSync} /></div>
       <p>{autoDownload ? '新课件将自动下载，遵循文件排除设置。' : '新课件将添加到待下载列表。'}</p>
       <p>最后同步 · {lastSync || '未同步'}</p></div>
   </>}

@@ -1,5 +1,5 @@
 import UpdateIndicator, { type UpdateIndicatorState } from '../../components/UpdateIndicator';
-import PreviewMenu from "../../components/PreviewMenu";
+import PreviewMenu from "../../preview/PreviewMenu";
 import { useDesktopApp } from '../../context/NotificationContext';
 import AppIcon from '../../components/AppIcon';
 import WindowChrome from '../../components/WindowChrome';
@@ -16,6 +16,7 @@ import { VersionInfo } from '../../model';
 interface LoginProps {
   setIsLogin: (isLogin: boolean) => void;
   loginSession: MutableRefObject<number>;
+  readingCredentials: boolean;
   autoLoginUsername?: string;
   autoLoginPassword?: string;
   currentVersion: string;
@@ -27,6 +28,7 @@ interface LoginProps {
 export default function Login({
   setIsLogin,
   loginSession,
+  readingCredentials,
   autoLoginUsername,
   autoLoginPassword,
   currentVersion,
@@ -80,6 +82,7 @@ export default function Login({
     if (!autoLoginUsername || !autoLoginPassword || manualLoginStarted.current || loginInFlight.current) return;
     loginInFlight.current = true;
     setAutoLogin(true);
+    form.setFieldsValue({ username: autoLoginUsername });
     notification.destroy('login-error');
     invoke('login', { username: autoLoginUsername, password: autoLoginPassword })
       .then(() => {
@@ -88,7 +91,7 @@ export default function Login({
       })
       .catch(err => notification.error({ key: 'login-error', title: '自动登录失败', description: String(err) }))
       .finally(() => { loginInFlight.current = false; setAutoLogin(false); });
-  }, [autoLoginUsername, autoLoginPassword, setIsLogin, notification, completeLoginSetup]);
+  }, [autoLoginUsername, autoLoginPassword, setIsLogin, notification, completeLoginSetup, form]);
 
   const onFinish = (values: { username: string; password: string; remember: boolean }) => {
     manualLoginStarted.current = true;
@@ -105,7 +108,7 @@ export default function Login({
       .finally(() => { loginInFlight.current = false; setLoading(false); });
   };
 
-  const busy = loading || autoLogin;
+  const busy = loading || autoLogin || readingCredentials;
   return <>
     <WindowChrome overlay />
     <main className="login-surface">
@@ -114,14 +117,14 @@ export default function Login({
           <AppIcon className="login-app-icon" />
           <h1>ZJU Learning Assistant</h1>
           <p className="login-description">使用浙江大学统一身份认证登录</p>
-          <Form name="normal_login" className="login-form" layout="vertical" requiredMark={false}
-            onFinish={onFinish} onValuesChange={() => notification.destroy('login-error')} form={form} disabled={busy} scrollToFirstError
-            initialValues={{ username: autoLoginUsername, password: autoLoginPassword, remember: true }}>
-            <Form.Item label="学号 / 工号" name="username" rules={[{ required: true, whitespace: true, message: '请输入学号或工号' }]}>
-              <Input prefix={<UserOutlined />} placeholder="输入学号或工号" autoComplete="username" autoCapitalize="none" spellCheck={false} />
+          <Form name="normal_login" className={`login-form${autoLogin ? ' is-auto-login' : ''}`} layout="vertical" requiredMark={false}
+            onFinish={onFinish} onValuesChange={() => { manualLoginStarted.current = true; notification.destroy('login-error'); }} form={form} disabled={busy} scrollToFirstError
+            initialValues={{ username: autoLoginUsername, remember: true }}>
+            <Form.Item name="username" rules={[{ required: true, whitespace: true, message: '请输入学号或工号' }]}>
+              <Input prefix={<UserOutlined />} aria-label="学号 / 工号" placeholder="学号 / 工号" autoComplete="username" autoCapitalize="none" spellCheck={false} />
             </Form.Item>
-            <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入统一身份认证密码' }]}>
-              <Input.Password prefix={<LockOutlined />} placeholder="输入统一身份认证密码" autoComplete="current-password" />
+            <Form.Item name="password" rules={[{ required: true, message: '请输入统一身份认证密码' }]}>
+              <Input.Password prefix={<LockOutlined />} aria-label="统一身份认证密码" placeholder={autoLogin ? "使用已保存的密码" : "统一身份认证密码"} autoComplete="current-password" />
             </Form.Item>
             <div className="login-remember"><label htmlFor="normal_login_remember">下次自动登录</label>
               <Form.Item name="remember" valuePropName="checked" noStyle><Switch aria-label="下次自动登录" /></Form.Item>
@@ -129,8 +132,8 @@ export default function Login({
             <ActionButton className="login-submit" variant="primary" type="submit" disabled={busy} aria-busy={busy}>
               {busy && <LoadingOutlined spin />}{autoLogin ? '正在自动登录' : loading ? '正在登录' : '登录'}
             </ActionButton>
-            {autoLogin && <p className="login-status" role="status">正在登录 {autoLoginUsername}</p>}
           </Form>
+          <span className="login-live-status" role="status" aria-atomic="true">{autoLogin ? '正在自动登录' : loading ? '正在登录' : readingCredentials ? '正在读取自动登录信息' : ''}</span>
           {isPreview && <p className="login-preview-note">预览模式 · 任意填写可登录，学号 error 可测试失败。</p>}
         </div>
       </div>

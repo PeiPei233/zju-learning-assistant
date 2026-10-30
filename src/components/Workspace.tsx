@@ -10,8 +10,17 @@ export default function Workspace({ title, panel, children, actions, footer, hea
   title: string; panel: React.ReactNode; children: React.ReactNode;
   actions?: React.ReactNode; footer?: React.ReactNode; headerless?: boolean;
 }) {
-  const { collapsed, toggle, width = 280, setWidth, peek, module, keepPeek, dismissPeek, activateModule } = useContext(PanelContext);
+  const { collapsed, toggle, width = 280, setWidth, peek, switchingPeek, module, keepPeek, dismissPeek, activateModule } = useContext(PanelContext);
   const floating = collapsed && !!module && peek === module;
+  const replaced = collapsed && !!peek && peek !== module;
+  const [linger, setLinger] = useState(floating);
+  useEffect(() => {
+    if (floating) { setLinger(true); return; }
+    if (replaced) { setLinger(false); return; }
+    const timer = setTimeout(() => setLinger(false), 220);
+    return () => clearTimeout(timer);
+  }, [floating, replaced]);
+  const floatingAppearance = collapsed && (floating || (linger && !replaced));
   const visible = !collapsed || floating;
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => { if (panelRef.current) panelRef.current.inert = !visible; }, [visible]);
@@ -33,13 +42,12 @@ export default function Workspace({ title, panel, children, actions, footer, hea
   const maximum = Math.max(200, Math.min(420, available - 360));
   const panelWidth = Math.min(maximum, Math.max(200, width));
   const resize = (next: number) => setWidth?.(Math.round(Math.min(maximum, Math.max(200, next))));
-  return <div ref={host} className={`workspace ${collapsed ? 'panel-collapsed' : ''} ${resizing ? 'is-resizing' : ''} ${floating ? 'panel-floating' : ''}`} style={{ '--panel-width': `${panelWidth}px` } as React.CSSProperties}>
+  return <div ref={host} className={`workspace ${collapsed ? 'panel-collapsed' : ''} ${resizing ? 'is-resizing' : ''} ${floatingAppearance ? 'panel-floating' : ''} ${floatingAppearance && !floating ? 'panel-peek-leaving' : ''} ${floating && switchingPeek ? 'panel-peek-switching' : ''} ${replaced ? 'panel-peek-replaced' : ''}`} style={{ '--panel-width': `${panelWidth}px` } as React.CSSProperties}>
     <aside ref={panelRef} className="context-panel" aria-hidden={!visible} aria-label={`${title}侧栏`}
       onPointerEnter={keepPeek} onPointerLeave={dismissPeek} onFocusCapture={keepPeek}
       onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) dismissPeek?.(); }}
       onClickCapture={() => { if (floating && module) activateModule?.(module); }}>
       {panel}
-      {floating && <Tooltip title="固定展开侧栏" trigger={['hover', 'focus']}><button className="panel-pin icon-button" aria-label="固定展开侧栏" onClick={toggle}><PanelIcon collapsed={false} /></button></Tooltip>}
     </aside>
     {!collapsed && setWidth && <Tooltip ref={resizeTipRef} title="拖动调整宽度，双击恢复默认" placement="right" arrow={false}
       align={{ offset: [8, resizeTipOffset] }} open={resizing ? false : undefined} mouseEnterDelay={0.5} trigger={['hover', 'focus']}><div className="panel-resizer" role="separator" aria-label="调整侧栏宽度" aria-orientation="vertical"

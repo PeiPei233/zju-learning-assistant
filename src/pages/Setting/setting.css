@@ -4,38 +4,15 @@
 .llm-temperature .ant-input-number { width: 100%; }
 .llm-test-result { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .llm-section textarea.ant-input { resize: vertical; min-height: 88px; max-height: 220px; line-height: 1.65; }
-
-/* Shared shell for configuration, information and confirmation dialogs. */
-.desktop-modal .ant-modal-container { padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--canvas); }
-.desktop-modal .ant-modal-header { background: transparent; margin-bottom: 20px; }
-.desktop-modal .ant-modal-title, .desktop-modal .ant-modal-confirm-title { color: var(--text); font-size: 16px; line-height: 24px; font-weight: 600; }
-.desktop-modal .ant-modal-close { top: 19px; inset-inline-end: 19px; width: 28px; height: 28px; border-radius: 6px; color: var(--muted); }
-.desktop-modal .ant-modal-body { max-height: calc(100dvh - 220px); overflow-y: auto; }
-.desktop-modal .ant-modal-footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
-.desktop-confirm .ant-modal-body { max-height: calc(100dvh - 100px); overflow: visible; }
-.desktop-confirm .ant-modal-confirm-content { color: var(--muted); font-size: 13px; line-height: 1.7; margin-top: 10px; }
-.desktop-confirm .ant-modal-confirm-btns { margin-top: 24px; }
-.desktop-confirm .ant-btn { height: 34px; padding-inline: 11px; border-radius: 6px; }
-.desktop-confirm .ant-btn-default { color: var(--text); background: transparent; border-color: transparent; }
-.desktop-confirm .ant-btn-default:not(:disabled):hover, .desktop-confirm .ant-btn-default:not(:disabled):active { color: var(--text); background: var(--field-hover); border-color: transparent; }
-.desktop-confirm .ant-btn-primary, .desktop-confirm .ant-btn-primary:not(:disabled):hover, .desktop-confirm .ant-btn-primary:not(:disabled):active { color: var(--canvas); background: var(--text); border-color: transparent; }
-.modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.version-modal .ant-modal-body { color: var(--text); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.version-modal .ant-modal-body > :first-child { margin-top: 0; }
-.version-modal .ant-modal-body > :last-child { margin-bottom: 0; }
 .settings-control-group { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-@media (max-width: 480px) {
-  .desktop-modal .ant-modal-container { padding: 20px; }
-}
 
 .autosave-status { color: var(--muted); font-size: 12px; line-height: 20px; }
-
-.modal-actions > .action-button { flex-shrink: 0; }
 
 
 .setting-field { display: flex; align-items: center; gap: 20px; padding-block: 16px; }
 .setting-field + .setting-field { border-top: 1px solid var(--line); }
 .setting-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 1; min-width: 0; }
+.setting-field:not(.setting-field-stacked) .setting-field-heading { min-height: var(--control-height); }
 .setting-field-copy label { display: block; line-height: 20px; color: var(--text); font-size: 13px; font-weight: 500; }
 .setting-field-copy p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 20px; }
 .setting-field-control { min-width: 0; }
@@ -58,7 +35,8 @@
 /* Settings groups: category → related options → individual controls. */
 .settings-group + .settings-group { margin-top: 26px; }
 .settings-group > h2 { margin: 0 2px 10px; font-size: 13px; font-weight: 500; color: var(--muted); }
-.settings-group-description, .settings-page-description { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.settings-group-description,
+.settings-page-description { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .settings-group-description { margin: -4px 2px 12px; }
 .settings-page-description { margin: 0 0 20px; }
 .settings-card.ant-card { border: 1px solid var(--line); border-radius: 11px; background: color-mix(in srgb, var(--canvas) 85%, var(--selected)); }
@@ -82,23 +60,134 @@
   .settings-inline .llm-temperature { grid-template-columns: minmax(0, 1fr) 64px; gap: 8px; }
 }
 
-.settings-card .settings-webhook-field, .caldav-settings .setting-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.settings-card .settings-webhook-field,
+.caldav-settings .setting-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
 @container (max-width: 480px) {
-  .settings-card .settings-webhook-field, .caldav-settings .setting-field { grid-template-columns: minmax(0, 1fr); }
+  .settings-card .settings-webhook-field,
+.caldav-settings .setting-field { grid-template-columns: minmax(0, 1fr); }
 }
-
-.version-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; }
-.version-download { display: flex; align-items: center; gap: 14px; color: var(--muted); text-align: left; }
-.version-download-label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12px; }
-.version-error { margin-top: 16px; color: var(--status-error); }
-
-.version-download-copy { flex: 1; min-width: 0; }
-.version-download-copy > .ant-progress { display: block; margin: 6px 0 0; line-height: 1; }
-.version-download > .action-button { flex-shrink: 0; }
-
-.version-release-link { margin-inline-end: auto; }
 
 .caldav-settings .ant-select { width: 100%; }
 .caldav-settings .setting-field-error { overflow-wrap: anywhere; }
 
 .caldav-select-popup .ant-select-item-empty { padding: 0; }
+
+.context-navigation .settings-category {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setting-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Settings keep editable values on the shared trailing edge. */
+
+.settings-content {
+  width: 100%;
+  padding: 0 0 24px;
+}
+
+.settings-content .ant-list-item {
+  padding-block: 22px;
+  gap: 24px;
+}
+
+.settings-content .ant-list-item-meta-description {
+  max-width: 580px;
+  overflow-wrap: anywhere;
+}
+
+.settings-content .ant-switch,
+.settings-content .ant-input-number {
+  flex-shrink: 0;
+}
+
+.settings-content .ant-list-item {
+  align-items: center;
+}
+.settings-content {
+  container-type: inline-size;
+}
+
+.settings-content .settings-field-row {
+  gap: 32px;
+}
+
+.settings-field-row .ant-list-item-meta {
+  min-width: 0;
+}
+
+.settings-field-row .settings-extension-control {
+  width: 260px;
+  flex: 0 0 260px;
+}
+
+.settings-webhook-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 420px;
+  flex: 0 0 420px;
+  min-width: 0;
+}
+
+.settings-webhook-control>.ant-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-webhook-actions {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.settings-webhook-row .ant-list-item-meta-description {
+  font-size: 12px;
+}
+
+@container (max-width: 620px) {
+  .settings-content .settings-field-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .settings-field-row .settings-extension-control,
+.settings-webhook-control {
+    width: 100%;
+    flex: none;
+  }
+}
+
+.settings-webhook-control {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.settings-webhook-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-webhook-input-row>.ant-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-webhook-control .autosave-status {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

@@ -44,12 +44,12 @@
 .ant-select-dropdown .ant-select-item-option-disabled { color: var(--muted); opacity: .5; }
 
 .course-range-heading { flex-shrink: 0; }
-.course-range-heading .course-range-trigger { display: inline-flex; align-items: center; justify-content: flex-start; gap: 6px; height: 34px; padding: 0 6px; margin-left: -6px; border: 0; max-width: calc(100% + 6px); transition: background-color 120ms ease; }
+.course-range-heading .course-range-trigger { display: inline-flex; flex: 0 1 auto; min-width: 0; align-items: center; justify-content: flex-start; gap: 6px; height: 34px; padding: 0 6px; margin-left: -6px; border: 0; max-width: calc(100% + 6px); transition: background-color 120ms ease; }
 .course-range-label { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
-.course-range-title { font-size: 16px; font-weight: 600; line-height: 24px; white-space: nowrap; }
-.course-range-current { font-size: 16px; font-weight: 400; line-height: 24px; color: var(--muted); white-space: nowrap; }
-.course-range-divider { font-size: 16px; font-weight: 400; line-height: 24px; color: var(--muted); }
-.course-range-heading .course-range-trigger > .anticon { font-size: 11px; color: var(--muted); }
+.course-range-title { flex-shrink: 0; font-size: 16px; font-weight: 600; line-height: 24px; white-space: nowrap; }
+.course-range-current { font-size: 16px; font-weight: 400; line-height: 24px; color: var(--muted); }
+.course-range-divider { flex-shrink: 0; font-size: 16px; font-weight: 400; line-height: 24px; color: var(--muted); }
+.course-range-heading .course-range-trigger > .anticon { flex-shrink: 0; font-size: 11px; color: var(--muted); }
 .course-range-heading .course-range-trigger:hover:not(:disabled), .course-range-heading .course-range-trigger[aria-expanded="true"] { background: var(--field-hover); }
 .course-range-menu .ant-dropdown-menu { min-width: 250px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); }
 .course-range-menu .ant-dropdown-menu-item { padding: 10px 12px; border-radius: 7px; color: var(--text); }
@@ -90,3 +90,6 @@
 
 .table-filter-panel { width: 260px; padding: 12px; background: var(--canvas); border: 1px solid var(--line); border-radius: 10px; }
 .table-filter-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+/* Checked switches mirror primary buttons; unchecked handles stay light. */
+.ant-switch.ant-switch-checked .ant-switch-handle::before { background-color: var(--switch-checked-handle); }

@@ -237,7 +237,7 @@ impl ZjuAssist {
         // sjddBz is a schedule description, not a course number.
         let class_id = Regex::new(r"班级编号(\d{7})")?;
         for row in rows {
-            if text(&row["xkztMc"]) == "未处理" {
+            if matches!(text(&row["xkztMc"]).as_str(), "未处理" | "未开课") {
                 continue;
             }
             let description = text(&row["sjddBz"]);

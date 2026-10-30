@@ -65,9 +65,14 @@ export function installPreview() {
       case 'install_app_update':
         if (new URLSearchParams(window.location.search).get('update') === 'install-error') throw new Error('预览：安装失败，请重试。');
         return null;
-      case 'get_auto_login_info': return null;
+      case 'get_auto_login_info': return new URLSearchParams(window.location.search).has('autoLogin') ? ['3210000000', 'preview-password'] : null;
       case 'check_login': return loggedIn;
       case 'login':
+        if (new URLSearchParams(window.location.search).has('autoLogin') && !failed.has('autoLogin')) {
+          failed.add('autoLogin');
+          await new Promise(resolve => setTimeout(resolve, 4000));
+          if (new URLSearchParams(window.location.search).get('autoLogin') === 'error') throw new Error('预览：自动登录失败，请重新登录。');
+        }
         if (args.username === 'error') throw new Error('示例：账号或密码不正确，请重新输入。');
         loggedIn = true; return null;
       case 'complete_login_setup': return null;

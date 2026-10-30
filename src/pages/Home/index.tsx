@@ -3,7 +3,7 @@ import { useScores } from '../../hooks/useScores';
 import { useTodos } from '../../hooks/useTodos';
 import Todo from '../Todo';
 import { refreshedSelection } from '../../utils';
-import PreviewMenu from "../../components/PreviewMenu";
+import PreviewMenu from "../../preview/PreviewMenu";
 import { useDesktopApp } from '../../context/NotificationContext';
 import ModuleFrame from '../../components/ModuleFrame';
 import PlatformIcon from '../../components/PlatformIcon';
@@ -19,8 +19,8 @@ import { LogoutOutlined, DownloadOutlined, SettingOutlined, FileSearchOutlined, 
 import Learning from '../Learning'
 import Classroom from '../Classroom'
 import Score from '../Score'
-import Settings from '../../components/Settings'
-import Downloads from '../../components/Downloads';
+import Setting from '../Setting'
+import Download from '../Download';
 import { LearningTask } from '../../downloadManager';
 
 import { LearningCourse, Upload, VersionInfo } from '../../model';
@@ -85,17 +85,22 @@ export default function Home({
     return page && ['learning', 'classroom', 'score', 'todo', 'download', 'setting'].includes(page) ? page : 'learning';
   })
   const [visited, setVisited] = useState([current]);
-  const [peek, setPeek] = useState<string | null>(null);
+  const [{ peek, switchingPeek }, setPeekState] = useState<{ peek: string | null; switchingPeek: boolean }>({ peek: null, switchingPeek: false });
+  const setPeek = useCallback((next: string | null) => {
+    setPeekState(previous => previous.peek === next ? previous : { peek: next, switchingPeek: previous.peek !== null && next !== null });
+  }, []);
   const peekTimer = useRef<ReturnType<typeof setTimeout>>();
+  const pointerInPeek = useRef(false);
+  const keyboardInPeek = useRef(false);
   const keepPeek = () => clearTimeout(peekTimer.current);
-  const dismissPeek = () => {
+  const dismissPeek = useCallback(() => {
     clearTimeout(peekTimer.current);
     peekTimer.current = setTimeout(() => {
-      // Select menus live in a portal; keep the sidebar available while using one.
-      if (document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden), .ant-picker-dropdown:not(.ant-picker-dropdown-hidden)')) return;
+      if (pointerInPeek.current) return;
+      if (keyboardInPeek.current && document.activeElement?.closest('.context-panel')) return;
       setPeek(null);
     }, 240);
-  };
+  }, [setPeek]);
   const hoverModule = (page: string) => {
     if (!panelCollapsed) return;
     clearTimeout(peekTimer.current);
@@ -107,20 +112,46 @@ export default function Home({
   const railPreview = (page: string) => ({
     'data-module': page,
     'aria-expanded': panelCollapsed ? peek === page : current === page,
-    onPointerEnter: (event: React.PointerEvent) => { if (event.pointerType !== 'touch') hoverModule(page); },
+    onPointerEnter: (event: React.PointerEvent) => { if (event.pointerType !== 'touch') { pointerInPeek.current = true; hoverModule(page); } },
     onPointerLeave: dismissPeek,
-    onFocus: () => hoverModule(page),
+    onFocus: (event: React.FocusEvent) => { keyboardInPeek.current = event.currentTarget.matches(':focus-visible'); hoverModule(page); },
     onBlur: dismissPeek,
   });
   useEffect(() => () => clearTimeout(peekTimer.current), []);
   useEffect(() => {
-    if (!peek) return;
+    if (!peek) { pointerInPeek.current = false; return; }
+    const containsPointer = (target: EventTarget | null) => target instanceof Element
+      && !!target.closest('.context-panel, .navigation-rail, .ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown');
+    // Track actual pointer movement, not blur/leave caused by disabled controls,
+    // layout changes or a popup being removed after selection.
+    const move = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+      const wasKeyboard = keyboardInPeek.current;
+      keyboardInPeek.current = false;
+      const inside = containsPointer(event.target);
+      if (inside === pointerInPeek.current && !wasKeyboard) return;
+      pointerInPeek.current = inside;
+      if (inside) clearTimeout(peekTimer.current);
+      else dismissPeek();
+    };
+    const leaveWindow = (event: PointerEvent) => {
+      if (event.relatedTarget !== null) return;
+      pointerInPeek.current = false;
+      dismissPeek();
+    };
     const outside = (event: PointerEvent) => {
-      if (!(event.target as Element).closest('.context-panel, .navigation-rail, .ant-select-dropdown, .ant-picker-dropdown, .ant-modal-root')) {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      keyboardInPeek.current = false;
+      if (containsPointer(target)) {
+        pointerInPeek.current = true;
+        clearTimeout(peekTimer.current);
+      } else if (!target.closest('.navigation-rail, .ant-modal-root')) {
         clearTimeout(peekTimer.current); setPeek(null);
       }
     };
     const escape = (event: KeyboardEvent) => {
+      keyboardInPeek.current = true;
       if (event.key === 'Escape') {
         clearTimeout(peekTimer.current); setPeek(null);
         // Avoid focus-trigger reopening after Escape.
@@ -128,16 +159,23 @@ export default function Home({
       }
     };
     document.addEventListener('pointerdown', outside);
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerout', leaveWindow);
     document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [peek]);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerout', leaveWindow);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [peek, dismissPeek, setPeek]);
   const [caldavRequest, setCaldavRequest] = useState(0);
   const navigate = useCallback((page: string) => {
     setVisited(pages => pages.includes(page) ? pages : [...pages, page]);
     setCurrent(page);
     clearTimeout(peekTimer.current);
     setPeek(null);
-  }, []);
+  }, [setPeek]);
   useEffect(() => {
     if (pageRequested) { navigate('download'); consumePageRequest(); }
   }, [pageRequested, consumePageRequest, navigate]);
@@ -335,7 +373,7 @@ export default function Home({
   }
 
   return (
-    <PanelContext.Provider value={{ collapsed: panelCollapsed, toggle: togglePanel, width: panelWidth, setWidth: resizePanel, peek, keepPeek, dismissPeek, activateModule: setCurrent }}>
+    <PanelContext.Provider value={{ collapsed: panelCollapsed, toggle: togglePanel, width: panelWidth, setWidth: resizePanel, peek, switchingPeek, keepPeek, dismissPeek, activateModule: setCurrent }}>
       <WindowChrome navigation />
       <div className="desktop-shell">
         <nav className="navigation-rail" aria-label="主导航">
@@ -386,10 +424,10 @@ export default function Home({
           /></ModuleFrame>}
           {visited.includes('todo') && <ModuleFrame name="todo" current={current}><Todo {...todos} onOpenCalDav={() => { setCaldavRequest(value => value + 1); navigate('setting'); }} /></ModuleFrame>}
           {visited.includes('download') && <ModuleFrame name="download" current={current}>
-            <Downloads taskList={downloadTasks} downloadManager={downloadManager} />
+            <Download taskList={downloadTasks} downloadManager={downloadManager} />
           </ModuleFrame>}
           {visited.includes('setting') && <ModuleFrame name="setting" current={current}>
-            <Settings onOpen={() => navigate('setting')} active={current === 'setting'} caldavRequest={caldavRequest} currentVersion={currentVersion} latestVersionData={latestVersionData} setOpenVersionModal={setOpenVersionModal} />
+            <Setting onOpen={() => navigate('setting')} active={current === 'setting'} caldavRequest={caldavRequest} currentVersion={currentVersion} latestVersionData={latestVersionData} setOpenVersionModal={setOpenVersionModal} />
           </ModuleFrame>}
         </div>
       </div>

@@ -18,7 +18,7 @@ dayjs.locale('zh-cn')
 
 const { Paragraph, Text } = Typography
 
-function Index() {
+function App() {
 
   const { notification } = useDesktopApp()
 
@@ -38,6 +38,7 @@ function Index() {
   }, [notification])
   const [autoLoginUsername, setAutoLoginUsername] = useState('')
   const [autoLoginPassword, setAutoLoginPassword] = useState('')
+  const [readingCredentials, setReadingCredentials] = useState(true)
   const [currentVersion, setCurrentVersion] = useState('')
   const [openVersionModal, setOpenVersionModal] = useState(false)
   const showVersionModal = useCallback(() => setOpenVersionModal(true), [])
@@ -66,7 +67,8 @@ function Index() {
           setAutoLoginUsername(res[0])
           setAutoLoginPassword(res[1])
         }
-      }).catch(err => { startupErrors.current.credentials = `读取自动登录信息失败：${String(err)}` }),
+      }).catch(err => { startupErrors.current.credentials = `读取自动登录信息失败：${String(err)}` })
+        .finally(() => setReadingCredentials(false)),
     ])
     startupFlight.current = false
     if (session !== loginSession.current) return
@@ -115,6 +117,7 @@ function Index() {
         <Login
           setIsLogin={setIsLogin}
           loginSession={loginSession}
+          readingCredentials={readingCredentials}
           autoLoginUsername={autoLoginUsername}
           autoLoginPassword={autoLoginPassword}
           currentVersion={currentVersion}
@@ -197,4 +200,4 @@ function Index() {
   )
 }
 
-export default Index
+export default App

@@ -1,24 +1,25 @@
-import EmptyState from './EmptyState';
-import { useDesktopApp } from '../context/NotificationContext';
-import ActionButton from './ActionButton';
+import EmptyState from '../../components/EmptyState';
+import { useDesktopApp } from '../../context/NotificationContext';
+import ActionButton from '../../components/ActionButton';
 import { useState } from 'react';
-import Workspace from './Workspace';
-import IconAction from './IconAction';
-import FileTypeIcon from './FileTypeIcon';
-import OverflowText from './OverflowText';
+import Workspace from '../../components/Workspace';
+import PanelHeading from '../../components/PanelHeading';
+import IconAction from '../../components/IconAction';
+import FileTypeIcon from '../../components/FileTypeIcon';
+import OverflowText from '../../components/OverflowText';
 import { Progress } from 'antd';
-import OpenActionButton from './OpenActionButton';
+import OpenActionButton from '../../components/OpenActionButton';
 import { LoadingOutlined, FolderOpenOutlined, ReloadOutlined, CloseCircleOutlined, CloseOutlined, ClearOutlined, DownloadOutlined } from '@ant-design/icons';
-import { ClassroomTask, DownloadManager, Task } from '../downloadManager';
+import { ClassroomTask, DownloadManager, Task } from '../../downloadManager';
 
 const statusLabels: Record<string, string> = { pending: '等待中', downloading: '下载中', writing: '写入中', done: '已完成', failed: '失败', canceling: '正在取消…', canceled: '已取消' };
 
-interface DownloadsProps {
+interface DownloadProps {
   taskList: Task[];
   downloadManager: DownloadManager;
 }
 
-export default function Downloads({ taskList, downloadManager }: DownloadsProps) {
+export default function Download({ taskList, downloadManager }: DownloadProps) {
   const { notification } = useDesktopApp();
 
   const [filter, setFilter] = useState('all');
@@ -31,7 +32,7 @@ export default function Downloads({ taskList, downloadManager }: DownloadsProps)
   const currentFilter = filters.find(item => item.key === filter)!;
   return (
     <Workspace title={currentFilter.label} panel={<>
-      <div className="panel-heading"><h2>下载列表</h2></div>
+      <PanelHeading><h2>下载列表</h2></PanelHeading>
       <nav className="context-navigation" aria-label="下载分类">{filters.map(item => <button key={item.key}
         className={filter === item.key ? 'active' : ''} aria-current={filter === item.key ? 'page' : undefined}
         onClick={() => setFilter(item.key)}>{item.label}<span>{taskList.filter(item.match).length}</span></button>)}</nav>

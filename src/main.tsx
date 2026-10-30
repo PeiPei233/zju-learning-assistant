@@ -1,5 +1,6 @@
 import './design/typography.css';
-import './design/settings-modal.css';
+import './design/dialogs.css';
+import './pages/Setting/setting.css';
 import { NotificationProvider } from './context/NotificationContext';
 import './design/notifications.css';
 import './pages/Login/login.css';
@@ -9,12 +10,16 @@ import { useEffect, useLayoutEffect, useState, lazy, Suspense } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { ConfigProvider, App } from 'antd'
+import { ConfigProvider, App as AntApp } from 'antd'
 import { createRoot } from 'react-dom/client'
 import { useMediaQuery } from 'react-responsive'
 import zhCN from 'antd/locale/zh_CN';
-import Index from './Index'
+import App from './App'
 import './global.css'
+import './components/Workspace.css'
+import './pages/Home/home.css'
+import './pages/Download/download.css'
+import './pages/Score/score.css'
 import './components/WindowChrome.css'
 import './design/scrollbars.css'
 import './components/ResourceList.css'
@@ -113,17 +118,17 @@ export function Main() {
       theme={controls.theme}
     >
       <style>{controls.css}</style>
-      <App notification={{ placement: 'topRight', top: Math.max(12, 56 - nativeHeaderHeight), stack: { threshold: 3 }, duration: 6, pauseOnHover: true }}>
+      <AntApp notification={{ placement: 'topRight', top: Math.max(12, 56 - nativeHeaderHeight), stack: { threshold: 3 }, duration: 6, pauseOnHover: true }}>
         <NotificationProvider>
           <AppConfigProvider>
             <ConfigTheme onChange={setAppearance} />
             {appearance !== null && <DownloadProvider>
               {ControlsPreview && new URLSearchParams(location.search).has('controls')
-                ? <Suspense fallback={null}><ControlsPreview /></Suspense> : <Index />}
+                ? <Suspense fallback={null}><ControlsPreview /></Suspense> : <App />}
             </DownloadProvider>}
           </AppConfigProvider>
         </NotificationProvider>
-      </App>
+      </AntApp>
     </ConfigProvider>
   )
 }

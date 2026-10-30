@@ -1,3 +1,4 @@
+import PanelHeading from '../../components/PanelHeading';
 import { useConfig } from '../../context/ConfigContext';
 import type { ScoreItem } from '../../model';
 import { calculateAverageGrade, calculateScoreTotals, scoreDisplayCredits } from '../../utils';
@@ -120,7 +121,7 @@ export default function Score({
   ]
 
   return <Workspace headerless title="成绩" panel={<>
-    <div className="panel-heading"><h2>成绩查询</h2></div>
+    <PanelHeading><h2>成绩查询</h2></PanelHeading>
     <div className="panel-controls score-panel-controls">
       <div className="score-summary"><span>平均绩点</span><strong>{(totalCredit ? totalGp / totalCredit : 0).toFixed(2)}</strong><span>平均成绩</span><strong>{averageGrade.toFixed(2)}</strong><span>总学分</span><strong>{scoreDisplayCredits(score).toFixed(2)}</strong></div>
     </div>

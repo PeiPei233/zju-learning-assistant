@@ -6,6 +6,7 @@ export const PanelContext = createContext<{
   width?: number;
   setWidth?: (width: number) => void;
   peek?: string | null;
+  switchingPeek?: boolean;
   module?: string;
   keepPeek?: () => void;
   dismissPeek?: () => void;

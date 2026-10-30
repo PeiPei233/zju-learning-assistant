@@ -3,10 +3,11 @@ import { isPreview } from "../previewMode";
 
 export default function PreviewMenu({ navigation = false }: { navigation?: boolean }) {
   const params = new URLSearchParams(window.location.search);
+  const loginScenario = navigation ? 'session-main' : ['success', 'error'].includes(params.get('autoLogin') ?? '') ? `autoLogin-${params.get('autoLogin')}` : 'session-login';
   if (!isPreview) return null;
   return <Tooltip title="切换预览场景" trigger={['hover', 'focus']}><Dropdown placement={navigation ? 'topRight' : 'bottomRight'} trigger={['click']} menu={{
     selectable: true,
-    selectedKeys: [`failure-${params.get('failure') || 'none'}`, navigation ? 'session-main' : 'session-login', params.get('evaluation') === 'pending' ? 'pending' : 'normal', params.get('update') === 'none' ? 'update-none' : 'update-available', `theme-${params.get('theme') || 'system'}`, `todos-${params.get('todos') || 'normal'}`, `scores-${params.get('scoreCount') || '6'}`],
+    selectedKeys: [`failure-${params.get('failure') || 'none'}`, loginScenario, params.get('evaluation') === 'pending' ? 'pending' : 'normal', params.get('update') === 'none' ? 'update-none' : 'update-available', `theme-${params.get('theme') || 'system'}`, `todos-${params.get('todos') || 'normal'}`, `scores-${params.get('scoreCount') || '6'}`],
     style: { maxHeight: 'min(440px, 60dvh)', overflowY: 'auto' },
     items: [
       {
@@ -22,7 +23,7 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
         ]
       },
       { type: 'divider' },
-      { type: 'group', label: '登录状态', children: [{ key: 'session-login', label: '登录页' }, { key: 'session-main', label: '已登录' }] },
+      { type: 'group', label: '登录状态', children: [{ key: 'session-login', label: '登录页' }, { key: 'session-main', label: '已登录' }, { key: 'autoLogin-success', label: '自动登录成功' }, { key: 'autoLogin-error', label: '自动登录失败后填写表单' }] },
       { type: 'divider' },
       { type: 'group', label: '成绩同步', children: [{ key: 'normal', label: '正常示例数据' }, { key: 'pending', label: '教学评价未完成' }] },
       { type: 'divider' },
@@ -43,7 +44,8 @@ export default function PreviewMenu({ navigation = false }: { navigation?: boole
         params.set('failure', key.slice(8));
         if (['failure-courses', 'failure-years', 'failure-semesters'].includes(key)) params.set('page', 'learning');
       }
-      else if (key === 'session-login') params.set('page', 'login');
+      else if (key === 'session-login') { params.set('page', 'login'); params.delete('autoLogin'); }
+      else if (key.startsWith('autoLogin-')) { params.set('page', 'login'); params.set('autoLogin', key.slice(10)); params.delete('failure'); }
       else if (key === 'session-main') params.set('page', params.get('evaluation') === 'pending' ? 'score' : 'learning');
       else if (key === 'pending') { params.set('evaluation', 'pending'); params.set('page', 'score'); }
       else if (key === 'normal') params.delete('evaluation');

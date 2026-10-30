@@ -36,6 +36,7 @@ export default function ResourceList<T>({ items, itemKey, selectedKeys, onSelect
   const [query, setQuery] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersId = useId();
+  const descriptionsId = useId();
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [sortIndex, setSortIndex] = useState(-1);
   const anchor = useRef<React.Key | null>(null);
@@ -76,15 +77,16 @@ export default function ResourceList<T>({ items, itemKey, selectedKeys, onSelect
     <div className="resource-rows" key={`${query}|${JSON.stringify(filters)}|${sortIndex}`}>
       {loading && !visible.length && <FetchState label={compact ? "正在获取课程…" : `正在获取${title}…`} />}
       {!loading && !visible.length && (emptyContent ?? <EmptyState icon={items.length ? <SearchOutlined aria-hidden="true" /> : emptyIcon} action={(query || filterCount > 0) && <button className="text-button" onClick={() => { setQuery(''); setFilters({}); }}>清除筛选</button>}>{items.length ? '没有匹配的结果' : emptyText}</EmptyState>)}
-      {visible.map(item => {
+      {visible.map((item, index) => {
         const content = renderItem(item);
         const checked = selected.has(itemKey(item));
         const subtitle = (content.subtitle ?? []).filter(part => part.text);
-        return <button type="button" role="checkbox" aria-checked={checked} aria-label={content.title} key={itemKey(item)} disabled={loading}
+        const descriptionId = subtitle.length ? `${descriptionsId}-${index}` : undefined;
+        return <button type="button" role="checkbox" aria-checked={checked} aria-label={content.title} aria-describedby={descriptionId} key={itemKey(item)} disabled={loading}
           className={`resource-row ${checked ? 'is-selected' : ''}`} onClick={e => toggle(item, e.shiftKey)}
           onKeyDown={e => { if ((e.key === ' ' || e.key === 'Enter') && e.shiftKey) { e.preventDefault(); toggle(item, true); } }}>
           {!compact && <span className="resource-icon" aria-hidden="true">{content.icon || <FileOutlined />}</span>}
-          <span className="resource-copy"><OverflowText className="resource-name" text={content.title}>{highlight(content.title, content.titleField)}</OverflowText>{subtitle.length > 0 && <OverflowText className="resource-description" text={subtitle.map(part => part.text).join(' · ')}>{subtitle.map((part, index) => <React.Fragment key={part.field}>{index > 0 && ' · '}{highlight(part.text, part.field)}</React.Fragment>)}</OverflowText>}</span>
+          <span className="resource-copy"><OverflowText className="resource-name" text={content.title}>{highlight(content.title, content.titleField)}</OverflowText>{subtitle.length > 0 && <OverflowText id={descriptionId} className="resource-description" text={subtitle.map(part => part.text).join(' · ')}>{subtitle.map((part, index) => <React.Fragment key={part.field}>{index > 0 && ' · '}{highlight(part.text, part.field)}</React.Fragment>)}</OverflowText>}</span>
           {content.meta && <span className="resource-meta">{content.meta}</span>}
           <span className="resource-check" aria-hidden="true"><SelectionCheck selected={checked} /></span>
         </button>;

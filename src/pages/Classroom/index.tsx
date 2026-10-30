@@ -1,4 +1,7 @@
+import PanelHeading from '../../components/PanelHeading';
+import OverflowText from '../../components/OverflowText';
 import { refreshedSelection } from '../../utils';
+import FetchState from '../../components/FetchState';
 import SelectionCheck from '../../components/SelectionCheck';
 import PlatformIcon from '../../components/PlatformIcon';
 import ConfigReadState from '../../components/ConfigReadState';
@@ -29,6 +32,7 @@ export default function Classroom() {
   const addDownloadTasks = useAddDownloadTasks();
   const toPdf = config.to_pdf;
   const configRef = useRef(config);
+  const courseRangeRef = useRef<HTMLButtonElement>(null);
   configRef.current = config;
 
   const [selectedDateMethod, setSelectedDateMethod] = useState<'day' | 'week' | 'month'>('week')
@@ -39,6 +43,8 @@ export default function Classroom() {
   const [selectedRightKeys, setSelectedRightKeys] = useState<React.Key[]>([])
   const [loadingLeftSubList, setLoadingLeftSubList] = useState(false)
   const [loadingRightSubList, setLoadingRightSubList] = useState(false)
+  const [courseLoadFailed, setCourseLoadFailed] = useState(false);
+  const [coursewareLoadFailed, setCoursewareLoadFailed] = useState(false);
   const requestInFlight = useRef(false);
   const requestGeneration = useRef(0);
   useEffect(() => () => {
@@ -113,6 +119,7 @@ export default function Classroom() {
       setSelectedRightKeys([]);
       requestedRange.current = range;
     }
+    setCoursewareLoadFailed(false);
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
       if (run !== requestGeneration.current) return;
@@ -121,6 +128,7 @@ export default function Classroom() {
       setSelectedRightKeys(previous => refreshedSelection(previous, res.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
       if (run !== requestGeneration.current) return;
+      setCoursewareLoadFailed(true);
       notification.error({
         key: 'classroom-range-error', title: '获取课程列表失败',
         description: String(err)
@@ -144,6 +152,7 @@ export default function Classroom() {
     requestInFlight.current = true;
     const run = requestGeneration.current;
     const course_ids = subs.map((item) => item.course_id)
+    setCoursewareLoadFailed(false);
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
       if (run !== requestGeneration.current) return;
@@ -153,6 +162,7 @@ export default function Classroom() {
       setSelectedRightKeys(previous => refreshedSelection(previous, subs.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
       if (run !== requestGeneration.current) return;
+      setCoursewareLoadFailed(true);
       notification.error({
         key: 'classroom-course-error', title: '获取课件列表失败',
         description: String(err)
@@ -195,6 +205,7 @@ export default function Classroom() {
     }
     requestInFlight.current = true;
     const run = requestGeneration.current;
+    setCourseLoadFailed(false);
     setLoadingLeftSubList(true)
     invoke<Subject[]>('search_courses', { courseName: searchCourseName, teacherName: searchTeacherName }).then((res) => {
       if (run !== requestGeneration.current) return;
@@ -204,6 +215,7 @@ export default function Classroom() {
       setSelectedLeftKeys([])
     }).catch((err) => {
       if (run !== requestGeneration.current) return;
+      setCourseLoadFailed(true);
       notification.error({
         key: 'classroom-search-error', title: '搜索课程失败',
         description: String(err)
@@ -216,8 +228,8 @@ export default function Classroom() {
   }
 
   return <Workspace headerless title="智云课堂" panel={<>
-    <div className="panel-heading course-range-heading">
-      <Dropdown disabled={loadingConditions} trigger={['click']} placement="bottomLeft" overlayClassName="course-range-menu" menu={{
+    <PanelHeading className="course-range-heading">
+      <Dropdown disabled={loadingConditions} trigger={['click']} placement="bottomLeft" classNames={{ root: 'course-range-menu' }} menu={{
         selectable: true, selectedKeys: [selectedCourseRange],
         items: selectCourseRangeOptions.map(option => ({
           key: option.value, label: <div className="course-range-option">
@@ -226,17 +238,20 @@ export default function Classroom() {
           </div>
         })),
         onClick: ({ key }) => {
+          courseRangeRef.current?.focus();
           if (requestInFlight.current || key === selectedCourseRange) return;
           setHasSearchedCourses(false);
+          setCourseLoadFailed(false);
+          setCoursewareLoadFailed(false);
           setLeftSubList([]); setSelectedLeftKeys([]); setRightSubList([]); setSelectedRightKeys([]);
           setSelectedCourseRange(key as 'my' | 'all'); if (key === 'my') updateMySubList();
         },
       }}>
-        <ActionButton disabled={loadingConditions} className="course-range-trigger" aria-label={`智云课堂 · ${selectedCourseRange === 'my' ? '我的课程' : '全部课程'}，切换课程范围`}>
-          <span className="course-range-label"><span className="course-range-title">智云课堂</span><span className="course-range-divider" aria-hidden="true">·</span><span className="course-range-current">{selectedCourseRange === 'my' ? '我的课程' : '全部课程'}</span></span><DownOutlined />
+        <ActionButton ref={courseRangeRef} disabled={loadingConditions} className="course-range-trigger" aria-label={`智云课堂 · ${selectedCourseRange === 'my' ? '我的课程' : '全部课程'}，切换课程范围`}>
+          <span className="course-range-label"><span className="course-range-title">智云课堂</span><span className="course-range-divider" aria-hidden="true">·</span><OverflowText className="course-range-current" text={selectedCourseRange === 'my' ? '我的课程' : '全部课程'} /></span><DownOutlined />
         </ActionButton>
       </Dropdown>
-    </div>
+    </PanelHeading>
     <div className="panel-controls">
       {selectedCourseRange === 'my' ? <>
         <label>日期范围<Segmented disabled={loadingConditions} block options={selectDateMethodOptions} value={selectedDateMethod} onChange={v => changeDateMethod(v as 'day' | 'week' | 'month')} /></label>
@@ -249,6 +264,7 @@ export default function Classroom() {
       </>}
     </div>
     {selectedCourseRange === 'all' && <div className="panel-list"><ResourceList<Subject> compact fieldFilters emptyIcon={<PlatformIcon platform="classroom" />} emptyText={hasSearchedCourses ? '未找到课程，请调整课程名称或教师后重试' : '输入课程名称或教师，搜索全部课程'} searchPlaceholder="筛选搜索结果…" title="课程" items={leftSubList} itemKey={item => item.course_id}
+      emptyContent={courseLoadFailed && !leftSubList.length ? <FetchState label="重新搜索课程" onRetry={searchCourse} /> : undefined}
       selectedKeys={selectedLeftKeys} onSelectionChange={setSelectedLeftKeys} loading={loadingLeftSubList}
       fields={[{ label: '课程', value: item => item.course_name }, { label: '教师', value: item => item.lecturer_name }, { label: '时间', value: item => item.sub_name }]}
       renderItem={item => ({ title: item.course_name, titleField: '课程', subtitle: [{ text: item.lecturer_name, field: '教师' }, { text: item.sub_name, field: '时间' }] })} /></div>}
@@ -257,6 +273,7 @@ export default function Classroom() {
     footer={<><span>已选 {selectedRightKeys.length} 个课件 <span className="muted">· {rightSubList.filter(item => selectedRightKeys.includes(item.sub_id)).reduce((sum, item) => sum + item.ppt_image_urls.length, 0)} 页</span></span>
       <div className="footer-actions"><button className="text-button" onClick={() => setSelectedRightKeys([])} disabled={!ready || loadingRightSubList || !selectedRightKeys.length}>取消选择</button><ActionButton variant="primary" onClick={downloadSubsPPT} disabled={!ready || loadingRightSubList || !selectedRightKeys.length}><DownloadOutlined />下载所选课件</ActionButton></div></>}>
     {!ready ? <ConfigReadState icon={<PlatformIcon platform="classroom" />} /> : <ResourceList<Subject> actions={<ActionButton variant="secondary" onClick={selectedCourseRange === 'my' ? updateMySubList : updateAllSubList} disabled={loadingConditions} aria-busy={loadingRightSubList}><ReloadOutlined spin={loadingRightSubList} />{loadingRightSubList ? '正在获取' : '获取课件'}</ActionButton>} title="课堂课件" items={rightSubList} itemKey={item => item.sub_id} selectedKeys={selectedRightKeys} onSelectionChange={setSelectedRightKeys}
+      emptyContent={coursewareLoadFailed && !rightSubList.length ? <FetchState label="重新获取课件" onRetry={selectedCourseRange === 'my' ? updateMySubList : updateAllSubList} /> : undefined}
       loading={loadingRightSubList} fields={[{ label: '课程', value: item => item.course_name }, { label: '时间', value: item => item.sub_name }, { label: '教师', value: item => item.lecturer_name }]}
       sorts={[{ label: '课程升序', compare: (a, b) => a.course_name.localeCompare(b.course_name) }, { label: '课程降序', compare: (a, b) => b.course_name.localeCompare(a.course_name) },
       { label: '时间升序', compare: (a, b) => a.sub_name.localeCompare(b.sub_name) }, { label: '时间降序', compare: (a, b) => b.sub_name.localeCompare(a.sub_name) },

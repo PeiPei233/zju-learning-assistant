@@ -1,0 +1,505 @@
+
+
+/* Animate a real zero-width grid track so the workspace follows the sidebar. */
+
+/* Keep a stable backing beneath the animated panel. The shell's rounded
+   silhouette and surface colors define its boundary without an extra seam. */
+
+.module-host {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The rail/workspace seam is fixed. Clip sliding content at that seam instead
+   of moving two independent rounded panel edges across one another. */
+
+.workspace {
+  --content-inset: 22px;
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-columns: var(--panel-width, 280px) minmax(0, 1fr);
+}
+
+.workspace.panel-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.context-panel {
+  --panel-inset: 18px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  border-radius: 12px 0 0 12px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.context-panel[hidden] {
+  display: none;
+}
+
+.panel-heading {
+  min-height: 64px;
+  flex-shrink: 0;
+  padding: 0 var(--panel-inset);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.panel-heading h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+
+.panel-bottom {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.panel-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 var(--panel-inset) 16px;
+}
+
+.panel-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.panel-controls .ant-select {
+  width: 100%;
+}
+
+.panel-list {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--panel-inset);
+}
+
+.panel-bottom {
+  margin-top: auto;
+  padding: 14px var(--panel-inset);
+  border-top: 1px solid var(--line);
+  line-height: 1.6;
+}
+
+.panel-bottom p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.workspace-main {
+  container-type: inline-size;
+  background: var(--canvas);
+  border-radius: 0 12px 12px 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-collapsed .workspace-main {
+  border-radius: 12px;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 51px;
+  padding: 9px var(--content-inset);
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-header h1 {
+  font-size: 12px;
+  font-weight: 400;
+  margin: 0;
+  color: var(--muted);
+}
+
+[data-window-chrome="true"] .workspace-toggle {
+  display: none;
+}
+
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.workspace-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  min-height: 0;
+  padding: 20px 0 10px var(--content-inset);
+}
+
+.workspace-footer {
+  flex-shrink: 0;
+  min-height: 62px;
+  margin: 0 var(--content-inset);
+  padding: 12px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+@media (max-width: 850px) {
+  .workspace {
+    --content-inset: 16px;
+  }
+
+  .context-panel {
+    --panel-inset: 14px;
+  }
+}
+
+.module-page {
+  height: 100%;
+  min-height: 0;
+}
+
+.module-page[hidden] {
+  display: none;
+}
+
+[data-window-chrome="true"] .workspace-header-minimal {
+  display: none;
+}
+
+.workspace-header-minimal {
+  min-height: 36px;
+  border-bottom: 0;
+  padding-block: 4px;
+}
+
+.context-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 var(--panel-inset);
+}
+
+.context-navigation button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  padding: 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.context-navigation button.active,
+.context-navigation button:hover {
+  background: var(--selected);
+}
+
+.context-navigation button span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.workspace-body {
+  overscroll-behavior: contain;
+  overflow-x: hidden;
+  scrollbar-gutter: auto;
+}
+
+.workspace-header h1 {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+/* The content width excludes both insets, not the platform-dependent scroll gutter. */
+.workspace-content {
+  width: calc(100cqw - 2 * var(--content-inset));
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-resizer {
+  position: absolute;
+  z-index: 5;
+  left: calc(var(--panel-width) - 4px);
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.panel-resizer::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after,
+.is-resizing .panel-resizer::after {
+  background: var(--muted);
+}
+
+.panel-resizer:focus-visible {
+  outline: none;
+}
+
+.panel-resizer:focus-visible::after {
+  background: var(--focus);
+}
+
+.is-resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.workspace-header:not(.workspace-header-minimal) {
+  min-height: 70px;
+  padding: 20px var(--content-inset) 16px;
+  border-bottom: 0;
+}
+
+.workspace-header:not(.workspace-header-minimal) h1 {
+  font-weight: 550;
+  line-height: 20px;
+}
+
+.workspace-header:not(.workspace-header-minimal)+.workspace-body {
+  padding-top: 0;
+}
+
+.workspace-header {
+  flex-wrap: wrap;
+}
+
+.header-actions {
+  max-width: 100%;
+}
+.module-host {
+  position: relative;
+}
+
+.workspace {
+  grid-template-columns: var(--panel-width, 280px) minmax(0, 1fr);
+  transition: grid-template-columns 220ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.workspace.panel-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+
+.workspace-main {
+  grid-column: 2;
+}
+
+.context-panel {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--panel-width, 280px);
+  z-index: 3;
+  transition: transform 220ms cubic-bezier(.2, .8, .2, 1), opacity 180ms ease, visibility 0s;
+}
+
+.panel-collapsed .context-panel {
+  transform: translateX(-16px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 220ms cubic-bezier(.2, .8, .2, 1), opacity 180ms ease, visibility 0s 220ms;
+}
+
+.panel-floating .context-panel {
+  inset: 6px auto 6px 6px;
+  max-width: calc(100vw - 70px);
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--canvas);
+  box-shadow: 0 12px 40px #0002, 0 2px 8px #0001;
+  transition-delay: 0s;
+}
+
+.module-peeking {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+
+.module-peeking .workspace-main {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.module-peeking .context-panel {
+  pointer-events: auto;
+}
+
+.panel-floating {
+  z-index: 25;
+}
+
+.panel-pin {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.workspace.is-resizing {
+  transition: none;
+}
+
+.panel-state-icon .panel-icon-divider {
+  transition: transform 220ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.panel-state-icon .panel-icon-fill {
+  transform-origin: 5px 10px;
+  opacity: .45;
+  transition: transform 220ms ease, opacity 160ms ease;
+}
+
+.panel-state-icon.is-collapsed .panel-icon-divider {
+  transform: translateX(-2px);
+}
+
+.panel-state-icon.is-collapsed .panel-icon-fill {
+  transform: scaleX(0);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .workspace,
+.context-panel,
+.panel-collapsed .context-panel,
+.panel-state-icon .panel-icon-divider,
+.panel-state-icon .panel-icon-fill {
+    transition: none;
+  }
+}
+
+@keyframes sidebar-peek-in {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.panel-floating .context-panel {
+  transition: none;
+  animation: sidebar-peek-in 180ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@keyframes sidebar-peek-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-16px); }
+}
+.workspace.panel-peek-switching .context-panel {
+  animation: none;
+}
+
+.workspace.panel-peek-replaced .context-panel {
+  animation: none;
+  transition: none;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workspace.panel-peek-leaving .context-panel {
+  opacity: 0;
+  transform: translateX(-16px);
+  pointer-events: none;
+  animation: sidebar-peek-out 180ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-floating .context-panel,
+.workspace.panel-peek-leaving .context-panel {
+    animation: none;
+  }
+}
+.workspace {
+  overflow: hidden;
+  border-radius: 12px;
+  isolation: isolate;
+}
+
+.workspace .workspace-main {
+  position: relative;
+  z-index: 1;
+  border-radius: 0;
+}
+
+.workspace .context-panel {
+  z-index: 0;
+  border-radius: 0;
+}
+
+.workspace.panel-floating .context-panel {
+  z-index: 3;
+  border-radius: 12px;
+}
+.module-host {
+  background: var(--canvas);
+  border-radius: 12px;
+}
+
+.panel-resizer::after {
+  transition: background-color 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .panel-resizer::after {
+    transition: none;
+  }
+}

@@ -1,5 +1,6 @@
+import PanelHeading from '../../components/PanelHeading';
 import { useConfig } from '../../context/ConfigContext';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import dayjs from 'dayjs';
 import { Dropdown, Input, Tooltip } from 'antd';
 import { CloseOutlined, DownloadOutlined, ExportOutlined, LoadingOutlined, ReloadOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
@@ -17,6 +18,7 @@ import { groupTodos, todoDeadline } from './groupTodos';
 export default function Todo({ items, loading, exporting, error, configError, lastSync, refresh, exportTodos, onOpenCalDav }: ReturnType<typeof useTodos> & { onOpenCalDav: () => void }) {
   const { savedConfig: config } = useConfig();
   const { notification } = useDesktopApp();
+  const descriptionPrefix = useId();
   const [course, setCourse] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [today, setToday] = useState(() => dayjs().startOf('day'));
@@ -65,7 +67,7 @@ export default function Todo({ items, loading, exporting, error, configError, la
     void exportTodos(key, key === 'reminder' || key === 'caldav_tasks' ? visible : exportable);
   };
   return <Workspace headerless title="待办事项" panel={<>
-    <div className="panel-heading"><h2>待办事项</h2></div>
+    <PanelHeading><h2>待办事项</h2></PanelHeading>
     <div className="panel-list todo-course-list resource-list resource-list-compact">
       <p className="resource-hint">课程</p>
       <div className="resource-rows">
@@ -98,9 +100,10 @@ export default function Todo({ items, loading, exporting, error, configError, la
           <h3>{group.label}</h3>
           {group.items.map(item => {
             const due = todoDeadline(item);
-            return <OpenActionButton hint="打开待办页面" key={`${item.course_id}-${item.id}`} className="resource-row todo-row" disabled={busy} onClick={() => void open(`https://courses.zju.edu.cn/course/${encodeURIComponent(item.course_id)}/learning-activity#/${encodeURIComponent(item.id)}?view=scores`)} aria-label={`${item.title}，前往学在浙大`}>
-              <span className="resource-copy"><OverflowText className="resource-name" text={item.title} /><OverflowText className="resource-description" text={item.course_name} /></span>
-              <span className="resource-meta todo-deadline">{due ? due.isSame(today, 'day') ? '今天' : due.format('YYYY-MM-DD') : '未设截止时间'}{due && <span>{due.format('HH:mm')}</span>}</span>
+            const descriptionId = `${descriptionPrefix}-${encodeURIComponent(String(item.course_id))}-${encodeURIComponent(String(item.id))}`;
+            return <OpenActionButton hint="打开待办页面" key={`${item.course_id}-${item.id}`} className="resource-row todo-row" disabled={busy} onClick={() => void open(`https://courses.zju.edu.cn/course/${encodeURIComponent(item.course_id)}/learning-activity#/${encodeURIComponent(item.id)}?view=scores`)} aria-label={`${item.title}，前往学在浙大`} aria-describedby={`${descriptionId}-course ${descriptionId}-deadline`}>
+              <span className="resource-copy"><OverflowText className="resource-name" text={item.title} /><OverflowText id={`${descriptionId}-course`} className="resource-description" text={item.course_name} /></span>
+              <span id={`${descriptionId}-deadline`} className="resource-meta todo-deadline">{due ? due.isSame(today, 'day') ? '今天' : due.format('YYYY-MM-DD') : '未设截止时间'}{due && <span>{due.format('HH:mm')}</span>}</span>
             </OpenActionButton>;
           })}
         </section>)}

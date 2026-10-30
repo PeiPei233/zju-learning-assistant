@@ -206,7 +206,7 @@ fn update_style(chrome: &Chrome) {
             "rgba(32,32,32,0.95)",
             "#191919",
             "#e4e4df",
-            "#92928c",
+            "#a2a29c",
             "#2b2b29",
         )
     } else {
@@ -214,7 +214,7 @@ fn update_style(chrome: &Chrome) {
             "rgba(234,234,231,0.95)",
             "#ffffff",
             "#292927",
-            "#82827b",
+            "#64645e",
             "#efefeb",
         )
     };
