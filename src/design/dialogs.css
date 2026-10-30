@@ -1,0 +1,40 @@
+
+
+/* Shared shell for configuration, information and confirmation dialogs. */
+.desktop-modal .ant-modal-container { padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--canvas); }
+.desktop-modal .ant-modal-header { background: transparent; margin-bottom: 20px; }
+.desktop-modal .ant-modal-title,
+.desktop-modal .ant-modal-confirm-title { color: var(--text); font-size: 16px; line-height: 24px; font-weight: 600; }
+.desktop-modal .ant-modal-close { top: 19px; inset-inline-end: 19px; width: 28px; height: 28px; border-radius: 6px; color: var(--muted); }
+.desktop-modal .ant-modal-body { max-height: calc(100dvh - 220px); overflow-y: auto; }
+.desktop-modal .ant-modal-footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.desktop-confirm .ant-modal-body { max-height: calc(100dvh - 100px); overflow: visible; }
+.desktop-confirm .ant-modal-confirm-content { color: var(--muted); font-size: 13px; line-height: 1.7; margin-top: 10px; }
+.desktop-confirm .ant-modal-confirm-btns { margin-top: 24px; }
+.desktop-confirm .ant-btn { height: 34px; padding-inline: 11px; border-radius: 6px; }
+.desktop-confirm .ant-btn-default { color: var(--text); background: transparent; border-color: transparent; }
+.desktop-confirm .ant-btn-default:not(:disabled):hover,
+.desktop-confirm .ant-btn-default:not(:disabled):active { color: var(--text); background: var(--field-hover); border-color: transparent; }
+.desktop-confirm .ant-btn-primary,
+.desktop-confirm .ant-btn-primary:not(:disabled):hover,
+.desktop-confirm .ant-btn-primary:not(:disabled):active { color: var(--canvas); background: var(--text); border-color: transparent; }
+.modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.version-modal .ant-modal-body { color: var(--text); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.version-modal .ant-modal-body > :first-child { margin-top: 0; }
+.version-modal .ant-modal-body > :last-child { margin-bottom: 0; }
+@media (max-width: 480px) {
+  .desktop-modal .ant-modal-container { padding: 20px; }
+}
+
+.modal-actions > .action-button { flex-shrink: 0; }
+
+.version-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; }
+.version-download { display: flex; align-items: center; gap: 14px; color: var(--muted); text-align: left; }
+.version-download-label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12px; }
+.version-error { margin-top: 16px; color: var(--status-error); }
+
+.version-download-copy { flex: 1; min-width: 0; }
+.version-download-copy > .ant-progress { display: block; margin: 6px 0 0; line-height: 1; }
+.version-download > .action-button { flex-shrink: 0; }
+
+.version-release-link { margin-inline-end: auto; }

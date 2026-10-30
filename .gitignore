@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Generated, version-pinned Windows App SDK runtime (built by build.rs)
+/src-tauri/resources/windows-runtime/

@@ -1,13 +1,24 @@
-use crate::model::Config;
+use crate::model::{Config, Progress};
 use crate::zju_assist::SubtitleContent;
 use image::{ColorType, GenericImageView, ImageFormat};
 use log::info;
 use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
 use num::BigUint;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
-use reqwest::Client;
-use serde_json::Value;
-use std::{io::Write, path::Path, time::Instant};
+use regex::Regex;
+use serde_json::{json, Value};
+use std::{io::Write, path::Path};
+
+use tauri::{AppHandle, Emitter, Window};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
+#[cfg(target_os = "macos")]
+use {
+    super::macos::add_event,
+    chrono::{DateTime, Local, Utc},
+    std::process::Command,
+    tauri::{path::BaseDirectory, Manager},
+};
 
 // reference:
 // https://github.com/typst/pdf-writer/blob/main/examples/image.rs
@@ -121,13 +132,6 @@ pub fn rsa_no_padding(src: &str, modulus: &str, exponent: &str) -> String {
         .iter()
         .map(|byte| format!("{:02x}", byte))
         .collect()
-}
-
-pub async fn measure_latency(client: Client, url: &str) -> Result<u128, reqwest::Error> {
-    let start = Instant::now();
-    info!("GET {}", url);
-    client.get(url).send().await?;
-    Ok(start.elapsed().as_millis())
 }
 
 pub fn export_todo_ics(
@@ -301,4 +305,296 @@ pub async fn save_subtitle(
         info!("Saved subtitle success: {:?}", file_path);
     }
     Ok(())
+}
+
+// Return a completion message, cancellation, or an error; callers choose how to notify.
+pub async fn export_todo_to_destination(
+    handle: AppHandle,
+    window: Window,
+    todo_list: Vec<Value>,
+    location: String,
+) -> Result<Option<String>, String> {
+    if location == "help" {
+        handle.opener().open_url(
+            "https://github.com/PeiPei233/zju-learning-assistant?tab=readme-ov-file#todo-export",
+            None::<&str>,
+        ).map_err(|error| error.to_string())?;
+        return Ok(None);
+    }
+    if location.starts_with("ics") {
+        #[cfg(desktop)]
+        window.set_focus().map_err(|error| error.to_string())?;
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let dialog = handle
+            .dialog()
+            .file()
+            .add_filter("iCalendar", &["ics"])
+            .set_file_name("Todo");
+        #[cfg(desktop)]
+        let dialog = dialog.set_parent(&window);
+        dialog.save_file(move |path| {
+            let _ = sender.send(path);
+        });
+        let Some(path) = receiver.await.map_err(|error| error.to_string())? else {
+            return Ok(None);
+        };
+        return tokio::task::spawn_blocking(move || {
+            export_todo_ics(todo_list, &path.to_string()).map_err(|error| error.to_string())?;
+            Ok(Some(format!("文件已保存至：{}", path)))
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    return tokio::task::spawn_blocking(move || {
+        let mut todo_list_with_end_time = todo_list
+            .iter()
+            .filter(|todo| !todo["end_time"].is_null())
+            .map(|todo| todo.clone())
+            .collect::<Vec<_>>();
+
+        todo_list_with_end_time.sort_by(|a, b| {
+            let a = a["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
+            let b = b["end_time"].as_str().unwrap_or("1970-01-01T00:00:00Z");
+
+            let a = a
+                .parse::<DateTime<Utc>>()
+                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+            let b = b
+                .parse::<DateTime<Utc>>()
+                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+
+            a.cmp(&b)
+        });
+
+        let app_name = match location.as_str() {
+            "calendar" => "日历 App ",
+            "reminder" => "提醒事项 App ",
+            _ => return Err("Invalid location".to_string()),
+        };
+        let script_path = match location.as_str() {
+            "calendar" => "scripts/export_todo_calendar.applescript",
+            "reminder" => "scripts/export_todo_reminder.applescript",
+            _ => return Err("Invalid location".to_string()),
+        };
+        let script_path = handle
+            .path()
+            .resolve(script_path, BaseDirectory::Resource)
+            .map_err(|error| error.to_string())?;
+
+        for todo in todo_list_with_end_time.iter() {
+            let end_time = todo["end_time"]
+                .as_str()
+                .unwrap_or("1970-01-01T00:00:00Z")
+                .parse::<DateTime<Utc>>()
+                .unwrap_or("1970-01-01T00:00:00Z".parse().unwrap());
+            let course_name = todo["course_name"].as_str().unwrap();
+            let title = todo["title"].as_str().unwrap();
+            let url = format!(
+                "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
+                todo["course_id"].as_i64().unwrap(),
+                todo["id"].as_i64().unwrap()
+            );
+
+            let mut use_apple_script = true;
+            if location == "calendar" {
+                let res = add_event(title, course_name, &url, end_time, end_time)
+                    .map_err(|err| err.to_string());
+                if let Err(err) = res {
+                    println!("export_todo: add_event failed {}", err);
+                } else {
+                    use_apple_script = false; // skip apple script if add_event success
+                }
+            }
+            if use_apple_script {
+                let end_time = end_time
+                    .with_timezone(&Local)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string();
+                let res = Command::new("osascript")
+                    .arg(&script_path)
+                    .arg(&title)
+                    .arg(&end_time)
+                    .arg(&course_name)
+                    .arg(&url)
+                    .output()
+                    .map_err(|err| err.to_string());
+                let output = res?;
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+                }
+            }
+        }
+
+        if location == "reminder" {
+            // add those with no end time to reminder
+            for todo in todo_list.iter() {
+                if todo["end_time"].is_null() {
+                    let course_name = todo["course_name"].as_str().unwrap();
+                    let title = todo["title"].as_str().unwrap();
+                    let url = format!(
+                        "https://courses.zju.edu.cn/course/{}/learning-activity#/{}?view=scores",
+                        todo["course_id"].as_i64().unwrap(),
+                        todo["id"].as_i64().unwrap()
+                    );
+
+                    let res = Command::new("osascript")
+                        .arg(&script_path)
+                        .arg(&title)
+                        .arg("None")
+                        .arg(&course_name)
+                        .arg(&url)
+                        .output()
+                        .map_err(|err| err.to_string());
+                    let output = res?;
+                    if !output.status.success() {
+                        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(Some(format!("已添加到{}", app_name.trim())))
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    #[cfg(not(target_os = "macos"))]
+    Err("当前系统不支持此导出方式".to_string())
+}
+
+pub async fn summarize_subtitle(
+    contents: &Vec<SubtitleContent>,
+    base_path: &Path,
+    file_stem: &str,
+    config: &Config,
+    window: &Window,
+    id: &str,
+) -> Result<(), String> {
+    // 1. 检查开关和 API Key
+    if !config.llm_enabled {
+        return Ok(());
+    }
+    if config.llm_api_key.is_empty() {
+        info!("LLM enabled but no API Key provided, skipping summary.");
+        // 可以选择在这里给前端发个提示，或者静默跳过
+        return Ok(());
+    }
+
+    info!("summarize_subtitle: 开始 AI 总结 - {}", file_stem);
+
+    // 发送进度提示：正在总结
+    let _ = window.emit(
+        "download-progress",
+        Progress {
+            id: id.to_string(),
+            status: "downloading".to_string(),
+            file_name: format!("{}-AI总结", file_stem),
+            downloaded_size: 60,
+            total_size: 100,
+            msg: "正在进行 AI 总结...".to_string(),
+        },
+    );
+
+    // 2. 准备 Prompt 和 上下文
+    let system_prompt = if config.llm_prompt.trim().is_empty() {
+        "你是一个专业的课程助教。请根据提供的课程字幕内容，总结课程的核心知识点、重点和难点。输出格式要求清晰、结构化，使用 Markdown 格式。"
+    } else {
+        &config.llm_prompt
+    };
+
+    // 拼接所有字幕文本（使用原文字幕 text，通常比 trans_text 更准确）
+    // 如果需要更精细的控制（比如只总结英文），可以根据 subtitle_language 判断
+    let full_text = contents
+        .iter()
+        .map(|c| c.text.clone())
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    // 3. 构建请求
+    let client = reqwest::Client::new();
+
+    let api_url = normalize_llm_api_url(&config.llm_api_base);
+
+    let payload = json!({
+        "model": config.llm_model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": full_text }
+        ],
+        "temperature": config.llm_temperature,
+        "stream": false
+    });
+
+    // 4. 调用 API
+    let res = client
+        .post(&api_url)
+        .header("Authorization", format!("Bearer {}", config.llm_api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("LLM 请求失败: {}", e))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("LLM API 返回错误 {}: {}", status, text));
+    }
+
+    let json: Value = res
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {}", e))?;
+
+    // 提取内容
+    let content = json["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or("响应中未找到 content 字段")?;
+
+    let mut summary_text = content.to_string();
+
+    // 5. 过滤 <think> 标签 (针对 DeepSeek R1 等推理模型)
+    if config.llm_hide_think_tag {
+        // 使用 (?s) 开启 dot matches newline 模式
+        if let Ok(re) = Regex::new(r"(?s)<think>.*?</think>") {
+            summary_text = re.replace_all(&summary_text, "").to_string();
+            summary_text = summary_text.trim().to_string();
+        }
+    }
+
+    // 6. 保存为 Markdown 文件
+    let file_name = format!("{}-AI总结.md", file_stem);
+    let file_path = base_path.join(&file_name);
+
+    tokio::fs::write(&file_path, summary_text)
+        .await
+        .map_err(|e| format!("写入总结文件失败: {}", e))?;
+    info!("AI 总结已保存: {:?}", file_path);
+
+    // 发送进度提示：完成
+    let _ = window.emit(
+        "download-progress",
+        Progress {
+            id: id.to_string(),
+            status: "downloading".to_string(), // 保持 downloading，直到整个任务结束
+            file_name: file_name,
+            downloaded_size: 100,
+            total_size: 100,
+            msg: "AI 总结完成".to_string(),
+        },
+    );
+
+    Ok(())
+}
+
+// Helper: 规范化 LLM API URL，确保以 /chat/completions 结尾
+pub fn normalize_llm_api_url(base: &str) -> String {
+    let base_trimmed = base.trim_end_matches('/');
+    if base_trimmed.ends_with("/v1") {
+        format!("{}/chat/completions", base_trimmed)
+    } else if base_trimmed.contains("chat/completions") {
+        base_trimmed.to_string()
+    } else {
+        format!("{}/chat/completions", base_trimmed)
+    }
 }

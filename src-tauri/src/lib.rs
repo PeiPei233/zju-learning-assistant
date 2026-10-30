@@ -1,7 +1,10 @@
 mod controller;
+#[cfg(target_os = "linux")]
+use utils::linux_chrome;
 mod model;
 mod utils;
-mod wps;
+#[cfg(target_os = "windows")]
+use utils::windows_chrome;
 mod zju_assist;
 
 use dashmap::DashMap;
@@ -17,7 +20,106 @@ use tauri_plugin_cli::CliExt;
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
+use utils::config_store;
 use zju_assist::ZjuAssist;
+
+#[tauri::command]
+fn set_window_chrome_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    return windows_chrome::set_theme(&window, dark);
+    #[cfg(target_os = "linux")]
+    return window
+        .run_on_main_thread(move || linux_chrome::theme(dark))
+        .map_err(|e| e.to_string());
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        let _ = (window, dark);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn set_window_chrome_layout(
+    window: tauri::WebviewWindow,
+    left: i32,
+    width: i32,
+    height: i32,
+    opaque: bool,
+    color: u32,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as usize;
+        window
+            .run_on_main_thread(move || unsafe {
+                windows_chrome::set_layout(hwnd, left, width, height, opaque, color);
+            })
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, left, width, height, opaque, color);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn set_native_navigation(
+    window: tauri::WebviewWindow,
+    visible: bool,
+    collapsed: bool,
+    peek: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    return window
+        .run_on_main_thread(move || linux_chrome::navigation(visible, collapsed, peek))
+        .map_err(|e| e.to_string());
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (window, visible, collapsed, peek);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn has_native_backdrop() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        windows_chrome::has_native_backdrop()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
+fn get_native_chrome_height() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        linux_chrome::height()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        0
+    }
+}
+
+// Called after the saved appearance and native chrome are ready. Desktop
+// windows start hidden to avoid showing the system theme before settings load.
+#[tauri::command]
+fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        static SHOWN: AtomicBool = AtomicBool::new(false);
+        if !SHOWN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            window.show().map_err(|error| error.to_string())?;
+        }
+    }
+    #[cfg(not(desktop))]
+    let _ = window;
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -46,6 +148,10 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            linux_chrome::install(&app.get_webview_window("main").expect("main window"))?;
+            #[cfg(target_os = "windows")]
+            windows_chrome::install(&app.get_webview_window("main").expect("main window"))?;
             #[cfg(desktop)]
             match app.cli().matches() {
                 Ok(matches) => {
@@ -118,17 +224,23 @@ pub fn run() {
                 config.save_path = download_dir.to_str().unwrap().to_string();
             }
 
-            if let Ok(config_dir) = app.path().app_config_dir() {
-                if let Ok(config_local) = std::fs::read_to_string(config_dir.join("config.json")) {
-                    if let Ok(config_local) = serde_json::from_str::<model::Config>(&config_local) {
-                        info!("Loaded config from file");
-                        config = config_local;
-                    }
-                }
+            let config_store = config_store::ConfigStore::new(
+                app.path()
+                    .app_config_dir()
+                    .map(|dir| dir.join("config.json"))
+                    .map_err(|e| e.to_string()),
+                config.clone(),
+            );
+            match config_store.load() {
+                Ok(saved) => config = saved,
+                Err(error) => log::error!("Failed to load settings: {error}"),
             }
+            app.manage(config_store);
+            app.manage(utils::app_update::AppUpdateState::default());
             let config_state = Arc::new(Mutex::new(config));
 
-            let download_states: DashMap<String, Arc<AtomicBool>> = DashMap::new();
+            let download_states: DashMap<String, tokio_util::sync::CancellationToken> =
+                DashMap::new();
 
             app.manage(zju_assist);
             app.manage(config_state);
@@ -155,10 +267,14 @@ pub fn run() {
             }
 
             #[cfg(desktop)]
+            let login_status = MenuItem::with_id(app, "id", "未登录", false, None::<&str>)?;
+            #[cfg(desktop)]
+            app.manage(login_status.clone());
+            #[cfg(desktop)]
             let menu = Menu::with_items(
                 app,
                 &[
-                    &MenuItem::with_id(app, "id", "未登录", false, None::<&str>)?,
+                    &login_status,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(
                         app,
@@ -239,13 +355,22 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            show_main_window,
+            set_window_chrome_theme,
+            set_native_navigation,
+            get_native_chrome_height,
+            has_native_backdrop,
+            set_window_chrome_layout,
             controller::login,
+            controller::complete_login_setup,
             controller::get_auto_login_info,
             controller::check_login,
-            controller::test_connection,
             controller::logout,
             controller::sync_todo_once,
             controller::export_todo,
+            controller::connect_caldav,
+            controller::export_caldav,
+            controller::export_todo_from_tray,
             controller::get_courses,
             controller::get_academic_year_list,
             controller::get_semester_list,
@@ -259,6 +384,9 @@ pub fn run() {
             controller::open_file_upload,
             controller::open_file_ppts,
             controller::get_latest_version_info,
+            controller::download_app_update,
+            controller::cancel_app_update_download,
+            controller::install_app_update,
             controller::start_download_ppts,
             controller::start_download_playback,
             controller::get_range_subs,
@@ -266,10 +394,15 @@ pub fn run() {
             controller::get_course_all_sub_ppts,
             controller::get_sub_ppt_urls,
             controller::get_month_subs,
-            controller::check_evaluation_done,
-            controller::get_score,
+            controller::check_zdbk_evaluation_done,
+            controller::check_yjsy_evaluation_done,
+            controller::get_zdbk_score,
+            controller::get_yjsy_score,
             controller::notify_score,
+            controller::send_ding_notification,
+            controller::get_notification_scope,
             controller::get_config,
+            controller::get_runtime_config,
             controller::set_config,
             controller::test_llm_connection,
         ])

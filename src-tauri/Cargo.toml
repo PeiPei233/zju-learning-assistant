@@ -20,11 +20,14 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 serde_json = "1.0"
+semver = "1"
+tempfile = "3"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 reqwest = { version = "0.12.12", features = ["json", "cookies", "stream"] }
 regex = "1"
 num = "0.4.3"
+tokio-util = { version = "0.7", features = ["rt"] }
 tokio = { version = "1.43.0", features = ["full"] }
 percent-encoding = "2.3"
 futures = "0.3"
@@ -36,6 +39,8 @@ pdf-writer = "0.9.3"
 url = "2.5.4"
 rand = "0.8.5"
 md5 = "0.7.0"
+hmac = "0.12"
+sha2 = "0.10"
 aes = "0.8"
 cbc = { version = "0.1", features = ["alloc"] }
 base64 = "0.22"
@@ -52,16 +57,23 @@ tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-log = "2.2.1"
 tauri-plugin-os = "2"
+libdav = "0.11"
+http = "1"
+chrono-tz = "0.10"
 
 [target.'cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))'.dependencies]
 security-framework = "=2.10.0"
 openssl = { version = "0.10.70", features = ["vendored"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 block2 = "0.5.1"
 objc2 = "0.5.2"
 objc2-event-kit = { version = "0.2.2", features = ["all"] }
 objc2-foundation = { version = "0.2.2", features = ["all"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
@@ -82,3 +94,6 @@ lto = true # Enables link-time-optimizations.
 opt-level = "s" # Prioritizes small binary size. Use `3` if you prefer speed.
 panic = "abort" # Higher performance by disabling panic handlers.
 strip = true # Ensures debug symbols are removed.
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"

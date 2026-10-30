@@ -1,0 +1,18 @@
+{
+  "app": {
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 760,
+        "resizable": true,
+        "title": "zju-learning-assistant",
+        "width": 1100,
+        "minHeight": 640,
+        "minWidth": 700,
+        "decorations": true,
+        "visible": false,
+        "transparent": true
+      }
+    ]
+  }
+}

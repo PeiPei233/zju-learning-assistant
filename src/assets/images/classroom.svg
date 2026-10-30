@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 8 94 77">
+  <!-- Reconstructed from the screen mark in classroom.png, in source-pixel coordinates. -->
+  <g id="screen" fill="none" stroke="currentColor" stroke-width="6.3" stroke-linejoin="round">
+    <rect x="9.7" y="13.5" width="81.7" height="54.4" rx="16"/>
+    <path id="feet" d="m34 68-2 12m34-12 2 12" stroke-linecap="square"/>
+  </g>
+  <g id="zhi-yun" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <g id="zhi" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+      <!-- Trace landmarks constrain placement; constant-width centerlines keep the glyph clean. -->
+      <path id="zhi-top" d="M29.2 29 26.5 33.8 M28.3 30.7H36.2 M25.9 35.8H37.2 M32.1 30.7V35.6Q31.6 38.8 25.9 41.2 M32 37.1 37.1 41.3"/>
+      <rect id="zhi-mouth" x="40.9" y="30.4" width="7.4" height="9.4" rx=".6"/>
+      <rect id="zhi-day" x="28.4" y="44" width="17.9" height="7.9" rx=".5"/>
+      <path id="zhi-day-middle" d="M28.5 47.95H46.2"/>
+    </g>
+    <path id="yun" d="M56 30h17M54 37.5h21M64 38 55 50 74 50M70 43 75.2 51.4"/>
+  </g>
+</svg>

@@ -1,26 +1,34 @@
-import React, { useEffect, useState, useRef } from 'react'
-import { App, Menu, Layout, Tooltip, Badge, Typography } from 'antd';
-import { invoke } from '@tauri-apps/api/core'
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
-import { LogoutOutlined, DownloadOutlined, SettingOutlined, FileSearchOutlined } from '@ant-design/icons';
+import UpdateIndicator, { type UpdateIndicatorState } from '../../components/UpdateIndicator';
+import { useScores } from '../../hooks/useScores';
+import { useTodos } from '../../hooks/useTodos';
+import Todo from '../Todo';
+import { refreshedSelection } from '../../utils';
+import PreviewMenu from "../../preview/PreviewMenu";
+import { useDesktopApp } from '../../context/NotificationContext';
+import ModuleFrame from '../../components/ModuleFrame';
+import PlatformIcon from '../../components/PlatformIcon';
+import { getPreviewData, isPreview } from '../../previewMode';
+import WindowChrome from '../../components/WindowChrome';
+import { PanelContext } from '../../context/PanelContext';
+import { QuestionCircleOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useRef, useCallback } from 'react'
+import { Tooltip, Badge } from 'antd';
+import { invoke, listen, exit, shell } from '../../bridge';
+
+import { LogoutOutlined, DownloadOutlined, SettingOutlined, FileSearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import Learning from '../Learning'
 import Classroom from '../Classroom'
 import Score from '../Score'
-import Settings from '../../components/Settings'
-import DownloadDrawer from '../../components/DownloadDrawer';
-import { LearningTask, Task } from '../../downloadManager';
-import { listen } from '@tauri-apps/api/event';
-import { exit } from '@tauri-apps/plugin-process';
-import { Config, Upload, VersionInfo } from '../../model';
-import dayjs from 'dayjs'
-import LearningIcon from '../../assets/images/learning.ico'
-import ClassroomIcon from '../../assets/images/classroom.png'
-import * as shell from "@tauri-apps/plugin-shell"
-import { useConfig } from '../../context/ConfigContext';
-import { useDownloadList, useDownloadManager, useDownloadDrawer } from '../../context/DownloadContext';
-import { isFileExtensionExcluded } from '../../utils';
+import Setting from '../Setting'
+import Download from '../Download';
+import { LearningTask } from '../../downloadManager';
 
-const { Header, Content } = Layout;
+import { LearningCourse, Upload, VersionInfo } from '../../model';
+import dayjs from 'dayjs'
+
+import { useConfig } from '../../context/ConfigContext';
+import { useDownloadList, useDownloadManager, useDownloadNavigation } from '../../context/DownloadContext';
+import { isFileExtensionExcluded } from '../../utils';
 
 interface HomeProps {
   setIsLogin: (isLogin: boolean) => void;
@@ -28,32 +36,12 @@ interface HomeProps {
   setAutoLoginPassword: (password: string) => void;
   currentVersion: string;
   latestVersionData: VersionInfo | null;
+  updateIndicator?: UpdateIndicatorState;
   setOpenVersionModal: (open: boolean) => void;
 }
 
-interface ScoreItem {
-  xkkh: string;
-  kcmc: string;
-  cj: string;
-  xf: string;
-  jd: string;
-  bkcj: string;
-}
 
-interface Course {
-  id: number;
-  name: string;
-  semester_id: number;
-  academic_year_id: number;
-}
 
-interface TodoItem {
-  id: string;
-  course_id: string;
-  title: string;
-  course_name: string;
-  end_time: string;
-}
 
 const getDefaultSelectedUploadKeys = (uploads: Upload[], excludedExtensions: readonly string[] = []): React.Key[] => (
   uploads
@@ -67,42 +55,149 @@ export default function Home({
   setAutoLoginPassword,
   currentVersion,
   latestVersionData,
+  updateIndicator,
   setOpenVersionModal
 }: HomeProps) {
 
-  const { modal, notification } = App.useApp()
-  const { config } = useConfig();
+  const { modal, notification } = useDesktopApp()
+  const { savedConfig: config, ready } = useConfig();
+  const configReady = useRef(ready); configReady.current = ready;
   const downloadManager = useDownloadManager();
 
   // Destructure tasks and count here
   const { count: downloadingCount, tasks: downloadTasks } = useDownloadList();
-  const { isDrawerOpen, openDrawer, closeDrawer } = useDownloadDrawer();
+  const { pageRequested, consumePageRequest } = useDownloadNavigation();
 
-  const [current, setCurrent] = useState('learning')
+  const [panelCollapsed, setPanelCollapsed] = useState(() => localStorage.getItem('context-panel-collapsed') === 'true');
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const stored = Number(localStorage.getItem('context-panel-width'));
+    return stored >= 200 && stored <= 420 ? stored : 280;
+  });
+  const resizePanel = (width: number) => { setPanelWidth(width); localStorage.setItem('context-panel-width', String(width)); };
+  const togglePanel = () => {
+    clearTimeout(peekTimer.current);
+    if (peek) setCurrent(peek);
+    setPeek(null);
+    setPanelCollapsed(value => { localStorage.setItem('context-panel-collapsed', String(!value)); return !value; });
+  };
+  const [current, setCurrent] = useState(() => {
+    const page = isPreview ? new URLSearchParams(location.search).get('page') : null;
+    return page && ['learning', 'classroom', 'score', 'todo', 'download', 'setting'].includes(page) ? page : 'learning';
+  })
+  const [visited, setVisited] = useState([current]);
+  const [{ peek, switchingPeek }, setPeekState] = useState<{ peek: string | null; switchingPeek: boolean }>({ peek: null, switchingPeek: false });
+  const setPeek = useCallback((next: string | null) => {
+    setPeekState(previous => previous.peek === next ? previous : { peek: next, switchingPeek: previous.peek !== null && next !== null });
+  }, []);
+  const peekTimer = useRef<ReturnType<typeof setTimeout>>();
+  const pointerInPeek = useRef(false);
+  const keyboardInPeek = useRef(false);
+  const keepPeek = () => clearTimeout(peekTimer.current);
+  const dismissPeek = useCallback(() => {
+    clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => {
+      if (pointerInPeek.current) return;
+      if (keyboardInPeek.current && document.activeElement?.closest('.context-panel')) return;
+      setPeek(null);
+    }, 240);
+  }, [setPeek]);
+  const hoverModule = (page: string) => {
+    if (!panelCollapsed) return;
+    clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => {
+      setVisited(pages => pages.includes(page) ? pages : [...pages, page]);
+      setPeek(page);
+    }, 160);
+  };
+  const railPreview = (page: string) => ({
+    'data-module': page,
+    'aria-expanded': panelCollapsed ? peek === page : current === page,
+    onPointerEnter: (event: React.PointerEvent) => { if (event.pointerType !== 'touch') { pointerInPeek.current = true; hoverModule(page); } },
+    onPointerLeave: dismissPeek,
+    onFocus: (event: React.FocusEvent) => { keyboardInPeek.current = event.currentTarget.matches(':focus-visible'); hoverModule(page); },
+    onBlur: dismissPeek,
+  });
+  useEffect(() => () => clearTimeout(peekTimer.current), []);
+  useEffect(() => {
+    if (!peek) { pointerInPeek.current = false; return; }
+    const containsPointer = (target: EventTarget | null) => target instanceof Element
+      && !!target.closest('.context-panel, .navigation-rail, .ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown');
+    // Track actual pointer movement, not blur/leave caused by disabled controls,
+    // layout changes or a popup being removed after selection.
+    const move = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+      const wasKeyboard = keyboardInPeek.current;
+      keyboardInPeek.current = false;
+      const inside = containsPointer(event.target);
+      if (inside === pointerInPeek.current && !wasKeyboard) return;
+      pointerInPeek.current = inside;
+      if (inside) clearTimeout(peekTimer.current);
+      else dismissPeek();
+    };
+    const leaveWindow = (event: PointerEvent) => {
+      if (event.relatedTarget !== null) return;
+      pointerInPeek.current = false;
+      dismissPeek();
+    };
+    const outside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      keyboardInPeek.current = false;
+      if (containsPointer(target)) {
+        pointerInPeek.current = true;
+        clearTimeout(peekTimer.current);
+      } else if (!target.closest('.navigation-rail, .ant-modal-root')) {
+        clearTimeout(peekTimer.current); setPeek(null);
+      }
+    };
+    const escape = (event: KeyboardEvent) => {
+      keyboardInPeek.current = true;
+      if (event.key === 'Escape') {
+        clearTimeout(peekTimer.current); setPeek(null);
+        // Avoid focus-trigger reopening after Escape.
+        (document.activeElement as HTMLElement)?.blur?.();
+      }
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerout', leaveWindow);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerout', leaveWindow);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [peek, dismissPeek, setPeek]);
+  const [caldavRequest, setCaldavRequest] = useState(0);
+  const navigate = useCallback((page: string) => {
+    setVisited(pages => pages.includes(page) ? pages : [...pages, page]);
+    setCurrent(page);
+    clearTimeout(peekTimer.current);
+    setPeek(null);
+  }, [setPeek]);
+  useEffect(() => {
+    if (pageRequested) { navigate('download'); consumePageRequest(); }
+  }, [pageRequested, consumePageRequest, navigate]);
 
-  const [score, setScore] = useState<ScoreItem[]>([])
-  const [loadingScore, setLoadingScore] = useState(false)
-  const [notifyScore, setNotifyScore] = useState(false)
-  const [lastSyncScore, setLastSyncScore] = useState<string | null>(null)
-  const [totalGp, setTotalGp] = useState(0)
-  const [totalCredit, setTotalCredit] = useState(0)
+  const { score, loadingScore, scoreConfigError, lastSyncScore, totalGp, totalCredit, handleSyncScore } = useScores();
 
-  const [openSettingDrawer, setOpenSettingDrawer] = useState(false)
-
-  const [courseList, setCourseList] = useState<Course[]>([])
-  const [selectedCourseKeys, setSelectedCourseKeys] = useState<React.Key[]>([])
+  const [courseList, setCourseList] = useState<LearningCourse[]>(() => getPreviewData()?.courses || [])
+  const [selectedCourseKeys, setSelectedCourseKeys] = useState<React.Key[]>(() => getPreviewData()?.courses.map(item => item.id) || [])
   const [loadingUploadList, setLoadingUploadList] = useState(false)
-  const [uploadList, setUploadList] = useState<Upload[]>([])
-  const [selectedUploadKeys, setSelectedUploadKeys] = useState<React.Key[]>([])
+  const [uploadList, setUploadList] = useState<Upload[]>(() => getPreviewData()?.uploads || [])
+  const [selectedUploadKeys, setSelectedUploadKeys] = useState<React.Key[]>(() => getPreviewData()?.uploads.slice(0, 3).map(item => item.reference_id) || [])
   const [syncingUpload, setSyncingUpload] = useState(false)
   const [lastSyncUpload, setLastSyncUpload] = useState<string | null>(null)
 
-  const syncScoreTimer = useRef<any>(null)
-  const syncUploadTimer = useRef<any>(null)
+  const syncUploadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const uploadRequestInFlight = useRef(false)
+  const uploadRun = useRef(0)
+  const courseListRef = useRef(courseList)
+  courseListRef.current = courseList
   const selectedCourseKeysRef = useRef(selectedCourseKeys)
   const configRef = useRef(config)
-  const notifiedTodo = useRef<Record<string, boolean>>({})
-  const todoList = useRef<TodoItem[]>([])
+  const todos = useTodos();
 
   useEffect(() => {
     selectedCourseKeysRef.current = selectedCourseKeys
@@ -110,156 +205,8 @@ export default function Home({
 
   useEffect(() => {
     configRef.current = config
-    downloadManager.maxConcurrentTasks = config.max_concurrent_tasks
-  }, [config, downloadManager])
-
-  function notifyUpdate(item: ScoreItem, oldTotalGp: number, oldTotalCredit: number, totalGp: number, totalCredit: number, dingUrl?: string) {
-    if (!dingUrl) {
-      dingUrl = config.ding_url
-    }
-    invoke('notify_score', {
-      score: item,
-      oldTotalGp,
-      oldTotalCredit,
-      totalGp,
-      totalCredit,
-      dingUrl
-    }).catch((err) => {
-      notification.error({
-        message: '发送通知失败',
-        description: String(err)
-      })
-    })
-  }
-
-  function updateScore(newScore: ScoreItem[]) {
-    const oldScore = score
-    setScore(newScore)
-    setLastSyncScore(dayjs().format('YYYY-MM-DD HH:mm:ss'))
-
-    let currentGp = 0
-    let currentCredit = 0
-
-    oldScore.forEach((item) => {
-      if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-        currentGp += parseFloat(item.jd) * parseFloat(item.xf)
-        currentCredit += parseFloat(item.xf)
-      }
-    })
-
-    newScore.forEach((item) => {
-      const oldItem = oldScore.find((oi) => oi.xkkh === item.xkkh)
-      if (oldItem) {
-        if (oldItem.cj !== item.cj || oldItem.bkcj !== item.bkcj || oldItem.jd !== item.jd || oldItem.xf !== item.xf) {
-          let oldTotalGp = currentGp
-          let oldTotalCredit = currentCredit
-          if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-            currentGp += parseFloat(item.jd) * parseFloat(item.xf) - parseFloat(oldItem.jd) * parseFloat(oldItem.xf)
-            currentCredit += parseFloat(item.xf) - parseFloat(oldItem.xf)
-          }
-          if (notifyScore) {
-            notifyUpdate(item, oldTotalGp, oldTotalCredit, currentGp, currentCredit)
-          }
-        }
-      } else {
-        let oldTotalGp = currentGp
-        let oldTotalCredit = currentCredit
-        if (item.cj !== '合格' && item.cj !== '不合格' && item.cj !== '弃修') {
-          currentGp += parseFloat(item.jd) * parseFloat(item.xf)
-          currentCredit += parseFloat(item.xf)
-        }
-        if (notifyScore) {
-          notifyUpdate(item, oldTotalGp, oldTotalCredit, currentGp, currentCredit)
-        }
-      }
-    })
-
-    setTotalGp(currentGp)
-    setTotalCredit(currentCredit)
-  }
-
-  const startSyncScore = () => {
-    const syncScoreTask = () => {
-      setLoadingScore(true)
-      invoke<ScoreItem[]>('get_score').then((res) => {
-        updateScore(res)
-      }).catch((err) => {
-        notification.error({
-          message: '成绩同步失败',
-          description: String(err)
-        })
-      }).finally(() => {
-        const nextSync = Math.floor(Math.random() * 60000) + 60000
-        syncScoreTimer.current = setTimeout(syncScoreTask, nextSync)
-        setLoadingScore(false)
-      })
-    }
-    syncScoreTask()
-  }
-
-  const stopSyncScore = () => {
-    clearTimeout(syncScoreTimer.current)
-    syncScoreTimer.current = null
-  }
-
-  const handleSyncScore = () => {
-    if (loadingScore) return
-    setLoadingScore(true)
-    invoke<ScoreItem[]>('get_score').then((res) => {
-      updateScore(res)
-      invoke<boolean>('check_evaluation_done').then((evalDone) => {
-        if (!evalDone) {
-          notification.warning({
-            message: '教学评价未完成',
-            description: '本学期尚未完成评价，无法查询最新成绩！',
-            btn: <button onClick={() => shell.open('https://alt.zju.edu.cn/studentEvaluationBackend/list')}>去评价</button>
-          })
-        } else {
-          notification.success({ message: '成绩同步成功' })
-        }
-      }).catch((err) => {
-        notification.error({ message: '查询教学评价失败', description: String(err) })
-      })
-    }).catch((err) => {
-      notification.error({ message: '成绩同步失败', description: String(err) })
-    }).finally(() => {
-      setLoadingScore(false)
-    })
-  }
-
-  const handleSwitchSyncScore = (checked: boolean) => {
-    setNotifyScore(checked)
-    if (checked) startSyncScore()
-    else stopSyncScore()
-  }
-
-  const syncTodoTask = () => {
-    invoke<TodoItem[]>('sync_todo_once').then((res) => {
-      if (res && res.length !== 0) {
-        todoList.current = res
-        res.forEach(async (item) => {
-          if (item.end_time) {
-            const key = `${item.course_id}-${item.id}-${item.end_time}`
-            const diffTime = dayjs(item.end_time).diff(dayjs(), 'minute')
-            if (!notifiedTodo.current[key] && diffTime <= 60 && diffTime > 0) {
-              let permissionGranted = await isPermissionGranted();
-              if (!permissionGranted) {
-                const permission = await requestPermission();
-                permissionGranted = permission === 'granted';
-              }
-              if (permissionGranted) {
-                sendNotification({
-                  title: `距离 ${item.title} 截止不足一个小时`,
-                  body: `${item.course_name}-${item.title}: ${dayjs(item.end_time).format('YYYY-MM-DD HH:mm:ss')}`
-                });
-                notifiedTodo.current[key] = true
-              }
-            }
-          }
-        })
-      }
-    })
-  }
+    if (ready) downloadManager.maxConcurrentTasks = config.max_concurrent_tasks
+  }, [config, ready, downloadManager])
 
   useEffect(() => {
     setAutoLoginUsername('')
@@ -268,11 +215,8 @@ export default function Home({
       if (!res) setIsLogin(false)
     }).catch(() => setIsLogin(false))
 
-    // Download list polling is now handled by useDownloadList hook inside components that need it (like DownloadDrawer)
-    // We only need the count here, which is provided by useDownloadList() called at the top.
+    // DownloadManager publishes list and count changes through useDownloadList.
 
-    syncTodoTask()
-    const syncTodoInterval = setInterval(syncTodoTask, 60000)
 
     const unlistenProgress = listen<any>('download-progress', (res) => {
       downloadManager.updateProgress(res.payload)
@@ -282,30 +226,47 @@ export default function Home({
       if (!configRef.current.tray) exit(0)
     })
 
-    const unlistenExportTodo = listen<string>('export-todo', (res) => {
-      invoke('export_todo', { todoList: todoList.current, location: res.payload })
-    })
-
     return () => {
-      stopSyncScore()
       stopSyncUpload()
       // downloadManager.cleanUp() // Do NOT clean up on unmount, as manager is global singleton now
-      clearInterval(syncTodoInterval)
       unlistenProgress.then((fn) => fn())
       unlistenClose.then((fn) => fn())
-      unlistenExportTodo.then((fn) => fn())
     }
   }, [setAutoLoginPassword, setAutoLoginUsername, setIsLogin, downloadManager])
 
+  const logoutInFlight = useRef(false);
   const logout = () => {
-    const doLogout = () => {
-      downloadManager.cleanUp();
-      invoke('logout').then(() => setIsLogin(false)).catch((err) => notification.error({ message: '退出登录失败', description: String(err) }));
+    if (logoutInFlight.current) return;
+    const doLogout = async () => {
+      if (logoutInFlight.current) return;
+      logoutInFlight.current = true;
+      stopSyncUpload();
+      setSyncingUpload(false);
+      try {
+        if (!await downloadManager.cleanUp()) {
+          notification.error({ title: '退出登录失败', description: '下载任务尚未全部停止，请在下载列表查看任务状态后重试。' });
+          return;
+        }
+        await invoke('logout');
+        setIsLogin(false);
+      } catch (err) {
+        notification.error({ title: '退出登录失败', description: String(err) });
+      } finally {
+        logoutInFlight.current = false;
+      }
     };
-    if (downloadingCount > 0 || syncingUpload || notifyScore) {
+    if (downloadingCount > 0 || syncingUpload) {
       modal.confirm({
-        title: '后台服务正在运行',
-        content: '是否停止课件同步、成绩提醒、课件下载等后台服务并退出登录？',
+        className: 'desktop-modal desktop-confirm',
+        width: 400,
+        centered: true,
+        icon: null,
+        title: '停止后台任务并退出登录？',
+        content: `退出后将停止${[syncingUpload && '课件同步', downloadingCount > 0 && `${downloadingCount} 项下载任务`].filter(Boolean).join('、')}。`,
+        okText: '停止并退出',
+        cancelText: '取消',
+        cancelButtonProps: { autoInsertSpace: false },
+        autoFocusButton: 'cancel',
         onOk: doLogout
       })
     } else doLogout()
@@ -313,61 +274,83 @@ export default function Home({
 
   const onMenuClick = ({ key }: { key: string }) => {
     if (key === 'logout') logout()
-    else if (key === 'download') openDrawer() // Correctly call Context method
-    else if (key === 'setting') setOpenSettingDrawer(true)
-    else setCurrent(key)
+    else navigate(key)
   }
 
   const updateUploadList = () => {
-    let courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
+    if (logoutInFlight.current || !configReady.current || uploadRequestInFlight.current) return
+    const courses = courseList.filter((item) => selectedCourseKeys.includes(item.id))
     if (courses.length === 0) {
-      notification.error({ message: '请选择课程' })
+      notification.error({ title: '请选择课程' })
       return
     }
+    const run = uploadRun.current
+    uploadRequestInFlight.current = true
     setLoadingUploadList(true)
     invoke<Upload[]>('get_uploads_list', { courses, syncUpload: syncingUpload }).then((res) => {
-      const selectedKeys = getDefaultSelectedUploadKeys(res, config.excluded_upload_extensions)
+      if (run !== uploadRun.current || !configReady.current) return
+      notification.destroy('learning-uploads-error')
+      const selectedKeys = getDefaultSelectedUploadKeys(res, configRef.current.excluded_upload_extensions)
       if (syncingUpload) {
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
-        if (config.auto_download) {
+        if (configRef.current.auto_download) {
           res.filter((item) => selectedKeys.includes(item.reference_id))
             .forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
-          setUploadList(res.filter((item) => !selectedKeys.includes(item.reference_id)))
-          setSelectedUploadKeys([])
+          const remaining = res.filter(item => !selectedKeys.includes(item.reference_id))
+          setUploadList(remaining)
+          setSelectedUploadKeys(previous => refreshedSelection(previous, remaining.map(item => item.reference_id), configRef.current.auto_select_all_courseware, []))
         } else {
           setUploadList(res)
-          setSelectedUploadKeys(selectedKeys)
+          setSelectedUploadKeys(previous => refreshedSelection(previous, res.map(item => item.reference_id), configRef.current.auto_select_all_courseware, selectedKeys))
         }
       } else {
         setUploadList(res)
-        setSelectedUploadKeys(selectedKeys)
+        setSelectedUploadKeys(previous => refreshedSelection(previous, res.map(item => item.reference_id), configRef.current.auto_select_all_courseware, selectedKeys))
       }
     }).catch((err) => {
-      notification.error({ message: '获取课件列表失败', description: String(err) })
-    }).finally(() => setLoadingUploadList(false))
+      if (run !== uploadRun.current || !configReady.current) return
+      notification.error({ key: 'learning-uploads-error', title: '获取课件列表失败', description: String(err) })
+    }).finally(() => {
+      if (run !== uploadRun.current) return
+      uploadRequestInFlight.current = false
+      setLoadingUploadList(false)
+    })
   }
 
   const startSyncUpload = () => {
+    clearTimeout(syncUploadTimer.current)
+    const run = ++uploadRun.current
+    const scheduleNext = () => {
+      syncUploadTimer.current = setTimeout(syncUploadTask, Math.floor(Math.random() * 60000) + 60000)
+    }
     const syncUploadTask = () => {
-      let courses = courseList.filter((item) => selectedCourseKeysRef.current.includes(item.id))
+      if (run !== uploadRun.current) return
+      // Manual refresh takes priority: skip this tick rather than queueing a request.
+      if (!configReady.current || uploadRequestInFlight.current) { scheduleNext(); return }
+      uploadRequestInFlight.current = true
+      const courses = courseListRef.current.filter((item) => selectedCourseKeysRef.current.includes(item.id))
       setLoadingUploadList(true)
       invoke<Upload[]>('get_uploads_list', { courses, syncUpload: true }).then((uploads) => {
+        if (run !== uploadRun.current || !configReady.current) return
         const selectedKeys = getDefaultSelectedUploadKeys(uploads, configRef.current.excluded_upload_extensions)
         if (configRef.current.auto_download) {
           uploads.filter((item) => selectedKeys.includes(item.reference_id))
             .forEach((item) => downloadManager.addTask(new LearningTask(item, true), true))
-          setUploadList(uploads.filter((item) => !selectedKeys.includes(item.reference_id)))
-          setSelectedUploadKeys([])
+          const remaining = uploads.filter(item => !selectedKeys.includes(item.reference_id))
+          setUploadList(remaining)
+          setSelectedUploadKeys(previous => refreshedSelection(previous, remaining.map(item => item.reference_id), configRef.current.auto_select_all_courseware, []))
         } else {
           setUploadList(uploads)
-          setSelectedUploadKeys(selectedKeys)
+          setSelectedUploadKeys(previous => refreshedSelection(previous, uploads.map(item => item.reference_id), configRef.current.auto_select_all_courseware, selectedKeys))
         }
         setLastSyncUpload(dayjs().format('YYYY-MM-DD HH:mm:ss'))
       }).catch((err) => {
-        notification.error({ message: '同步课件失败', description: String(err) })
+        if (run !== uploadRun.current || !configReady.current) return
+        notification.error({ title: '同步课件失败', description: String(err) })
       }).finally(() => {
-        const nextSync = Math.floor(Math.random() * 60000) + 60000
-        syncUploadTimer.current = setTimeout(syncUploadTask, nextSync)
+        if (run !== uploadRun.current) return
+        uploadRequestInFlight.current = false
+        scheduleNext()
         setLoadingUploadList(false)
       })
     }
@@ -375,94 +358,79 @@ export default function Home({
   }
 
   const stopSyncUpload = () => {
+    uploadRun.current++
     clearTimeout(syncUploadTimer.current)
-    syncUploadTimer.current = null
+    syncUploadTimer.current = undefined
+    uploadRequestInFlight.current = false
+    setLoadingUploadList(false)
   }
 
   const handleSwitchSyncUpload = (checked: boolean) => {
+    if (logoutInFlight.current || (checked && !configReady.current)) return
     setSyncingUpload(checked)
     if (checked) startSyncUpload()
     else stopSyncUpload()
   }
 
   return (
-    <Layout className='home-layout'>
-      <Header className='home-layout' style={{ display: 'flex', alignItems: 'center', padding: '0 16px', height: 40, marginBottom: 10 }}>
-        <Menu onClick={onMenuClick} selectedKeys={[current]} mode="horizontal" style={{ width: '100%', lineHeight: '40px' }}>
-          <Menu.Item key='learning' icon={<img src={LearningIcon} style={{ width: 14 }} alt="learning" />}>
-            <Tooltip title={syncingUpload ? `学在浙大课件同步正在运行 - 上次同步时间：${lastSyncUpload}` : ''}>
-              <Badge dot={true} count={syncingUpload ? 1 : 0} color='green'>
-                <span style={{ color: current === 'learning' ? '#1677ff' : undefined }}>学在浙大</span>
-              </Badge>
-            </Tooltip>
-          </Menu.Item>
-          <Menu.Item key='classroom' icon={<img src={ClassroomIcon} style={{ width: 14 }} alt="classroom" />}>智云课堂</Menu.Item>
-          <Menu.Item key='score' icon={<FileSearchOutlined />}>
-            <Tooltip title={notifyScore ? `成绩提醒正在运行 - 上次同步时间：${lastSyncScore}` : ''}>
-              <Badge dot={true} count={notifyScore ? 1 : 0} color='green'>
-                <span style={{ color: current === 'score' ? '#1677ff' : undefined }}>成绩查询</span>
-              </Badge>
-            </Tooltip>
-          </Menu.Item>
-        </Menu>
-        <Menu onClick={onMenuClick} selectedKeys={[current]} mode="horizontal" style={{ float: 'right', lineHeight: '40px', minWidth: 46 * 3 }}>
-          <Menu.Item key='download'>
-            <Badge count={downloadingCount} size='small'>
-              <Tooltip title='下载列表'><DownloadOutlined /></Tooltip>
-            </Badge>
-          </Menu.Item>
-          <Menu.Item key='setting'>
-            <Tooltip title='设置'>
-              <Badge count={(!latestVersionData || (latestVersionData && latestVersionData.version === currentVersion) ? 0 : 1)} dot>
-                <SettingOutlined />
-              </Badge>
-            </Tooltip>
-          </Menu.Item>
-          <Menu.Item key='logout'><Tooltip title='退出登录'><LogoutOutlined /></Tooltip></Menu.Item>
-        </Menu>
-      </Header>
-      <Content>
-        {current === 'learning' && <Learning
-          syncing={syncingUpload}
-          lastSync={lastSyncUpload}
-          loadingUploadList={loadingUploadList}
-          uploadList={uploadList}
-          setUploadList={setUploadList}
-          handleSwitchSync={handleSwitchSyncUpload}
-          updateUploadList={updateUploadList}
-          selectedUploadKeys={selectedUploadKeys}
-          setSelectedUploadKeys={setSelectedUploadKeys}
-          selectedCourseKeys={selectedCourseKeys}
-          setSelectedCourseKeys={setSelectedCourseKeys}
-          courseList={courseList}
-          setCourseList={setCourseList}
-        />}
-        {current === 'classroom' && <Classroom />}
-        {current === 'score' && <Score
-          notify={notifyScore}
-          lastSync={lastSyncScore}
-          totalGp={totalGp}
-          totalCredit={totalCredit}
-          loading={loadingScore}
-          score={score}
-          handleSwitch={handleSwitchSyncScore}
-          handleSync={handleSyncScore}
-        />}
-      </Content>
-      {/* Updated: using downloadTasks from hook */}
-      <DownloadDrawer
-        open={isDrawerOpen}
-        onClose={closeDrawer}
-        taskList={downloadTasks}
-        downloadManager={downloadManager}
-      />
-      <Settings
-        open={openSettingDrawer}
-        onClose={() => setOpenSettingDrawer(false)}
-        currentVersion={currentVersion}
-        latestVersionData={latestVersionData}
-        setOpenVersionModal={setOpenVersionModal}
-      />
-    </Layout>
+    <PanelContext.Provider value={{ collapsed: panelCollapsed, toggle: togglePanel, width: panelWidth, setWidth: resizePanel, peek, switchingPeek, keepPeek, dismissPeek, activateModule: setCurrent }}>
+      <WindowChrome navigation />
+      <div className="desktop-shell">
+        <nav className="navigation-rail" aria-label="主导航">
+
+          {[
+            { key: 'learning', label: '学在浙大', icon: <PlatformIcon platform="learning" />, active: syncingUpload },
+            { key: 'classroom', label: '智云课堂', icon: <PlatformIcon platform="classroom" />, active: false },
+            { key: 'score', label: '成绩查询', icon: <FileSearchOutlined />, active: false },
+            { key: 'todo', label: '待办事项', icon: <UnorderedListOutlined />, active: false },
+          ].map(item => <Tooltip key={item.key} title={panelCollapsed ? null : `${item.label}${item.active ? ' · 自动同步已开启' : ''}`} placement="right">
+            <button {...railPreview(item.key)} className={`rail-button ${current === item.key ? 'active' : ''}`} aria-label={`${item.label}${item.active ? ' · 自动同步已开启' : ''}`}
+              aria-current={current === item.key ? 'page' : undefined} onClick={() => navigate(item.key)}>
+              <Badge className="status-badge" dot={item.active}>{item.icon}</Badge>
+            </button>
+          </Tooltip>)}
+          <div className="rail-spacer" />
+          <PreviewMenu navigation />
+          <Tooltip title="帮助" placement="right"><button className="rail-button" aria-label="帮助" onClick={() => shell.open('https://github.com/PeiPei233/zju-learning-assistant').catch(err => notification.error({ title: '打开帮助失败', description: String(err) }))}><QuestionCircleOutlined /></button></Tooltip>
+          <Tooltip title={panelCollapsed ? null : `下载列表${downloadingCount ? ` · ${downloadingCount} 项进行中` : ''}`} placement="right"><button {...railPreview('download')} className={`rail-button ${current === 'download' ? 'active' : ''}`} aria-current={current === 'download' ? 'page' : undefined} aria-label={`下载列表${downloadingCount ? ` · ${downloadingCount} 项进行中` : ''}`} onClick={() => navigate('download')}><Badge className="status-badge" count={downloadingCount} size="small"><DownloadOutlined /></Badge></button></Tooltip>
+          <Tooltip title={latestVersionData ? `设置 · ${updateIndicator?.label ?? '有新版本'}` : panelCollapsed ? null : '设置'} placement="right"><button {...railPreview('setting')} className={`rail-button ${current === 'setting' ? 'active' : ''}`} aria-current={current === 'setting' ? 'page' : undefined} aria-label={`设置${latestVersionData ? ` · ${updateIndicator?.label ?? '有新版本'}` : ''}`} onClick={() => navigate('setting')}>{updateIndicator?.downloading ? <span className="settings-update-icon"><SettingOutlined /><UpdateIndicator state={updateIndicator} /></span> : <Badge className="status-badge" dot={!!latestVersionData && latestVersionData.version !== currentVersion}><SettingOutlined /></Badge>}</button></Tooltip>
+          <Tooltip title="退出登录" placement="right"><button className="rail-button" aria-label="退出登录" onClick={() => onMenuClick({ key: 'logout' })}><LogoutOutlined /></button></Tooltip>
+        </nav>
+        <div className="module-host">
+          {visited.includes('learning') && <ModuleFrame name="learning" current={current}><Learning
+            syncing={syncingUpload}
+            lastSync={lastSyncUpload}
+            loadingUploadList={loadingUploadList}
+            uploadList={uploadList}
+            setUploadList={setUploadList}
+            handleSwitchSync={handleSwitchSyncUpload}
+            updateUploadList={updateUploadList}
+            selectedUploadKeys={selectedUploadKeys}
+            setSelectedUploadKeys={setSelectedUploadKeys}
+            selectedCourseKeys={selectedCourseKeys}
+            setSelectedCourseKeys={setSelectedCourseKeys}
+            courseList={courseList}
+            setCourseList={setCourseList}
+          /></ModuleFrame>}
+          {visited.includes('classroom') && <ModuleFrame name="classroom" current={current}><Classroom /></ModuleFrame>}
+          {visited.includes('score') && <ModuleFrame name="score" current={current}><Score
+            lastSync={lastSyncScore}
+            totalGp={totalGp}
+            totalCredit={totalCredit}
+            loading={loadingScore}
+            configError={scoreConfigError}
+            score={score}
+            handleSync={handleSyncScore}
+          /></ModuleFrame>}
+          {visited.includes('todo') && <ModuleFrame name="todo" current={current}><Todo {...todos} onOpenCalDav={() => { setCaldavRequest(value => value + 1); navigate('setting'); }} /></ModuleFrame>}
+          {visited.includes('download') && <ModuleFrame name="download" current={current}>
+            <Download taskList={downloadTasks} downloadManager={downloadManager} />
+          </ModuleFrame>}
+          {visited.includes('setting') && <ModuleFrame name="setting" current={current}>
+            <Setting onOpen={() => navigate('setting')} active={current === 'setting'} caldavRequest={caldavRequest} currentVersion={currentVersion} latestVersionData={latestVersionData} setOpenVersionModal={setOpenVersionModal} />
+          </ModuleFrame>}
+        </div>
+      </div>
+    </PanelContext.Provider>
   )
 }

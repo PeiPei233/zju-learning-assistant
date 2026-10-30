@@ -10,6 +10,10 @@
   ],
   "permissions": [
     "updater:default",
-    "autostart:default"
+    "autostart:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-resize-dragging"
   ]
 }

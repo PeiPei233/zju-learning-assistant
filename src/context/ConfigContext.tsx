@@ -1,70 +1,158 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useDesktopApp } from './NotificationContext';
+import { createContext, useContext, useEffect, useState, useRef, useMemo, useCallback, ReactNode } from 'react';
+import { invoke } from '../bridge';
 import { Config } from '../model';
-import { App } from 'antd';
+import ActionButton from '../components/ActionButton';
 
 interface ConfigContextType {
   config: Config;
-  updateConfigField: (field: keyof Config, value: any) => Promise<void>;
-  updateConfigBatch: (updates: Partial<Config>) => Promise<void>;
+  savedConfig: Config;
+  ready: boolean;
+  loadError: string | null;
+  loadingConfig: boolean;
+  updateConfigField: (field: keyof Config, value: any) => Promise<boolean>;
+  updateConfigBatch: (updates: Partial<Config>, onError?: (error: string) => void) => Promise<boolean>;
+  isSaving: (field?: keyof Config) => boolean;
   refreshConfig: () => Promise<void>;
+  setDraftPending: (owner: object, pending: boolean) => void;
+  hasPendingDrafts: () => boolean;
 }
 
 const ConfigContext = createContext<ConfigContextType | undefined>(undefined);
 
 export const ConfigProvider = ({ children }: { children: ReactNode }) => {
   const [config, setConfigState] = useState<Config>(new Config());
-  const { notification } = App.useApp();
+  const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadingConfig, setLoadingConfig] = useState(true);
+  const drafts = useRef(new Set<object>());
+  const setDraftPending = useCallback((owner: object, pending: boolean) => {
+    if (pending) drafts.current.add(owner); else drafts.current.delete(owner);
+  }, []);
+  const hasPendingDrafts = useCallback(() => drafts.current.size > 0, []);
+  const loadFlight = useRef<Promise<void> | null>(null);
+  const committed = useRef(config);
+  const loaded = useRef(false);
+  const [optimistic, setOptimistic] = useState<{ id: number; patch: Partial<Config> }[]>([]);
+  const sequence = useRef(0);
+  const fieldRevisions = useRef(new Map<string, number>());
+  const failedSaves = useRef(new Map<string, string[]>());
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const [pending, setPending] = useState<Record<string, number>>({});
+  const isSaving = (field?: keyof Config) => field ? !!pending[field] : Object.values(pending).some(Boolean);
+  const { notification } = useDesktopApp();
 
-  const refreshConfig = async () => {
-    try {
-      const res = await invoke('get_config') as Partial<Config>;
-      setConfigState(new Config(res));
-    } catch (err) {
-      notification.error({
-        message: '获取设置失败',
-        description: String(err)
-      });
-    }
-  };
+  const refreshConfig = useCallback((): Promise<void> => {
+    if (loadFlight.current) return loadFlight.current;
+    setLoadingConfig(true);
+    const operation = queue.current.then(async () => {
+      try {
+        const res = await invoke('get_config') as Partial<Config>;
+        committed.current = new Config(res);
+        setConfigState(committed.current);
+        setLoadError(null);
+        notification.destroy('config-read-error');
+        loaded.current = true;
+        setReady(true);
+      } catch (err) {
+        // A disk error must not discard a usable runtime configuration. On first
+        // load, get the complete backend defaults (including platform paths).
+        if (!loaded.current) {
+          try {
+            const fallback = await invoke<Config>('get_runtime_config');
+            if (!fallback) throw new Error('未获取到运行配置');
+            committed.current = new Config(fallback);
+            setConfigState(committed.current);
+            loaded.current = true;
+            setReady(true);
+          } catch {
+            // IPC/backend failure: no complete snapshot is available yet.
+            setReady(false);
+          }
+        }
+        setLoadError(String(err));
+        notification.error({
+          key: 'config-read-error', title: '读取设置失败', actions: <ActionButton onClick={() => { void refreshConfig(); }}>重试读取设置</ActionButton>, description: loaded.current
+            ? `${String(err)}。正在使用已有设置或默认设置，原配置文件未被修改。`
+            : String(err)
+        });
+      } finally {
+        setLoadingConfig(false);
+        loadFlight.current = null;
+      }
+    });
+    queue.current = operation;
+    loadFlight.current = operation;
+    return operation;
+  }, [notification]);
 
   useEffect(() => {
-    refreshConfig();
+    void refreshConfig();
+    // Initialize the save queue once; a save must not trigger another config fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const updateConfigField = async (field: keyof Config, value: any) => {
-    const newConfig = config.clone();
-    // @ts-ignore
-    newConfig[field] = value;
-    try {
-      await invoke('set_config', { config: newConfig });
-      setConfigState(newConfig);
-    } catch (err) {
-      notification.error({
-        message: '设置失败',
-        description: String(err)
-      });
-      throw err;
+  const updateConfigBatch = (updates: Partial<Config>, onError?: (error: string) => void): Promise<boolean> => {
+    const id = ++sequence.current;
+    setOptimistic(previous => [...previous, { id, patch: updates }]);
+    const fields = Object.keys(updates);
+    fields.forEach(field => fieldRevisions.current.set(field, id));
+    const isCurrent = () => fields.every(field => fieldRevisions.current.get(field) === id);
+    // A new edit supersedes retry actions for the same fields.
+    for (const [key, failedFields] of failedSaves.current) {
+      if (failedFields.some(field => fields.includes(field))) {
+        notification.destroy(key);
+        failedSaves.current.delete(key);
+      }
     }
+    const errorKey = `config-save-error:${fields.slice().sort().join(",")}`;
+    const markPending = (delta: number) => setPending(previous => {
+      const next = { ...previous };
+      fields.forEach(field => { next[field] = Math.max(0, (next[field] || 0) + delta); });
+      return next;
+    });
+    markPending(1);
+    // Reads and writes share one queue, so a late read cannot replace a newer save.
+    const operation = queue.current.then(async () => {
+      try {
+        if (!loaded.current) throw new Error('设置尚未读取成功，请重试读取设置后再修改。');
+        const previous = committed.current;
+        const next = new Config(await invoke('set_config', { patch: updates }) as Partial<Config>);
+        committed.current = next;
+        setConfigState(next);
+        setLoadError(null);
+        notification.destroy('config-read-error');
+        notification.destroy(errorKey);
+        if (previous.llm_enabled && !next.llm_enabled && ['llm_api_base', 'llm_api_key', 'llm_model'].some(field => fields.includes(field))) notification.warning({
+          key: 'llm-config-incomplete', title: 'AI 总结配置未完成，已关闭', duration: 6,
+        });
+        return true;
+      } catch (err) {
+        if (onError) onError(String(err));
+        else if (isCurrent()) {
+          failedSaves.current.set(errorKey, fields);
+          notification.error({
+            key: errorKey, title: '设置失败', description: String(err),
+            actions: <ActionButton onClick={() => {
+              if (isCurrent() && failedSaves.current.get(errorKey) === fields) void updateConfigBatch(updates);
+            }}>重试保存</ActionButton>,
+            onClose: () => { if (failedSaves.current.get(errorKey) === fields) failedSaves.current.delete(errorKey); },
+          });
+        }
+        return false;
+      } finally {
+        setOptimistic(previous => previous.filter(item => item.id !== id));
+        markPending(-1);
+      }
+    });
+    queue.current = operation;
+    return operation;
   };
+  const updateConfigField = (field: keyof Config, value: any) => updateConfigBatch({ [field]: value });
 
-  const updateConfigBatch = async (updates: Partial<Config>) => {
-    const newConfig = config.clone();
-    Object.assign(newConfig, updates);
-    try {
-      await invoke('set_config', { config: newConfig });
-      setConfigState(newConfig);
-    } catch (err) {
-      notification.error({
-        message: '设置失败',
-        description: String(err)
-      });
-      throw err;
-    }
-  };
-
+  const displayedConfig = useMemo(() => Object.assign(config.clone(), ...optimistic.map(item => item.patch)), [config, optimistic]);
   return (
-    <ConfigContext.Provider value={{ config, updateConfigField, updateConfigBatch, refreshConfig }}>
+    <ConfigContext.Provider value={{ config: displayedConfig, savedConfig: config, ready, loadError, loadingConfig, updateConfigField, updateConfigBatch, refreshConfig, isSaving, setDraftPending, hasPendingDrafts }}>
       {children}
     </ConfigContext.Provider>
   );

@@ -8,7 +8,17 @@ pub struct Config {
     pub auto_download: bool,
     pub excluded_upload_extensions: Vec<String>,
     pub ding_url: String,
+    pub ding_secret: String,
+    pub score_auto_sync: bool,
+    pub todo_auto_sync: bool,
+    pub score_system_notification: bool,
+    pub score_ding_notification: bool,
+    pub todo_system_notification: bool,
+    pub todo_ding_notification: bool,
+    pub todo_reminder_minutes: Vec<u32>,
     pub auto_open_download_list: bool,
+    pub auto_select_all_courseware: bool,
+    pub theme: String,
     pub tray: bool,
     pub max_concurrent_tasks: u32,
     pub auto_start: bool,
@@ -17,6 +27,12 @@ pub struct Config {
     pub subtitle_language: Vec<String>,
     pub subtitle_format: String,
     pub subtitle_with_timestamps: bool,
+
+    pub caldav_server: String,
+    pub caldav_username: String,
+    pub caldav_password: String,
+    pub caldav_calendar: String,
+    pub caldav_task_list: String,
 
     pub llm_enabled: bool,
     pub llm_api_base: String,
@@ -35,7 +51,17 @@ impl Default for Config {
             auto_download: true,
             excluded_upload_extensions: Vec::new(),
             ding_url: String::new(),
-            auto_open_download_list: true,
+            ding_secret: String::new(),
+            score_auto_sync: true,
+            todo_auto_sync: true,
+            score_system_notification: true,
+            score_ding_notification: false,
+            todo_system_notification: true,
+            todo_ding_notification: false,
+            todo_reminder_minutes: vec![60],
+            auto_open_download_list: false,
+            auto_select_all_courseware: true,
+            theme: "system".to_string(),
             tray: true,
             max_concurrent_tasks: 3,
             auto_start: false,
@@ -44,6 +70,12 @@ impl Default for Config {
             subtitle_language: vec!["zh".to_string()],
             subtitle_format: "srt".to_string(),
             subtitle_with_timestamps: true,
+
+            caldav_server: String::new(),
+            caldav_username: String::new(),
+            caldav_password: String::new(),
+            caldav_calendar: String::new(),
+            caldav_task_list: String::new(),
 
             llm_enabled: false,
             llm_api_base: String::new(),
@@ -58,6 +90,7 @@ impl Default for Config {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Upload {
+    pub course_id: i64,
     pub id: i64,
     pub reference_id: i64,
     pub file_name: String,
@@ -91,7 +124,11 @@ pub struct Subject {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VersionInfo {
+    pub update_available: bool,
+    pub can_install: bool,
+    pub prepare_error: Option<String>,
     pub version: String,
     pub notes: String,
+    pub notes_error: Option<String>,
     pub url: String,
 }

@@ -1,0 +1,77 @@
+.resource-list { container-type: inline-size; display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.resource-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 16px; }
+.resource-heading { display: flex; align-items: center; gap: 9px; margin-right: auto; }
+.resource-heading h2 { font-size: 13px; font-weight: 550; margin: 0; }
+.resource-heading > span { color: var(--muted); font-size: 12px; }
+.resource-search.ant-input-affix-wrapper { min-width: 0; width: 210px; height: var(--control-height); }
+.resource-search .ant-input-prefix { margin-inline-end: 8px; font-size: var(--control-icon-size); }
+.resource-search .icon-button { width: 22px; height: 22px; flex-shrink: 0; font-size: 12px; }
+.resource-sort { position: relative; flex-shrink: 0; width: 112px; height: var(--control-height); }
+.resource-selection { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+.resource-selection > div { display: flex; align-items: center; gap: 4px; }
+.resource-hint { margin: 0 0 10px; color: var(--muted); font-size: 11px; }
+.resource-rows { flex: 1; min-height: 0; overflow: auto; padding: 1px 0 8px; overflow-x: hidden; width: calc(100% + var(--content-inset, 22px)); }
+.resource-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto 16px; gap: 12px; width: 100cqw; text-align: left; align-items: center; border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer; border-radius: 7px; margin: 2px 0; padding: 10px 10px; }
+.resource-row:hover { background: var(--hover); }
+.resource-row.is-selected { background: var(--selected); }
+.resource-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.resource-row:disabled { cursor: progress; opacity: .55; }
+.resource-icon { width: 28px; height: 32px; display: grid; place-items: center; color: var(--muted); font-size: 20px; }
+.resource-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.resource-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.5; }
+.resource-description { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resource-meta { color: var(--muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.resource-check { display: grid; place-items: center; width: 16px; height: 18px; font-size: 12px; line-height: 1; }
+.resource-empty { min-height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.resource-empty > .anticon, .resource-empty > .platform-icon { font-size: 28px; width: 28px; height: 28px; opacity: .5; }
+.resource-empty p { margin: 0; }
+.resource-status { padding: 25px 10px; color: var(--muted); text-align: center; font-size: 12px; }
+.resource-filters { display: flex; gap: 12px; flex-wrap: wrap; padding: 12px; margin-bottom: 12px; background: var(--panel); border-radius: 8px; }
+.resource-filters-motion { display: grid; grid-template-rows: 0fr; flex-shrink: 0; opacity: 0; visibility: hidden; transition: grid-template-rows 200ms cubic-bezier(.2,.8,.2,1), opacity 160ms ease, visibility 0s 200ms; }
+.resource-filters-motion.is-open { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition-delay: 0s; }
+.resource-filters-clip { min-height: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { .resource-filters-motion { transition: none; } }
+.resource-filters label { flex: 1; min-width: 100px; display: grid; gap: 7px; font-size: 11px; color: var(--muted); }
+.resource-filters .ant-input { width: 100%; }
+.resource-list-compact .resource-search.ant-input-affix-wrapper { width: 100%; }
+.resource-list-compact .resource-toolbar { padding: 0 0 12px; }
+.resource-list-compact .resource-selection { padding: 0; }
+.resource-list-compact .resource-row { grid-template-columns: minmax(0, 1fr) 16px; gap: 8px; padding: 10px 9px; }
+.resource-list-compact .resource-name { font-size: 12px; }
+.resource-list-compact .resource-empty { min-height: 100px; }
+
+.resource-toolbar-actions { margin-left: 0; }
+.resource-list-compact .resource-selection { margin-bottom: 7px; }
+.resource-list-compact .resource-row { padding-block: 9px; }
+@container (max-width: 650px) {
+  .resource-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 112px var(--control-height); gap: 10px 8px; }
+  .resource-heading { grid-column: 1; }
+  .resource-toolbar-actions { grid-column: 2 / 4; grid-row: 1; justify-content: end; }
+  .resource-toolbar .resource-search.ant-input-affix-wrapper { grid-column: 1; width: 100%; min-width: 0; }
+  .resource-toolbar .resource-sort { grid-column: 2; width: 112px; }
+  .resource-list-compact .resource-toolbar { display: flex; }
+}
+
+/* Keep the scroll track in the panel inset, outside the shared control/row edges.
+   100cqw is the compact resource-list content width, independent of native scrollbar width. */
+.resource-list-compact .resource-rows {
+  width: calc(100% + var(--panel-inset, 18px));
+  padding: 1px 0 8px;
+  overflow-x: hidden;
+}
+.resource-list-compact .resource-row { width: 100cqw; }
+
+/* Empty main lists occupy the available rows area, not a fixed-height block. */
+.workspace-main .resource-rows:has(> .resource-empty) { padding-block: 0; }
+.workspace-main .resource-empty { width: 100%; height: 100%; min-height: 120px; padding: 20px; }
+.workspace-main .resource-rows > .resource-empty { width: 100cqw; }
+
+.resource-list-compact .resource-toolbar { flex-wrap: nowrap; flex-shrink: 0; }
+.resource-list-compact .resource-search.ant-input-affix-wrapper { flex: 1; width: 0; }
+.resource-list-compact .resource-filter-button { flex-shrink: 0; }
+.resource-list-compact .resource-filters { flex-direction: column; gap: 10px; padding: 10px; }
+.resource-list-compact .resource-filters .text-button { align-self: flex-end; }
+.resource-list-compact .resource-filters label { grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; }
+
+/* Keep hint baselines aligned, including rows without selection actions. */
+.resource-selection, .selection-toolbar { min-height: 26px; }

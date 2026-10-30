@@ -70,10 +70,6 @@
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFBMzU1MjdDQzdERUZGMEYKUldRUC85N0hmRkkxR3UvNjlxeXNNQlNKMEVBSEFYOWE1c1lNOGlOOUdHUTdwdVdMWEluRWFDOEMK",
-      "endpoints": [
-        "https://github.com/PeiPei233/zju-learning-assistant/releases/latest/download/latest.json",
-        "https://gitee.com/PeiPeiY/zju-learning-assistant/releases/download/latest/latest.json"
-      ],
       "windows": {
         "installMode": "passive"
       }
@@ -87,11 +83,11 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 600,
+        "height": 760,
         "resizable": true,
         "title": "zju-learning-assistant",
-        "width": 800,
-        "minHeight": 400,
+        "width": 1100,
+        "minHeight": 640,
         "minWidth": 700
       }
     ],
