@@ -64,7 +64,7 @@ if (!$redist) { throw 'Visual C++ redistributable payload not found' }
 Get-ChildItem $redist -Filter '*.dll' | ForEach-Object { Copy-Item $_.FullName $Output -Force }
 Push-Location $Output
 try {
-    & cl.exe /nologo /LD /EHsc /std:c++17 /MT /I $generated /I "$sdk\include" "$PSScriptRoot\acrylic.cpp" /link windowsapp.lib CoreMessaging.lib dwmapi.lib user32.lib /OUT:zju_acrylic.dll
+    & cl.exe /nologo /LD /EHsc /std:c++20 /MT /I $generated /I "$sdk\include" "$PSScriptRoot\acrylic.cpp" /link windowsapp.lib CoreMessaging.lib dwmapi.lib user32.lib /OUT:zju_acrylic.dll
     if ($LASTEXITCODE) { throw 'Windows backdrop bridge compilation failed' }
 } finally { Pop-Location }
 # Only runtime files belong in the installer.
