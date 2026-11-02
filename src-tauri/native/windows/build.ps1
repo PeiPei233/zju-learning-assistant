@@ -33,9 +33,21 @@ $payload = "$cache\runtime-$Architecture"
 if (!(Test-Path "$payload\AppxManifest.xml")) {
     [System.IO.Compression.ZipFile]::ExtractToDirectory("$sdk\tools\MSIX\win10-$Architecture\Microsoft.WindowsAppRuntime.1.5.msix", $payload)
 }
-# Match the SDK's SelfContained payload list; keep resources and localized DLL dependencies.
+# These six WinUI translations fail MSI ICE03 language validation with SDK 1.5.240311000.
+# Exclude them from the shared MSI / NSIS payload, including leftovers from earlier builds.
+$excludedResources = foreach ($language in 'gd-gb','mi-NZ','ug-CN') {
+    foreach ($resource in 'Microsoft.ui.xaml.dll.mui','Microsoft.UI.Xaml.Phone.dll.mui') {
+        Join-Path $language $resource
+    }
+}
+foreach ($relative in $excludedResources) {
+    $destination = Join-Path $Output $relative
+    if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }
+}
+# Match the SDK's SelfContained payload list, except for the translations above.
 Get-ChildItem $payload -File -Recurse | Where-Object { $_.Extension -in '.dll','.mui','.png','.winmd','.xaml','.xbf','.pri' -or $_.Name -in 'restartAgent.exe','map.html' } | ForEach-Object {
     $relative = $_.FullName.Substring($payload.Length + 1)
+    if ($relative -in $excludedResources) { return }
     if ($relative -eq 'resources.pri') { $relative = 'Microsoft.UI.Xaml.Controls.pri' }
     $destination = Join-Path $Output $relative
     New-Item -ItemType Directory -Force (Split-Path $destination) | Out-Null
