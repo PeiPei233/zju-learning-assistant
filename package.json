@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "build": "npm run typecheck && vite build",
+    "lint": "eslint src vite.config.js --ext js,jsx,ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
+    "dev:mock": "vite --mode mock --port 5174",
+    "desktop:mock": "cargo tauri dev --config src-tauri/tauri.preview.conf.json",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
@@ -29,13 +32,20 @@
     "react-responsive": "^9.0.2"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
+    "@types/react-highlight-words": "^0.20.1",
+    "@typescript-eslint/eslint-plugin": "^8.71.2",
+    "@typescript-eslint/parser": "^8.71.2",
     "@vitejs/plugin-react-swc": "^3.5.0",
     "eslint": "^8.53.0",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.4",
+    "jsdom": "^29.1.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
     "vite": "^6.4.3"
   }
 }

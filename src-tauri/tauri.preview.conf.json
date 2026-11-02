@@ -1,0 +1,6 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev:mock",
+    "devUrl": "http://localhost:5174"
+  }
+}

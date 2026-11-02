@@ -1,0 +1,20 @@
+/* One scrollbar palette for page content, sidebars and portalled Antd surfaces. */
+:root {
+  --scrollbar-thumb: var(--line);
+  --scrollbar-track: transparent;
+  --scrollbar-size: 6px;
+  --rc-virtual-list-scrollbar-bg: var(--scrollbar-thumb);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+/* Older WebKit uses pseudo elements instead of the standard scrollbar properties. */
+@supports not (scrollbar-width: thin) {
+  ::-webkit-scrollbar { width: var(--scrollbar-size); height: var(--scrollbar-size); }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--scrollbar-track); }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 99px; }
+}
+/* Select uses a virtual scrollbar, which does not inherit native scrollbar sizing. */
+.ant-select-dropdown .rc-virtual-list-scrollbar-vertical { width: var(--scrollbar-size) !important; }
+.ant-select-dropdown .rc-virtual-list-scrollbar-horizontal { height: var(--scrollbar-size) !important; }

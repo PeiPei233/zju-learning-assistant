@@ -25,6 +25,8 @@
     "notification:default",
     "shell:default",
     "os:default",
-    "log:default"
+    "log:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-theme"
   ]
 }

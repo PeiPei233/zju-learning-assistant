@@ -1,0 +1,28 @@
+{
+  "app": {
+    "windows": [
+      {
+        "fullscreen": false,
+        "visible": false,
+        "height": 760,
+        "resizable": true,
+        "title": "zju-learning-assistant",
+        "width": 1100,
+        "minHeight": 640,
+        "minWidth": 700,
+        "decorations": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "acrylic"
+          ]
+        }
+      }
+    ]
+  },
+  "bundle": {
+    "resources": {
+      "resources/windows-runtime/": "./"
+    }
+  }
+}

@@ -1,0 +1,132 @@
+.score-content .selection-table .ant-table-content {
+  overflow-x: auto;
+}
+
+.score-content .selection-table .ant-table-container table {
+  min-width: 640px;
+  border-collapse: separate;
+  border-spacing: 0 2px;
+}
+
+.score-content .selection-table .ant-table-thead>tr>th {
+  white-space: nowrap;
+}
+
+.score-content .selection-table .ant-table-tbody>tr[data-row-key]>td:first-child {
+  white-space: nowrap;
+}
+
+.score-content .selection-table .ant-table-wrapper .ant-table-container table>thead>tr>th {
+  position: relative;
+  border-radius: 6px;
+  border-bottom: 0;
+  padding-block: 8px;
+}
+
+.score-content .selection-table .ant-table-thead>tr>th::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+
+.score-content .selection-table .ant-table-tbody>tr[data-row-key]>td {
+  border-bottom: 0;
+  padding-block: 8px;
+}
+
+.score-content .selection-table .ant-table-tbody>tr[data-row-key]>td:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.score-content .selection-table .ant-table-tbody>tr[data-row-key]>td:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.score-summary {
+  display: grid;
+  gap: 12px;
+}
+
+.score-panel-controls {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.context-panel:has(.score-panel-controls)>.panel-heading,
+.context-panel:has(.score-panel-controls)>.panel-bottom {
+  flex-shrink: 0;
+}
+
+.score-summary>span {
+  color: var(--muted);
+}
+
+.score-summary strong {
+  font-size: 26px;
+  font-weight: 500;
+  margin-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-content {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.score-content .resource-toolbar {
+  flex-shrink: 0;
+}
+.score-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.score-content .selection-table {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.score-content .selection-table .ant-table-wrapper {
+  flex: 0 0 auto;
+}
+
+.score-content .ant-table-placeholder {
+  display: none;
+}
+
+.score-table-region {
+  overflow: hidden;
+}
+
+.score-table-region {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.score-table-region[aria-busy="true"] .selection-table {
+  pointer-events: none;
+}
+
+/* Ant Table owns the scrollable body; toolbar and column header stay outside it. */
+.score-content .selection-toolbar {
+  flex-shrink: 0;
+}
+
+.score-content .ant-table-body {
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}

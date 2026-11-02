@@ -1,29 +1,39 @@
+import PanelHeading from '../../components/PanelHeading';
+import OverflowText from '../../components/OverflowText';
+import { refreshedSelection } from '../../utils';
+import FetchState from '../../components/FetchState';
+import SelectionCheck from '../../components/SelectionCheck';
+import PlatformIcon from '../../components/PlatformIcon';
+import ConfigReadState from '../../components/ConfigReadState';
+import { useDesktopApp } from '../../context/NotificationContext';
+import FileTypeIcon from '../../components/FileTypeIcon';
+import ActionButton from '../../components/ActionButton';
+import Workspace from '../../components/Workspace';
 import React, { useState, useRef, useEffect } from 'react'
-import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Segmented, DatePicker } from 'antd';
-import { invoke } from '@tauri-apps/api/core'
-import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
-import SearchTable from '../../components/SearchTable'
+import { Input, Segmented, DatePicker, Dropdown } from 'antd';
+import { invoke } from '../../bridge'
+import { ReloadOutlined, DownloadOutlined, SearchOutlined, DownOutlined } from '@ant-design/icons';
+import ResourceList from '../../components/ResourceList'
 import dayjs, { Dayjs } from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { ClassroomTask } from '../../downloadManager';
 import { useConfig } from '../../context/ConfigContext';
-import { useDownloadManager, useDownloadList } from '../../context/DownloadContext';
 import { useAddDownloadTasks } from '../../hooks/useAddDownloadTasks';
 import { Subject } from '../../model';
-import { ColumnType } from 'antd/es/table';
 
 dayjs.locale('zh-cn')
 
-const { Text } = Typography
 const { RangePicker } = DatePicker;
 
 export default function Classroom() {
 
-  const { notification } = App.useApp()
-  const { config } = useConfig();
-  const downloadManager = useDownloadManager();
+  const { notification } = useDesktopApp()
+  const { savedConfig: config, ready } = useConfig();
   const addDownloadTasks = useAddDownloadTasks();
   const toPdf = config.to_pdf;
+  const configRef = useRef(config);
+  const courseRangeRef = useRef<HTMLButtonElement>(null);
+  configRef.current = config;
 
   const [selectedDateMethod, setSelectedDateMethod] = useState<'day' | 'week' | 'month'>('week')
   const [selectedCourseRange, setSelectedCourseRange] = useState<'my' | 'all'>('my')
@@ -33,6 +43,17 @@ export default function Classroom() {
   const [selectedRightKeys, setSelectedRightKeys] = useState<React.Key[]>([])
   const [loadingLeftSubList, setLoadingLeftSubList] = useState(false)
   const [loadingRightSubList, setLoadingRightSubList] = useState(false)
+  const [courseLoadFailed, setCourseLoadFailed] = useState(false);
+  const [coursewareLoadFailed, setCoursewareLoadFailed] = useState(false);
+  const requestInFlight = useRef(false);
+  const requestGeneration = useRef(0);
+  useEffect(() => () => {
+    requestGeneration.current += 1;
+    requestInFlight.current = false;
+  }, []);
+  const loadingConditions = !ready || loadingLeftSubList || loadingRightSubList;
+  const [hasSearchedCourses, setHasSearchedCourses] = useState(false)
+  const requestedRange = useRef('');
   const [searchCourseName, setSearchCourseName] = useState('')
   const [searchTeacherName, setSearchTeacherName] = useState('')
   const startAt = useRef(dayjs().startOf('week').format('YYYY-MM-DD'))
@@ -48,12 +69,14 @@ export default function Classroom() {
   ]
 
   const selectCourseRangeOptions = [
-    { label: '我的课程', value: 'my' },
-    { label: '全部课程', value: 'all' }
+    { label: '我的课程', value: 'my', description: '按日期查看自己的课堂' },
+    { label: '全部课程', value: 'all', description: '按课程名称或教师搜索' }
   ]
 
   const changeDateMethod = (value: 'day' | 'week' | 'month') => {
+    if (!ready || requestInFlight.current) return;
     setSelectedDateMethod(value)
+    setDayRange([dayjs(), dayjs()]); setWeekValue(dayjs()); setMonthValue(dayjs());
     if (value === 'day') {
       startAt.current = dayjs().format('YYYY-MM-DD')
       endAt.current = dayjs().format('YYYY-MM-DD')
@@ -68,6 +91,8 @@ export default function Classroom() {
   }
 
   const changeDateRange = (value: any) => {
+    if (!ready || requestInFlight.current) return;
+    if (!value || (Array.isArray(value) && (!value[0] || !value[1]))) return;
     if (selectedDateMethod === 'day') {
       setDayRange(value)
       startAt.current = value[0].format('YYYY-MM-DD')
@@ -85,264 +110,175 @@ export default function Classroom() {
   }
 
   const updateMySubList = () => {
+    if (!ready || requestInFlight.current) return;
+    requestInFlight.current = true;
+    const run = requestGeneration.current;
+    const range = JSON.stringify([startAt.current, endAt.current]);
+    if (requestedRange.current !== range) {
+      setRightSubList([]);
+      setSelectedRightKeys([]);
+      requestedRange.current = range;
+    }
+    setCoursewareLoadFailed(false);
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_range_subs', { startAt: startAt.current, endAt: endAt.current }).then((res) => {
+      if (run !== requestGeneration.current) return;
+      notification.destroy('classroom-range-error')
       setRightSubList(res)
-      setSelectedRightKeys(res.map((item) => item.sub_id))
+      setSelectedRightKeys(previous => refreshedSelection(previous, res.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
+      if (run !== requestGeneration.current) return;
+      setCoursewareLoadFailed(true);
       notification.error({
-        message: '获取课程列表失败',
+        key: 'classroom-range-error', title: '获取课程列表失败',
         description: String(err)
       })
     }).finally(() => {
+      if (run !== requestGeneration.current) return;
+      requestInFlight.current = false;
       setLoadingRightSubList(false)
     })
   }
 
   const updateAllSubList = () => {
-    let subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.course_id))
+    if (!ready || requestInFlight.current) return;
+    const subs = leftSubList.filter((item) => selectedLeftKeys.includes(item.course_id))
     if (subs.length === 0) {
       notification.error({
-        message: '请选择课程',
+        title: '请选择课程',
       })
       return
     }
-    let course_ids = subs.map((item) => item.course_id)
+    requestInFlight.current = true;
+    const run = requestGeneration.current;
+    const course_ids = subs.map((item) => item.course_id)
+    setCoursewareLoadFailed(false);
     setLoadingRightSubList(true)
     invoke<Subject[]>('get_course_all_sub_ppts', { courseIds: course_ids }).then((res) => {
+      if (run !== requestGeneration.current) return;
+      notification.destroy('classroom-course-error')
       const subs = res.filter((item) => item.ppt_image_urls.length !== 0)
-      if (subs.length === 0) {
-        notification.error({
-          message: '没有发现智云 PPT',
-        })
-      }
       setRightSubList(subs)
-      setSelectedRightKeys(subs.map((item) => item.sub_id))
+      setSelectedRightKeys(previous => refreshedSelection(previous, subs.map(item => item.sub_id), configRef.current.auto_select_all_courseware))
     }).catch((err) => {
+      if (run !== requestGeneration.current) return;
+      setCoursewareLoadFailed(true);
       notification.error({
-        message: '获取课件列表失败',
+        key: 'classroom-course-error', title: '获取课件列表失败',
         description: String(err)
       })
     }).finally(() => {
+      if (run !== requestGeneration.current) return;
+      requestInFlight.current = false;
       setLoadingRightSubList(false)
     })
   }
 
   useEffect(() => {
-    updateMySubList()
-  }, [])
+    if (ready && selectedCourseRange === 'my') updateMySubList()
+    // Load when configuration becomes available; changing the search fields must not trigger a request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready])
 
-  const leftColumns: ColumnType<Subject>[] = [
-    { dataIndex: 'course_name', title: '课程名称' },
-    { dataIndex: 'sub_name', title: '上课时间' },
-    { dataIndex: 'lecturer_name', title: '教师', responsive: ['lg'] },
-  ];
-
-  const rightColumns: ColumnType<Subject>[] = [
-    {
-      title: '课程名称',
-      dataIndex: 'course_name',
-      sorter: (a, b) => a.course_name.localeCompare(b.course_name),
-    },
-    {
-      dataIndex: 'sub_name',
-      title: '上课时间',
-      sorter: (a, b) => a.sub_name.localeCompare(b.sub_name),
-    },
-    {
-      dataIndex: 'lecturer_name',
-      title: '教师',
-      responsive: ['lg'],
-    },
-    {
-      dataIndex: 'ppt_image_urls',
-      title: '页数',
-      render: (urls: string[]) => urls.length,
-      // @ts-ignore
-      searchable: false,
-      sorter: (a, b) => a.ppt_image_urls.length - b.ppt_image_urls.length,
-    }
-  ];
-
-  let myRightColumns = rightColumns.map((item) => {
-    if (item.dataIndex === 'lecturer_name') {
-      return { ...item, responsive: undefined }
-    }
-    return item
-  });
-
-  const downloadSubsPPT = () => {
-    let subs = rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id))
+  const downloadSubsPPT = async () => {
+    const subs = rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id))
     if (subs.length === 0) {
       notification.error({
-        message: '请选择课件',
+        title: '请选择课件',
       })
       return
     }
-    let tasks = subs.map((item) => new ClassroomTask(item, toPdf))
-    addDownloadTasks(tasks)
-    setRightSubList(rightSubList.filter((item) => !selectedRightKeys.includes(item.sub_id)))
-    setSelectedRightKeys([])
+    const tasks = subs.map((item) => new ClassroomTask(item, toPdf))
+    if (!await addDownloadTasks(tasks)) return
+    const addedKeys = new Set(subs.map(item => item.sub_id))
+    setRightSubList(current => current.filter(item => !addedKeys.has(item.sub_id)))
+    setSelectedRightKeys(current => current.filter(key => !addedKeys.has(key as number)))
   }
 
   const searchCourse = () => {
+    if (!ready || requestInFlight.current) return;
     if (searchCourseName === '' && searchTeacherName === '') {
       notification.error({
-        message: '请输入搜索关键字',
+        title: '请输入搜索关键字',
       })
       return
     }
+    requestInFlight.current = true;
+    const run = requestGeneration.current;
+    setCourseLoadFailed(false);
     setLoadingLeftSubList(true)
     invoke<Subject[]>('search_courses', { courseName: searchCourseName, teacherName: searchTeacherName }).then((res) => {
+      if (run !== requestGeneration.current) return;
+      notification.destroy('classroom-search-error')
+      setHasSearchedCourses(true)
       setLeftSubList(res)
       setSelectedLeftKeys([])
     }).catch((err) => {
+      if (run !== requestGeneration.current) return;
+      setCourseLoadFailed(true);
       notification.error({
-        message: '搜索课程失败',
+        key: 'classroom-search-error', title: '搜索课程失败',
         description: String(err)
       })
     }).finally(() => {
+      if (run !== requestGeneration.current) return;
+      requestInFlight.current = false;
       setLoadingLeftSubList(false)
     })
   }
 
-  return (
-    <div style={{ margin: 20 }}>
-      <Card styles={{ body: { padding: 15 } }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }} >
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-            <Segmented
-              options={selectCourseRangeOptions}
-              onChange={(value) => {
-                setLeftSubList([])
-                setSelectedLeftKeys([])
-                setRightSubList([])
-                setSelectedRightKeys([])
-                setSelectedCourseRange(value as 'my' | 'all')
-                if (value === 'my') {
-                  updateMySubList()
-                }
-              }}
-              value={selectedCourseRange}
-              style={{ minWidth: 155 }}
-            />
+  return <Workspace headerless title="智云课堂" panel={<>
+    <PanelHeading className="course-range-heading">
+      <Dropdown disabled={loadingConditions} trigger={['click']} placement="bottomLeft" classNames={{ root: 'course-range-menu' }} menu={{
+        selectable: true, selectedKeys: [selectedCourseRange],
+        items: selectCourseRangeOptions.map(option => ({
+          key: option.value, label: <div className="course-range-option">
+            <span><span className="course-range-name">{option.label}</span><span className="course-range-description">{option.description}</span></span>
+            <SelectionCheck selected={selectedCourseRange === option.value} />
           </div>
-          {selectedCourseRange === 'my' &&
-            <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-              <Segmented
-                options={selectDateMethodOptions}
-                onChange={(v) => changeDateMethod(v as 'day' | 'week' | 'month')}
-                value={selectedDateMethod}
-                style={{ minWidth: 106, marginRight: 20 }}
-              />
-              {selectedDateMethod === 'day' && <RangePicker
-                value={dayRange}
-                onChange={changeDateRange}
-                disabled={loadingRightSubList}
-              />}
-              {selectedDateMethod === 'week' && <DatePicker
-                value={weekValue}
-                picker='week'
-                onChange={changeDateRange}
-                disabled={loadingRightSubList}
-              />}
-              {selectedDateMethod === 'month' && <DatePicker
-                value={monthValue}
-                picker='month'
-                onChange={changeDateRange}
-                disabled={loadingRightSubList}
-              />}
-            </div>}
-          {selectedCourseRange === 'all' &&
-            <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                <Input placeholder='课程名称' value={searchCourseName} onChange={(e) => setSearchCourseName(e.target.value)} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-                <Input placeholder='教师名称' value={searchTeacherName} onChange={(e) => setSearchTeacherName(e.target.value)} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-                <Tooltip title='搜索全部课程'>
-                  <Button icon={<SearchOutlined />} onClick={searchCourse} loading={loadingLeftSubList} />
-                </Tooltip>
-              </div>
-            </div>
-          }
-          <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row', marginLeft: 20 }}>
-            <Button
-              type='primary'
-              icon={<DownloadOutlined />}
-              onClick={downloadSubsPPT}
-              disabled={loadingRightSubList}
-            >{'下载课件'}</Button>
-          </div>
-        </div>
-      </Card>
-      <Row gutter={20} style={{ marginTop: 20 }}>
-        {selectedCourseRange === 'all' && <Col xs={10}>
-          <SearchTable<Subject>
-            rowSelection={{
-              selectedRowKeys: selectedLeftKeys,
-              onChange: setSelectedLeftKeys,
-            }}
-            rowKey={selectedCourseRange === 'my' ? 'sub_id' : 'course_id'}
-            // @ts-ignore
-            columns={leftColumns}
-            dataSource={leftSubList}
-            pagination={false}
-            scroll={{ y: 'calc(100vh - 270px)' }}
-            size='small'
-            bordered
-            footer={() => ''}
-            title={() => `课程列表：已选择 ${selectedLeftKeys.length} 门课程`}
-            loading={loadingLeftSubList}
-          />
-        </Col>}
-        <Col xs={selectedCourseRange === 'all' ? 14 : 24}>
-          <SearchTable<Subject>
-            rowSelection={{
-              selectedRowKeys: selectedRightKeys,
-              onChange: setSelectedRightKeys,
-            }}
-            rowKey='sub_id'
-            // @ts-ignore
-            columns={selectedCourseRange === 'my' ? myRightColumns : rightColumns}
-            dataSource={rightSubList}
-            pagination={false}
-            scroll={{ y: 'calc(100vh - 270px)' }}
-            size='small'
-            bordered
-            footer={() => ''}
-            loading={loadingRightSubList}
-            title={() => {
-              return (
-                <>
-                  {rightSubList && rightSubList.length !== 0 && <Text ellipsis={{ rows: 1, expandable: false, tooltip: true }} style={{ width: 'calc(100% - 80px)' }}>
-                    课件列表：已选择 {selectedRightKeys.length} 个课件 共 {rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id)).reduce((total, item) => {
-                      return total + item.ppt_image_urls.length
-                    }, 0)} 页</Text>}
-                  {(rightSubList && rightSubList.length === 0) && '课件列表为空  点击右侧刷新👉'}
-                  <div style={{ float: 'right' }}>
-                    <Tooltip title='刷新课件列表'>
-                      <Button
-                        type='text'
-                        size='small'
-                        icon={<ReloadOutlined />}
-                        onClick={selectedCourseRange === 'my' ? updateMySubList : updateAllSubList}
-                        loading={loadingRightSubList}
-                      />
-                    </Tooltip>
-                  </div>
-                </>
-              )
-            }}
-          />
-        </Col>
-      </Row>
+        })),
+        onClick: ({ key }) => {
+          courseRangeRef.current?.focus();
+          if (requestInFlight.current || key === selectedCourseRange) return;
+          setHasSearchedCourses(false);
+          setCourseLoadFailed(false);
+          setCoursewareLoadFailed(false);
+          setLeftSubList([]); setSelectedLeftKeys([]); setRightSubList([]); setSelectedRightKeys([]);
+          setSelectedCourseRange(key as 'my' | 'all'); if (key === 'my') updateMySubList();
+        },
+      }}>
+        <ActionButton ref={courseRangeRef} disabled={loadingConditions} className="course-range-trigger" aria-label={`智云课堂 · ${selectedCourseRange === 'my' ? '我的课程' : '全部课程'}，切换课程范围`}>
+          <span className="course-range-label"><span className="course-range-title">智云课堂</span><span className="course-range-divider" aria-hidden="true">·</span><OverflowText className="course-range-current" text={selectedCourseRange === 'my' ? '我的课程' : '全部课程'} /></span><DownOutlined />
+        </ActionButton>
+      </Dropdown>
+    </PanelHeading>
+    <div className="panel-controls">
+      {selectedCourseRange === 'my' ? <>
+        <label>日期范围<Segmented disabled={loadingConditions} block options={selectDateMethodOptions} value={selectedDateMethod} onChange={v => changeDateMethod(v as 'day' | 'week' | 'month')} /></label>
+        {selectedDateMethod === 'day' ? <RangePicker allowClear={false} value={dayRange} onChange={changeDateRange} disabled={loadingConditions} /> :
+          <DatePicker allowClear={false} value={selectedDateMethod === 'week' ? weekValue : monthValue} picker={selectedDateMethod} onChange={changeDateRange} disabled={loadingConditions} />}
+      </> : <>
+        <Input disabled={loadingConditions} aria-label="课程名称" placeholder="课程名称" value={searchCourseName} onChange={e => setSearchCourseName(e.target.value)} onPressEnter={searchCourse} />
+        <Input disabled={loadingConditions} aria-label="教师名称" placeholder="教师名称" value={searchTeacherName} onChange={e => setSearchTeacherName(e.target.value)} onPressEnter={searchCourse} />
+        <ActionButton variant="secondary" onClick={searchCourse} disabled={loadingConditions} aria-busy={loadingLeftSubList}>{loadingLeftSubList ? <ReloadOutlined spin /> : <SearchOutlined />}{loadingLeftSubList ? '正在搜索' : '搜索课程'}</ActionButton>
+      </>}
     </div>
-  )
+    {selectedCourseRange === 'all' && <div className="panel-list"><ResourceList<Subject> compact fieldFilters emptyIcon={<PlatformIcon platform="classroom" />} emptyText={hasSearchedCourses ? '未找到课程，请调整课程名称或教师后重试' : '输入课程名称或教师，搜索全部课程'} searchPlaceholder="筛选搜索结果…" title="课程" items={leftSubList} itemKey={item => item.course_id}
+      emptyContent={courseLoadFailed && !leftSubList.length ? <FetchState label="重新搜索课程" onRetry={searchCourse} /> : undefined}
+      selectedKeys={selectedLeftKeys} onSelectionChange={setSelectedLeftKeys} loading={loadingLeftSubList}
+      fields={[{ label: '课程', value: item => item.course_name }, { label: '教师', value: item => item.lecturer_name }, { label: '时间', value: item => item.sub_name }]}
+      renderItem={item => ({ title: item.course_name, titleField: '课程', subtitle: [{ text: item.lecturer_name, field: '教师' }, { text: item.sub_name, field: '时间' }] })} /></div>}
+    <div className="panel-bottom"><p>下载格式 · {toPdf ? 'PDF' : '图片'}</p><p>字幕与 AI 处理选项可在设置中调整。</p></div>
+  </>}
+    footer={<><span>已选 {selectedRightKeys.length} 个课件 <span className="muted">· {rightSubList.filter(item => selectedRightKeys.includes(item.sub_id)).reduce((sum, item) => sum + item.ppt_image_urls.length, 0)} 页</span></span>
+      <div className="footer-actions"><button className="text-button" onClick={() => setSelectedRightKeys([])} disabled={!ready || loadingRightSubList || !selectedRightKeys.length}>取消选择</button><ActionButton variant="primary" onClick={downloadSubsPPT} disabled={!ready || loadingRightSubList || !selectedRightKeys.length}><DownloadOutlined />下载所选课件</ActionButton></div></>}>
+    {!ready ? <ConfigReadState icon={<PlatformIcon platform="classroom" />} /> : <ResourceList<Subject> actions={<ActionButton variant="secondary" onClick={selectedCourseRange === 'my' ? updateMySubList : updateAllSubList} disabled={loadingConditions} aria-busy={loadingRightSubList}><ReloadOutlined spin={loadingRightSubList} />{loadingRightSubList ? '正在获取' : '获取课件'}</ActionButton>} title="课堂课件" items={rightSubList} itemKey={item => item.sub_id} selectedKeys={selectedRightKeys} onSelectionChange={setSelectedRightKeys}
+      emptyContent={coursewareLoadFailed && !rightSubList.length ? <FetchState label="重新获取课件" onRetry={selectedCourseRange === 'my' ? updateMySubList : updateAllSubList} /> : undefined}
+      loading={loadingRightSubList} fields={[{ label: '课程', value: item => item.course_name }, { label: '时间', value: item => item.sub_name }, { label: '教师', value: item => item.lecturer_name }]}
+      sorts={[{ label: '课程升序', compare: (a, b) => a.course_name.localeCompare(b.course_name) }, { label: '课程降序', compare: (a, b) => b.course_name.localeCompare(a.course_name) },
+      { label: '时间升序', compare: (a, b) => a.sub_name.localeCompare(b.sub_name) }, { label: '时间降序', compare: (a, b) => b.sub_name.localeCompare(a.sub_name) },
+      { label: '页数升序', compare: (a, b) => a.ppt_image_urls.length - b.ppt_image_urls.length }, { label: '页数降序', compare: (a, b) => b.ppt_image_urls.length - a.ppt_image_urls.length }]}
+      renderItem={item => ({ title: item.course_name, titleField: '课程', subtitle: [{ text: item.sub_name, field: '时间' }, { text: item.lecturer_name, field: '教师' }], icon: <FileTypeIcon name={item.course_name} extension={toPdf ? 'pdf' : 'png'} />, meta: `${item.ppt_image_urls.length} 页` })}
+      emptyIcon={<PlatformIcon platform="classroom" />} emptyText="当前范围内暂无课件，可调整范围后重新获取" />}
+  </Workspace>
 }

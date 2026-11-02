@@ -1,0 +1,12 @@
+/* Preserve the existing stacks while keeping their definitions in one place. */
+:root {
+  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI';
+  --font-fallback: Roboto, 'Helvetica Neue', Arial;
+  --font-body: var(--font-system), sans-serif;
+  --font-controls: var(--font-system), var(--font-fallback), sans-serif;
+  --font-text: var(--font-system), var(--font-fallback), 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-code: 'Roboto Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+}
+
+.search-match { padding: 0; border-radius: 2px; color: inherit; background: rgba(84, 120, 184, 0.18); }
+[data-theme="dark"] .search-match { background: rgba(136, 169, 224, 0.25); }

@@ -1,0 +1,27 @@
+:root[data-platform="linux"], :root[data-platform="windows"] { --chrome-height: 38px; }
+.window-chrome-custom { padding-left: calc((var(--navigation-rail-width) - var(--sidebar-toggle-size)) / 2); gap: 12px; color: var(--text); }
+.window-chrome-custom > .icon-button { width: var(--sidebar-toggle-size); height: var(--sidebar-toggle-size); flex-shrink: 0; }
+.window-controls { display: flex; align-self: stretch; flex-shrink: 0; }
+.native-window-controls-space { width: 146px; height: 100%; flex-shrink: 0; }
+.window-controls button { display: grid; place-items: center; width: 46px; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; transition: background-color 120ms, color 120ms; }
+.window-controls button:hover { background: var(--selected); }
+.window-controls button:active { background: var(--line); }
+.window-controls .window-close:hover, .window-controls .window-close:active { background: #c42b1c; color: #fff; }
+.window-controls button:focus-visible { outline-offset: -3px; }
+.window-controls svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1; }
+.window-resize-regions { position: fixed; inset: 0; pointer-events: none; z-index: 2000; }
+.window-resize-edge { position: absolute; pointer-events: auto; }
+.edge-North, .edge-South { left: 8px; right: 8px; height: 4px; cursor: ns-resize; }
+.edge-North { top: 0; } .edge-South { bottom: 0; }
+.edge-East, .edge-West { top: 8px; bottom: 8px; width: 4px; cursor: ew-resize; }
+.edge-East { right: 0; } .edge-West { left: 0; }
+.edge-NorthEast, .edge-NorthWest, .edge-SouthEast, .edge-SouthWest { width: 8px; height: 8px; }
+.edge-NorthEast { top: 0; right: 0; cursor: nesw-resize; }
+.edge-NorthWest { top: 0; left: 0; cursor: nwse-resize; }
+.edge-SouthEast { bottom: 0; right: 0; cursor: nwse-resize; }
+.edge-SouthWest { bottom: 0; left: 0; cursor: nesw-resize; }
+@media (prefers-reduced-motion: reduce) { .window-controls button { transition: none; } }
+
+:root[data-native-linux-chrome="true"] { --chrome-height: 0px; }
+
+.native-sidebar-tooltip-anchor { position: fixed; top: 0; width: 28px; height: 1px; pointer-events: none; }
