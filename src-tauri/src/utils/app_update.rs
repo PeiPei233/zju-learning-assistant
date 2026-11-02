@@ -52,6 +52,10 @@ struct Asset {
 struct Release {
     tag_name: String,
     #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+    #[serde(default)]
     body: Option<String>,
     #[serde(default)]
     assets: Vec<Asset>,
@@ -95,6 +99,15 @@ async fn get_release(source: Source, tag: Option<&str>) -> Result<Release> {
             .pop_if_empty()
             .push("latest");
     }
+    let release: Release = get_release_json(url).await?;
+    version(&release.tag_name)?;
+    if release.draft || tag.is_some_and(|tag| tag != release.tag_name) {
+        bail!("发布版本不匹配");
+    }
+    Ok(release)
+}
+
+async fn get_release_json<T: serde::de::DeserializeOwned>(url: Url) -> Result<T> {
     let mut error = anyhow!("无法获取版本信息");
     for direct in [false, true] {
         let builder = reqwest::Client::builder()
@@ -102,26 +115,62 @@ async fn get_release(source: Source, tag: Option<&str>) -> Result<Release> {
             .timeout(Duration::from_secs(12));
         let client = if direct { builder.no_proxy() } else { builder }.build()?;
         let result = async {
-            let release = client
+            client
                 .get(url.clone())
                 .send()
                 .await?
                 .error_for_status()?
-                .json::<Release>()
-                .await?;
-            version(&release.tag_name)?;
-            if tag.is_some_and(|tag| tag != release.tag_name) {
-                bail!("发布版本不匹配");
-            }
-            Ok(release)
+                .json::<T>()
+                .await
         }
         .await;
         match result {
             Ok(release) => return Ok(release),
-            Err(err) => error = err,
+            Err(err) => error = err.into(),
         }
     }
     Err(error)
+}
+
+async fn get_latest_release(source: Source, current: &Version) -> Result<Release> {
+    if current.pre.is_empty() {
+        let release = get_release(source, None).await?;
+        if release.prerelease || !version(&release.tag_name)?.pre.is_empty() {
+            bail!("暂时无法获取正式版本信息");
+        }
+        return Ok(release);
+    }
+
+    // Release lists are ordered by publication time, not semantic version.
+    let mut latest: Option<(Version, Release)> = None;
+    for page in 1.. {
+        let mut url = Url::parse(source.api().trim_end_matches('/'))?;
+        url.query_pairs_mut()
+            .append_pair("per_page", "100")
+            .append_pair("page", &page.to_string());
+        let releases: Vec<Release> = get_release_json(url).await?;
+        let count = releases.len();
+        for release in releases {
+            if release.draft {
+                continue;
+            }
+            let Ok(candidate) = version(&release.tag_name) else {
+                continue;
+            };
+            if latest
+                .as_ref()
+                .is_none_or(|(latest, _)| candidate.cmp_precedence(latest).is_gt())
+            {
+                latest = Some((candidate, release));
+            }
+        }
+        if count < 100 {
+            break;
+        }
+    }
+    latest
+        .map(|(_, release)| release)
+        .ok_or_else(|| anyhow!("暂无可用的发布版本"))
 }
 
 async fn prepare(app: &AppHandle, source: Source, release: &Release) -> Result<Update> {
@@ -181,13 +230,17 @@ pub async fn check(app: &AppHandle, state: &AppUpdateState) -> Result<Option<Ver
         .prepared
         .try_lock()
         .map_err(|_| anyhow!("更新任务正在进行中"))?;
-    let (source, release) = match get_release(Source::Github, None).await {
-        Ok(release) => (Source::Github, release),
-        Err(error) => {
-            log::warn!("GitHub update check failed: {error}");
-            (Source::Gitee, get_release(Source::Gitee, None).await?)
-        }
-    };
+    let (source, release) =
+        match get_latest_release(Source::Github, &app.package_info().version).await {
+            Ok(release) => (Source::Github, release),
+            Err(error) => {
+                log::warn!("GitHub update check failed: {error}");
+                (
+                    Source::Gitee,
+                    get_latest_release(Source::Gitee, &app.package_info().version).await?,
+                )
+            }
+        };
     if version(&release.tag_name)? <= app.package_info().version {
         *prepared = None;
         let current = format!("v{}", app.package_info().version);
