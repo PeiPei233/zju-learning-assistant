@@ -978,17 +978,32 @@ pub fn open_file_upload(handle: AppHandle, upload: Upload, folder: bool) -> Resu
     open_file(handle, path, folder)
 }
 
+fn classroom_dir_name(subject: &Subject) -> String {
+    let lecturer_name = subject.lecturer_name.trim();
+    let name = if lecturer_name.is_empty() {
+        subject.sub_name.clone()
+    } else {
+        format!("{}-{}", subject.sub_name, lecturer_name)
+    };
+    name.replace('/', "_")
+}
+
 #[tauri::command]
 pub fn open_file_ppts(handle: AppHandle, subject: Subject, folder: bool) -> Result<(), String> {
     info!(
         "open_file_ppts: {}-{} {}",
         subject.course_name, subject.sub_name, folder
     );
-    let path = Path::new(&subject.path)
-        .join(&subject.sub_name)
-        .to_str()
-        .unwrap()
-        .to_string();
+    let classroom_path = Path::new(&subject.path).join(classroom_dir_name(&subject));
+    let legacy_path = Path::new(&subject.path).join(&subject.sub_name);
+    let path = if classroom_path.exists() {
+        classroom_path
+    } else {
+        legacy_path
+    }
+    .to_str()
+    .unwrap()
+    .to_string();
     if Path::new(&path).exists() {
         let pdf_path = Path::new(&path)
             .join(format!("{}-{}.pdf", subject.course_name, subject.sub_name))
@@ -1104,8 +1119,8 @@ pub async fn start_download_ppts(
                         Ok(contents) => {
                             let contents: Vec<SubtitleContent> = contents;
                             if !contents.is_empty() {
-                                let sub_dir =
-                                    Path::new(&subject_clone.path).join(&subject_clone.sub_name);
+                                let sub_dir = Path::new(&subject_clone.path)
+                                    .join(classroom_dir_name(&subject_clone));
                                 let _ = std::fs::create_dir_all(&sub_dir);
                                 let file_stem = format!(
                                     "{}-{}",
@@ -1158,7 +1173,7 @@ pub async fn start_download_ppts(
 
             let mut count = 0;
             let total_size = subject.ppt_image_urls.len();
-            let path = Path::new(&subject.path).join(&subject.sub_name);
+            let path = Path::new(&subject.path).join(classroom_dir_name(&subject));
             let urls = subject.ppt_image_urls.clone();
 
             let image_paths = urls
